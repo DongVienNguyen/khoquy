@@ -70,7 +70,12 @@ const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
 async function callAssetFunc(body: Record<string, any>) {
   // 1) Invoke via supabase client
   try {
-    const { data, error } = await supabase.functions.invoke("asset-transactions", { body });
+    const { data, error } = await supabase.functions.invoke("asset-transactions", {
+      body,
+      headers: {
+        Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
+      },
+    });
     if (!error) {
       const payload: any = data;
       const normalized = payload && typeof payload === "object" && "data" in payload ? payload.data : payload;
@@ -345,6 +350,14 @@ export default function AssetEntryPage() {
     const notifiedAt = getUtcNowIso();
     const txDate = getYmd(formData.transaction_date);
 
+    // Chuẩn hóa loại giao dịch về dạng dùng trong DB/hệ thống
+    const normalizedType =
+      formData.transaction_type === "Xuất"
+        ? "Xuất kho"
+        : formData.transaction_type === "Mượn"
+        ? "Mượn TS"
+        : "Thay bìa";
+
     const filledAssets = multipleAssets.filter((a) => a.trim());
     const transactions = filledAssets.map((asset) => {
       const parsed = parseAssetCode(asset)!;
@@ -352,7 +365,7 @@ export default function AssetEntryPage() {
         transaction_date: txDate,
         parts_day: formData.parts_day,
         room: formData.room,
-        transaction_type: formData.transaction_type,
+        transaction_type: normalizedType,
         asset_year: parsed.asset_year,
         asset_code: parsed.asset_code,
         note: formData.note || null,
@@ -374,8 +387,9 @@ export default function AssetEntryPage() {
 
     if (!result.ok) {
       setIsLoading(false);
-      toast.error(typeof result.error === "string" ? result.error : "Không thể gửi dữ liệu.");
-      setMessage({ type: "error", text: "Có lỗi khi lưu dữ liệu! Vui lòng thử lại." });
+      const errText = typeof result.error === "string" ? result.error : "Không thể gửi dữ liệu.";
+      toast.error(errText);
+      setMessage({ type: "error", text: errText });
       return;
     }
 
