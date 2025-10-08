@@ -126,6 +126,11 @@ export default function AssetEntryPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
 
+  // Paste-from-text dialog states
+  const [isPasteDialogOpen, setIsPasteDialogOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [isParsingText, setIsParsingText] = useState(false);
+
   const [myRows, setMyRows] = useState<AssetTx[]>([]);
   const [listOpen, setListOpen] = useState<boolean>(false);
 
@@ -239,6 +244,77 @@ export default function AssetEntryPage() {
     if (!parsed) return false;
     return parsed.asset_year >= 20 && parsed.asset_year <= 99;
   }, [validateAssetFormat, parseAssetCode]);
+
+  // Extract asset codes and room from arbitrary text
+  const extractCodesFromText = useCallback((rawText: string) => {
+    const results = new Set<string>();
+    let detectedRoom = "";
+
+    const compact = (rawText || "").replace(/\s+/g, "");
+
+    // Pattern 1: Short form like "259.24" or "259,24"
+    const shortMatches = Array.from((rawText || "").matchAll(/\b(\d{1,4})[.,](\d{2})\b/g));
+    for (const m of shortMatches) {
+      const code = parseInt(m[1] || "", 10);
+      const year = (m[2] || "").trim();
+      const formatted = `${code}.${year}`;
+      if (isAssetValid(formatted)) results.add(formatted);
+    }
+
+    // Pattern 2: Long sequences like "0424..." or "0423..." (OCR results)
+    const longMatches = Array.from(compact.matchAll(/(0424\d{6,}|0423\d{6,})/g));
+    for (const mm of longMatches) {
+      const match = mm[1];
+      if (!match || match.length < 10) continue;
+      const prefix7 = match.substring(0, 7);
+      const prefix6 = match.substring(0, 6);
+      let room = "";
+      if (prefix7 === "0424201") room = "CMT8";
+      else if (prefix7 === "0424202") room = "NS";
+      else if (prefix7 === "0424203") room = "ĐS";
+      else if (prefix7 === "0424204") room = "LĐH";
+      else if (prefix6 === "042300") room = "DVKH";
+      else if (prefix6 === "042410") room = "QLN";
+
+      if (room && (!detectedRoom || detectedRoom === room)) {
+        detectedRoom = room;
+        const year = match.slice(-10, -8);
+        const code = parseInt(match.slice(-4), 10);
+        const formatted = `${code}.${year}`;
+        if (isAssetValid(formatted)) results.add(formatted);
+      }
+    }
+
+    return { codes: Array.from(results), detectedRoom };
+  }, [isAssetValid]);
+
+  const handleParseFromText = useCallback(() => {
+    setIsParsingText(true);
+    const { codes, detectedRoom } = extractCodesFromText(pasteText);
+    if (codes.length === 0) {
+      setIsParsingText(false);
+      toast.error("Không tìm thấy mã tài sản hợp lệ trong văn bản.");
+      return;
+    }
+    if (detectedRoom) {
+      setFormData((prev) => ({
+        ...prev,
+        room: detectedRoom,
+        note: detectedRoom === "QLN" ? "" : "Ship PGD",
+        parts_day: getDefaultPartsDay(detectedRoom),
+      }));
+    }
+    setMultipleAssets((prev) => {
+      const existing = prev.filter((a) => a.trim());
+      const merged = Array.from(new Set([...existing, ...codes]));
+      return merged.length > 0 ? merged : [""];
+    });
+    setIsParsingText(false);
+    setPasteText("");
+    setIsPasteDialogOpen(false);
+    setMessage({ type: "success", text: `Đã điền ${codes.length} mã tài sản từ văn bản.` });
+    toast.success("Đã trích mã từ văn bản");
+  }, [pasteText, extractCodesFromText, getDefaultPartsDay]);
 
   const handleAssetChange = useCallback((index: number, value: string) => {
     const newAssets = [...multipleAssets];
@@ -617,6 +693,35 @@ export default function AssetEntryPage() {
                           </div>
                         </div>
                       )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Paste from text dialog */}
+                <Dialog open={isPasteDialogOpen} onOpenChange={setIsPasteDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1 ml-1">
+                      <Edit3 className="w-5 h-5" />
+                      <span className="text-sm font-semibold">Text</span>
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>Dán văn bản chứa mã tài sản</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                      <Textarea
+                        rows={6}
+                        placeholder="Dán ở đây: ví dụ 259.24, 318.23 hoặc dãy 0424102470200259..."
+                        value={pasteText}
+                        onChange={(e) => setPasteText(e.target.value)}
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setIsPasteDialogOpen(false)}>Đóng</Button>
+                        <Button onClick={handleParseFromText} disabled={isParsingText} className="bg-green-600 hover:bg-green-700">
+                          {isParsingText ? "Đang phân tích..." : "Trích mã & Gộp"}
+                        </Button>
+                      </div>
                     </div>
                   </DialogContent>
                 </Dialog>
