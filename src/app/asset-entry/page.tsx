@@ -439,7 +439,11 @@ export default function AssetEntryPage() {
 
       const uniqueCodes = Array.from(new Set(allCodes));
       if (detectedRoom) handleRoomChange(detectedRoom);
-      setMultipleAssets(new Array(Math.max(uniqueCodes.length, 1)).fill("").map((_, i) => uniqueCodes[i] || ""));
+      setMultipleAssets((prev) => {
+        const existing = prev.filter((a) => a.trim());
+        const merged = Array.from(new Set([...existing, ...uniqueCodes]));
+        return merged.length > 0 ? merged : [""];
+      });
       setIsImageDialogOpen(false);
       setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.` });
       setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
