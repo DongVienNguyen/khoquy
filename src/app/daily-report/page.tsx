@@ -180,14 +180,7 @@ export default function DailyReportPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<any>({});
 
-  const [autoRefresh, setAutoRefresh] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem("autoRefreshEnabled");
-      return saved !== null ? JSON.parse(saved) : true;
-    } catch {
-      return true;
-    }
-  });
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
   const autoRefreshRef = useRef<any>(null);
   const hasInitializedFilter = useRef(false);
@@ -205,6 +198,14 @@ export default function DailyReportPage() {
   const canManageDailyReport = useMemo(() => currentStaff?.department === "NQ", [currentStaff]);
   const canSeeTakenColumn = useMemo(() => currentStaff?.department === "NQ", [currentStaff]);
   const isAdmin = useMemo(() => currentStaff?.role === "admin", [currentStaff]);
+
+  // Nạp giá trị autoRefresh từ localStorage sau khi mount để tránh lệch trạng thái khi hydrate
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("autoRefreshEnabled");
+      if (saved !== null) setAutoRefresh(JSON.parse(saved));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("autoRefreshEnabled", JSON.stringify(autoRefresh));
@@ -776,7 +777,7 @@ export default function DailyReportPage() {
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Danh sách TS cần lấy</h1>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600 mt-1">
-                <span>{todayText}</span>
+                <span suppressHydrationWarning>{todayText}</span>
                 {lastRefreshTime && (
                   <span className="text-xs text-green-600 font-medium">Cập nhật: {format(lastRefreshTime, "HH:mm:ss")}</span>
                 )}
@@ -821,23 +822,33 @@ export default function DailyReportPage() {
               <RadioGroup value={filterType} onValueChange={setFilterType} className="mb-4 space-y-2">
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="morning" id="morning-range" />
-                  <Label htmlFor="morning-range" className="font-normal cursor-pointer">Sáng ngày ({morningDateFormatted})</Label>
+                  <Label htmlFor="morning-range" className="font-normal cursor-pointer">
+                    Sáng ngày (<span suppressHydrationWarning>{morningDateFormatted}</span>)
+                  </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="qln_pgd_next_day" id="qln_pgd_next_day-range" />
-                  <Label htmlFor="qln_pgd_next_day-range" className="font-normal cursor-pointer">QLN Sáng & PGD trong ngày ({qlnPgdDateFormatted})</Label>
+                  <Label htmlFor="qln_pgd_next_day-range" className="font-normal cursor-pointer">
+                    QLN Sáng & PGD trong ngày (<span suppressHydrationWarning>{qlnPgdDateFormatted}</span>)
+                  </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="afternoon" id="afternoon-range" />
-                  <Label htmlFor="afternoon-range" className="font-normal cursor-pointer">Chiều ngày ({todayFormatted})</Label>
+                  <Label htmlFor="afternoon-range" className="font-normal cursor-pointer">
+                    Chiều ngày (<span suppressHydrationWarning>{todayFormatted}</span>)
+                  </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="today" id="today-range" />
-                  <Label htmlFor="today-range" className="font-normal cursor-pointer">Trong ngày hôm nay ({todayFormatted})</Label>
+                  <Label htmlFor="today-range" className="font-normal cursor-pointer">
+                    Trong ngày hôm nay (<span suppressHydrationWarning>{todayFormatted}</span>)
+                  </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="next_day" id="next_day-range" />
-                  <Label htmlFor="next_day-range" className="font-normal cursor-pointer">Trong ngày kế tiếp ({nextWorkingDayFormatted})</Label>
+                  <Label htmlFor="next_day-range" className="font-normal cursor-pointer">
+                    Trong ngày kế tiếp (<span suppressHydrationWarning>{nextWorkingDayFormatted}</span>)
+                  </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="custom" id="custom-range" />
@@ -909,7 +920,7 @@ export default function DailyReportPage() {
             <Card className="border-0 shadow-xl shadow-slate-100/50" id="main-content-section">
               <CardHeader className="bg-gradient-to-r from-slate-50 to-purple-50 border-b border-slate-200">
                 <CardTitle className="text-lg font-semibold text-slate-800 flex justify-between items-center">
-                  <span>{headerDateDisplay}</span>
+                  <span suppressHydrationWarning>{headerDateDisplay}</span>
                   {canManageDailyReport && (
                     <Dialog open={isNotesDialogOpen} onOpenChange={setIsNotesDialogOpen}>
                       <DialogTrigger asChild>
@@ -1016,7 +1027,7 @@ export default function DailyReportPage() {
           <Card className="border-0 shadow-xl shadow-slate-100/50">
             <CardHeader className="bg-gradient-to-r from-slate-50 to-blue-50 border-b border-slate-200">
               <CardTitle className="text-lg font-semibold text-slate-800">Danh sách tài sản cần lấy ({filteredTransactions.length} bản ghi)</CardTitle>
-              <CardDescription>{headerDateDisplay}</CardDescription>
+              <CardDescription><span suppressHydrationWarning>{headerDateDisplay}</span></CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
