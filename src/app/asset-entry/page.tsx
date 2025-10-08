@@ -596,12 +596,58 @@ export default function AssetEntryPage() {
             </div>
 
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
+              </Label>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                  <div className="flex items-center gap-1">
+                    <Checkbox
+                      id="session-sang"
+                      checked={formData.parts_day === "Sáng"}
+                      onCheckedChange={(v: CheckedState) =>
+                        setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
+                      }
+                    />
+                    <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
+                  </div>
+                </div>
+                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                  <div className="flex items-center gap-1">
+                    <Checkbox
+                      id="session-chieu"
+                      checked={formData.parts_day === "Chiều"}
+                      onCheckedChange={(v: CheckedState) =>
+                        setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
+                      }
+                    />
+                    <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
+                  </div>
+                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-10 w-full justify-start">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : <span>Chọn ngày</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[calc(100vw-2rem)] sm:w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={formData.transaction_date || undefined}
+                      onSelect={(date) => date && setFormData((p) => ({ ...p, transaction_date: date }))}
+                      disabled={(date) => !!date && date < minDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">
-                    Nhập [Mã TS] . [Năm TS]:
-                  </Label>
+                  <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
                   <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
                     <DialogTrigger asChild>
                       <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
@@ -682,7 +728,6 @@ export default function AssetEntryPage() {
             </div>
 
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Loại tác nghiệp Xuất/Mượn/Khác</Label>
               <div className="grid grid-cols-3 gap-2">
                 <div className="flex items-center gap-1 justify-center">
                   <Checkbox
@@ -708,54 +753,6 @@ export default function AssetEntryPage() {
                   />
                   <Label htmlFor="type-khac" className="text-sm">Khác</Label>
                 </div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
-              </Label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="flex items-center justify-between h-10 px-2 border rounded-md">
-                  <div className="flex items-center gap-1">
-                    <Checkbox
-                      id="session-sang"
-                      checked={formData.parts_day === "Sáng"}
-                      onCheckedChange={(v: CheckedState) =>
-                        setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
-                      }
-                    />
-                    <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Checkbox
-                      id="session-chieu"
-                      checked={formData.parts_day === "Chiều"}
-                      onCheckedChange={(v: CheckedState) =>
-                        setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
-                      }
-                    />
-                    <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
-                  </div>
-                </div>
-
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="h-10 w-full justify-start">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : <span>Chọn ngày</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[calc(100vw-2rem)] sm:w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={formData.transaction_date || undefined}
-                      onSelect={(date) => date && setFormData((p) => ({ ...p, transaction_date: date }))}
-                      disabled={(date) => !!date && date < minDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
               </div>
             </div>
 
