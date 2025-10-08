@@ -148,6 +148,7 @@ const MyTodaySubmissions: React.FC = () => {
 
   const removeTransaction = React.useCallback(
     async (id: string) => {
+      if (!confirm("Bạn có chắc chắn muốn xóa (mềm) giao dịch này?")) return;
       const res = await callAssetFunc({
         action: "soft_delete",
         id,
