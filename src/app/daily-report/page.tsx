@@ -17,6 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { FileText, Download, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, ChevronRight, Plus, CheckCircle, Edit, Trash2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { SonnerToaster } from "@/components/ui/sonner";
 
 type SafeStaff = {
   id: string;
@@ -615,6 +617,17 @@ export default function DailyReportPage() {
     return filteredTransactions.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   }, [filteredTransactions, currentPage]);
 
+  const formatGmt7TimeNhan = useCallback((iso?: string | null) => {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    const g = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+    const hh = String(g.getUTCHours()).padStart(2, "0");
+    const mm = String(g.getUTCMinutes()).padStart(2, "0");
+    const dd = String(g.getUTCDate()).padStart(2, "0");
+    const mo = String(g.getUTCMonth() + 1).padStart(2, "0");
+    return `${hh}:${mm} - ${dd}/${mo}`;
+  }, []);
+
   const handleToggleTakenStatus = useCallback(async (transactionId: string) => {
     if (currentStaff?.department !== "NQ") return;
     const res = await callFunc({
@@ -636,7 +649,7 @@ export default function DailyReportPage() {
   const handleEditTransaction = useCallback((t: AssetTx) => {
     const allowed = t.is_deleted ? isAdmin : canActOnTransaction(t);
     if (!allowed) {
-      alert("Bạn không có quyền chỉnh sửa mục này hoặc đang trong thời gian bị khóa.");
+      toast.error("Bạn không có quyền chỉnh sửa mục này hoặc đang trong thời gian bị khóa.");
       return;
     }
     setEditingTransaction(t);
@@ -656,7 +669,7 @@ export default function DailyReportPage() {
     if (!editingTransaction) return;
     const allowed = editingTransaction.is_deleted ? isAdmin : canActOnTransaction(editingTransaction);
     if (!allowed) {
-      alert("Bạn không có quyền cập nhật mục này hoặc đang trong thời gian bị khóa.");
+      toast.error("Bạn không có quyền cập nhật mục này hoặc đang trong thời gian bị khóa.");
       return;
     }
     const res = await callFunc({
@@ -666,12 +679,12 @@ export default function DailyReportPage() {
       editor_username: currentStaff?.username || "unknown",
     });
     if (!res.ok) {
-      alert("Lỗi khi cập nhật giao dịch. Vui lòng thử lại.");
+      toast.error("Lỗi khi cập nhật giao dịch. Vui lòng thử lại.");
       return;
     }
     setIsEditDialogOpen(false);
     setEditingTransaction(null);
-    alert("Cập nhật giao dịch thành công!");
+    toast.success("Cập nhật giao dịch thành công!");
     loadAllTransactions(false);
   }, [editingTransaction, editFormData, currentStaff?.username, isAdmin, canActOnTransaction, loadAllTransactions]);
 
@@ -680,31 +693,31 @@ export default function DailyReportPage() {
     if (!t) return;
     const allowed = t.is_deleted ? isAdmin : canActOnTransaction(t);
     if (!allowed) {
-      alert("Bạn không có quyền xóa mục này hoặc đang trong thời gian bị khóa.");
+      toast.error("Bạn không có quyền xóa mục này hoặc đang trong thời gian bị khóa.");
       return;
     }
     if (!confirm(t.is_deleted ? "Xóa vĩnh viễn bản ghi này?" : "Bạn có chắc chắn muốn xóa (mềm) giao dịch này?")) return;
     if (t.is_deleted && isAdmin) {
       const res = await callFunc({ action: "hard_delete_transaction", id: transactionId });
       if (!res.ok) {
-        alert("Lỗi khi xóa giao dịch. Vui lòng thử lại.");
+        toast.error("Lỗi khi xóa giao dịch. Vui lòng thử lại.");
         return;
       }
     } else {
       const res = await callFunc({ action: "soft_delete", id: transactionId, deleted_by: currentStaff?.username || "unknown" });
       if (!res.ok) {
-        alert("Lỗi khi xóa giao dịch. Vui lòng thử lại.");
+        toast.error("Lỗi khi xóa giao dịch. Vui lòng thử lại.");
         return;
       }
     }
-    alert("Thao tác xóa thành công!");
+    toast.success("Thao tác xóa thành công!");
     loadAllTransactions(false);
   }, [allTransactions, currentStaff?.username, isAdmin, canActOnTransaction, loadAllTransactions]);
 
   const handleNoteSubmit = useCallback(async () => {
     if (!canManageDailyReport) return;
     if (!noteFormData.content.trim()) {
-      alert("Vui lòng nhập nội dung ghi chú.");
+      toast.error("Vui lòng nhập nội dung ghi chú.");
       return;
     }
     const res = await callFunc({
@@ -719,9 +732,10 @@ export default function DailyReportPage() {
       },
     });
     if (!res.ok) {
-      alert("Lỗi khi tạo ghi chú.");
+      toast.error("Lỗi khi tạo ghi chú.");
       return;
     }
+    toast.success("Đã tạo ghi chú");
     setNoteFormData({ room: "", operation_type: "", content: "", mail_to_nv: "" });
     setIsNotesDialogOpen(false);
     loadProcessedNotes();
@@ -742,9 +756,10 @@ export default function DailyReportPage() {
       patch: { room: editNoteFormData.room, operation_type: editNoteFormData.operation_type, content: editNoteFormData.content },
     });
     if (!res.ok) {
-      alert("Lỗi khi cập nhật ghi chú.");
+      toast.error("Lỗi khi cập nhật ghi chú.");
       return;
     }
+    toast.success("Đã cập nhật ghi chú");
     setIsEditNoteDialogOpen(false);
     setEditingNote(null);
     loadProcessedNotes();
@@ -755,9 +770,10 @@ export default function DailyReportPage() {
     if (!confirm("Bạn có chắc chắn muốn xóa ghi chú này?")) return;
     const res = await callFunc({ action: "delete_note", id: noteId });
     if (!res.ok) {
-      alert("Lỗi khi xóa ghi chú.");
+      toast.error("Lỗi khi xóa ghi chú.");
       return;
     }
+    toast.success("Đã xóa ghi chú");
     loadProcessedNotes();
   }, [canManageDailyReport, loadProcessedNotes]);
 
@@ -765,9 +781,10 @@ export default function DailyReportPage() {
     if (!canManageDailyReport) return;
     const res = await callFunc({ action: "mark_note_done", id: noteId });
     if (!res.ok) {
-      alert("Lỗi khi đánh dấu ghi chú đã xong.");
+      toast.error("Lỗi khi đánh dấu ghi chú đã xong.");
       return;
     }
+    toast.success("Đã đánh dấu ghi chú đã xử lý");
     loadProcessedNotes();
   }, [canManageDailyReport, loadProcessedNotes]);
 
@@ -787,6 +804,7 @@ export default function DailyReportPage() {
 
   return (
     <div className="p-4 md:p-8">
+      <SonnerToaster />
       <style>{`
         @media print {
           body * { visibility: hidden; }
@@ -1071,6 +1089,7 @@ export default function DailyReportPage() {
                       <TableHead>Buổi</TableHead>
                       <TableHead>Ghi chú</TableHead>
                       <TableHead>CB</TableHead>
+                      <TableHead>Time nhắn</TableHead>
                       <TableHead>Thao tác</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1090,6 +1109,7 @@ export default function DailyReportPage() {
                         <TableCell>{t.parts_day}</TableCell>
                         <TableCell>{t.note || "-"}</TableCell>
                         <TableCell>{t.staff_code}</TableCell>
+                        <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50" title="Chỉnh sửa" onClick={() => handleEditTransaction(t)}>
@@ -1103,7 +1123,7 @@ export default function DailyReportPage() {
                       </TableRow>
                     ))}
                     {paginatedTransactions.length === 0 && (
-                      <TableRow><TableCell colSpan={canSeeTakenColumn ? 10 : 9} className="text-center h-20">Không có dữ liệu.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="text-center h-20">Không có dữ liệu.</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -1130,6 +1150,7 @@ export default function DailyReportPage() {
                         <TableHead>Buổi</TableHead>
                         <TableHead>Ghi chú</TableHead>
                         <TableHead>CB</TableHead>
+                        <TableHead>Time nhắn</TableHead>
                         <TableHead>Thao tác</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1144,6 +1165,7 @@ export default function DailyReportPage() {
                           <TableCell>{t.parts_day}</TableCell>
                           <TableCell>{t.note || "-"}</TableCell>
                           <TableCell>{t.staff_code}</TableCell>
+                          <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50" title="Chỉnh sửa" onClick={() => handleEditTransaction(t)} disabled={!isAdmin}>

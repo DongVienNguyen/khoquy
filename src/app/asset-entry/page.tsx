@@ -392,7 +392,18 @@ export default function AssetEntryPage() {
       toast.error(typeof res.error === "string" ? res.error : "Không thể tải danh sách hôm nay");
       return;
     }
-    setMyRows((res.data as AssetTx[]) || []);
+    const rows = (res.data as AssetTx[]) || [];
+    // Filter về đúng 'hôm nay theo GMT+7' bằng notified_at
+    const now = new Date();
+    const gmt7Now = new Date(now.getTime() + 7 * 3600 * 1000);
+    const todayStr = `${gmt7Now.getUTCFullYear()}-${String(gmt7Now.getUTCMonth() + 1).padStart(2, "0")}-${String(gmt7Now.getUTCDate()).padStart(2, "0")}`;
+    const todayOnly = rows.filter((t) => {
+      const dt = new Date(t.notified_at);
+      const gmt7 = new Date(dt.getTime() + 7 * 3600 * 1000);
+      const ymd = `${gmt7.getUTCFullYear()}-${String(gmt7.getUTCMonth() + 1).padStart(2, "0")}-${String(gmt7.getUTCDate()).padStart(2, "0")}`;
+      return ymd === todayStr;
+    });
+    setMyRows(todayOnly);
   }, [currentStaff]);
 
   useEffect(() => {

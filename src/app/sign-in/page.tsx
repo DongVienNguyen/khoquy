@@ -152,7 +152,8 @@ export default function SignInPage() {
         const staff: SafeStaff = payload.data;
         localStorage.setItem("loggedInStaff", JSON.stringify(staff));
         toast.success("Đăng nhập thành công");
-        router.replace("/asset-entry");
+        const target = staff?.department === "NQ" ? "/daily-report" : "/asset-entry";
+        router.replace(target);
       } else {
         const msg: string = payload?.error || "Tên đăng nhập hoặc mật khẩu không đúng";
         setError(msg);
