@@ -22,7 +22,11 @@ export async function UploadFile({ file }: UploadFileParams): Promise<UploadFile
 export async function ExtractDataFromUploadedFile({ file_url }: ExtractParams): Promise<ExtractResult> {
   const blob = uploadedFilesMap.get(file_url);
   try {
-    const { data } = await Tesseract.recognize(blob ?? file_url, "eng");
+    const ocrOptions = {
+      tessedit_char_whitelist: "0123456789",
+      preserve_interword_spaces: "1",
+    } as any;
+    const { data } = await Tesseract.recognize(blob ?? file_url, "eng", ocrOptions);
     const text_content = (data?.text || "").toString();
     return { status: "success", output: { text_content } };
   } catch (e: any) {

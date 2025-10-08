@@ -403,7 +403,11 @@ export default function AssetEntryPage() {
         });
 
         if (result.status === "success" && result.output?.text_content) {
-          const matches = result.output.text_content.match(/(0424\d+|0423\d+)/g) || [];
+          const rawText = result.output.text_content || "";
+          const compactText = rawText.replace(/\s+/g, "");
+          const matchesRaw = rawText.match(/(0424\d+|0423\d+)/g) || [];
+          const matchesCompact = compactText.match(/(0424\d+|0423\d+)/g) || [];
+          const matches = Array.from(new Set([...matchesRaw, ...matchesCompact]));
           for (const match of matches) {
             if (match.length >= 10) {
               const prefix7 = match.substring(0, 7);
@@ -766,7 +770,7 @@ export default function AssetEntryPage() {
         </div>
 
         <input id="file-input" type="file" accept="image/*" multiple onChange={handleFileUpload} className="hidden" />
-        <input id="camera-input" type="file" accept="image/*" capture="environment" onChange={handleFileUpload} className="hidden" />
+        <input id="camera-input" type="file" accept="image/*" multiple capture="environment" onChange={handleFileUpload} className="hidden" />
 
         {/* Mobile sticky actions */}
         {(!isRestrictedTime || currentStaff?.role === "admin") ? (
