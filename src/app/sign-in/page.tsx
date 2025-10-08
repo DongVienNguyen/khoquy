@@ -26,9 +26,19 @@ const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/staff-login`;
 
 // Thêm helper gọi function với fallback
 async function callStaffLogin(body: Record<string, any>) {
+  // 1) Thử invoke qua client
   try {
-    // Gọi trực tiếp Edge Function với apikey/authorization
-    const res = await fetch(`${SUPABASE_PUBLIC_URL}/functions/v1/staff-login`, {
+    const { data, error } = await supabase.functions.invoke("staff-login", { body });
+    if (!error) {
+      return { ok: true, data };
+    }
+  } catch {
+    // bỏ qua để fallback
+  }
+
+  // 2) Fallback: fetch trực tiếp
+  try {
+    const res = await fetch(FUNCTION_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -42,11 +52,9 @@ async function callStaffLogin(body: Record<string, any>) {
     if (res.ok && json) {
       return { ok: true, data: json };
     }
-    // Trả về thông báo rõ ràng khi function phản hồi lỗi
-    return { ok: false, error: json?.error || `Máy chủ phản hồi lỗi (HTTP ${res.status})` };
+    return { ok: false, error: json?.error || `HTTP ${res.status}` };
   } catch (err: any) {
-    // Thân thiện hơn thay vì chuỗi "Failed to fetch"
-    return { ok: false, error: "Dịch vụ đăng nhập chưa sẵn sàng. Vui lòng thử lại sau ít phút." };
+    return { ok: false, error: err?.message || "Failed to fetch" };
   }
 }
 

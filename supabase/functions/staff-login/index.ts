@@ -35,7 +35,6 @@ type Staff = {
 }
 
 async function findStaff(username: string): Promise<Staff | null> {
-  // Case-insensitive match
   const { data, error } = await supabase
     .from("staff")
     .select("*")
@@ -56,7 +55,6 @@ async function updateStaff(id: string, patch: Partial<Staff>): Promise<void> {
 async function ensureAdmin(): Promise<{ created: boolean }> {
   const existing = await findStaff("admin")
   if (existing) {
-    // Đảm bảo thông tin cơ bản đúng, không đổi mật khẩu nếu đã khác
     await updateStaff(existing.id, {
       role: "admin",
       department: existing.department ?? "NQ",
@@ -87,9 +85,10 @@ async function ensureAdmin(): Promise<{ created: boolean }> {
   return { created: true }
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders })
+    // Trả về 200 OK cho preflight
+    return new Response("ok", { headers: corsHeaders })
   }
 
   try {
