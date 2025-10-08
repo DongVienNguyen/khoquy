@@ -1,92 +1,237 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { supabase } from "@/lib/supabase/client";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { SonnerToaster } from "@/components/ui/sonner";
-import { LogIn, Mail, Lock } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Package, User as UserIcon, Lock as LockIcon, AlertCircle } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-const schema = z.object({
-  email: z.string().email("Email không hợp lệ"),
-  password: z.string().min(6, "Mật khẩu tối thiểu 6 ký tự"),
-});
+type SafeStaff = {
+  id: string;
+  username: string;
+  staff_name: string;
+  email: string | null;
+  role: "admin" | "user";
+  department: string | null;
+  account_status: "active" | "locked";
+};
 
-type FormValues = z.infer<typeof schema>;
+const FUNCTION_URL = "https://aytwkszqdnylsbufksmf.supabase.co/functions/v1/staff-login";
 
 export default function SignInPage() {
   const router = useRouter();
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({ resolver: zodResolver(schema) });
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAccountLocked, setIsAccountLocked] = useState(false);
+  const [showForm, setShowForm] = useState(true);
+  const checkTimer = useRef<number | null>(null);
 
+  // Seed admin account once
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        router.replace("/asset-entry");
-      }
-    });
-  }, [router]);
+    const runSeed = async () => {
+      await fetch(FUNCTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "ensure-admin" }),
+      }).catch(() => {});
+    };
+    runSeed();
+  }, []);
 
-  const onSubmit = async (values: FormValues) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: values.email,
-      password: values.password,
-    });
-    if (error) {
-      toast.error(error.message || "Đăng nhập thất bại");
+  // Debounced check account status when username changes
+  useEffect(() => {
+    if (checkTimer.current) {
+      window.clearTimeout(checkTimer.current);
+      checkTimer.current = null;
+    }
+    if (!username.trim()) {
+      setIsAccountLocked(false);
+      setShowForm(true);
+      setError("");
       return;
     }
-    if (data.session) {
-      toast.success("Đăng nhập thành công");
-      router.push("/asset-entry");
+    checkTimer.current = window.setTimeout(async () => {
+      try {
+        const res = await fetch(FUNCTION_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "check", username: username.trim() }),
+        });
+        const json = await res.json();
+        if (json?.ok) {
+          const locked = Boolean(json?.data?.locked);
+          setIsAccountLocked(locked);
+          setShowForm(!locked);
+          setError(locked ? "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị." : "");
+        } else {
+          setIsAccountLocked(false);
+          setShowForm(true);
+          setError("");
+        }
+      } catch {
+        // Không che lỗi, để người dùng thử lại
+      }
+    }, 500);
+    return () => {
+      if (checkTimer.current) {
+        window.clearTimeout(checkTimer.current);
+        checkTimer.current = null;
+      }
+    };
+  }, [username]);
+
+  const canSubmit = useMemo(() => {
+    return !!username.trim() && !!password;
+  }, [username, password]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (isAccountLocked) {
+      setShowForm(false);
+      setError("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị.");
+      return;
+    }
+    if (!canSubmit) return;
+
+    setIsLoading(true);
+    try {
+      const res = await fetch(FUNCTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "login",
+          username: username.trim(),
+          password,
+        }),
+      });
+      const json = await res.json();
+      if (json?.ok) {
+        const staff: SafeStaff = json.data;
+        localStorage.setItem("loggedInStaff", JSON.stringify(staff));
+        toast.success("Đăng nhập thành công");
+
+        // Điều hướng theo TS.md:
+        // Nếu phòng 'NQ' -> DailyReport, ngược lại -> AssetEntry
+        const target = staff.department === "NQ" ? "/daily-report" : "/asset-entry";
+        router.replace(target);
+      } else {
+        const msg: string = json?.error || "Tên đăng nhập hoặc mật khẩu không đúng";
+        setError(msg);
+        if (json?.locked) {
+          setIsAccountLocked(true);
+          setShowForm(false);
+        }
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  const tryOtherAccount = () => {
+    setUsername("");
+    setPassword("");
+    setError("");
+    setIsAccountLocked(false);
+    setShowForm(true);
+  };
+
   return (
-    <div className="min-h-[80vh] w-full flex items-center justify-center">
+    <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-b from-muted/40 to-background p-6">
       <SonnerToaster />
-      <div className="w-full max-w-md rounded-lg border bg-card shadow-sm p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <LogIn className="text-primary" />
-          <h1 className="text-xl font-semibold">Đăng nhập</h1>
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="flex flex-col items-center mb-6">
+          <div className="h-14 w-14 rounded-2xl bg-blue-600 text-white grid place-items-center shadow-lg">
+            <Package size={28} />
+          </div>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight">Đăng nhập</h1>
+          <p className="mt-1 text-muted-foreground">
+            Truy cập hệ thống quản lý tài sản kho
+          </p>
         </div>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <div className="flex items-center gap-2 rounded-md border bg-background px-3">
-              <Mail className="text-muted-foreground" size={18} />
-              <input
-                type="email"
-                placeholder="you@example.com"
-                className="w-full h-10 bg-transparent outline-none"
-                {...register("email")}
-              />
-            </div>
-            {errors.email && <p className="text-red-600 text-sm mt-1">{errors.email.message}</p>}
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Mật khẩu</label>
-            <div className="flex items-center gap-2 rounded-md border bg-background px-3">
-              <Lock className="text-muted-foreground" size={18} />
-              <input
-                type="password"
-                placeholder="••••••••"
-                className="w-full h-10 bg-transparent outline-none"
-                {...register("password")}
-              />
-            </div>
-            {errors.password && <p className="text-red-600 text-sm mt-1">{errors.password.message}</p>}
-          </div>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full h-10 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition"
-          >
-            {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
-          </button>
-        </form>
+
+        {/* Card: Thông tin đăng nhập */}
+        <Card className="border-0 shadow-2xl">
+          <CardContent className="pt-6">
+            <h2 className="text-center font-semibold mb-4">Thông tin đăng nhập</h2>
+
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Lỗi</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {showForm ? (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Tên đăng nhập</label>
+                  <div className="flex items-center gap-2 rounded-md border bg-background px-3">
+                    <UserIcon className="text-muted-foreground" size={18} />
+                    <Input
+                      type="text"
+                      placeholder="Nhập tên đăng nhập"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="h-10 border-0 shadow-none focus-visible:ring-0"
+                      autoComplete="username"
+                      autoCorrect="off"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Mật khẩu</label>
+                  <div className="flex items-center gap-2 rounded-md border bg-background px-3">
+                    <LockIcon className="text-muted-foreground" size={18} />
+                    <Input
+                      type="password"
+                      placeholder="Nhập mật khẩu"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="h-10 border-0 shadow-none focus-visible:ring-0"
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <div className="mt-2 text-right">
+                    <a href="/reset-password" className="text-sm text-blue-600 hover:underline">
+                      Reset mật khẩu
+                    </a>
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={!canSubmit || isLoading || isAccountLocked}
+                  className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {isLoading ? "Đang đăng nhập..." : "Đăng nhập"}
+                </Button>
+              </form>
+            ) : (
+              <div className="space-y-3">
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Tài khoản bị khóa</AlertTitle>
+                  <AlertDescription>
+                    Vui lòng liên hệ quản trị viên để mở khóa hoặc thử tài khoản khác.
+                  </AlertDescription>
+                </Alert>
+                <Button variant="outline" className="w-full" onClick={tryOtherAccount}>
+                  Thử tài khoản khác
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
