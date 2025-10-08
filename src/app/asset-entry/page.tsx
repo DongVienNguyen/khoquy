@@ -7,11 +7,13 @@ import { toast } from "sonner";
 import { SonnerToaster } from "@/components/ui/sonner";
 import { 
   Package, Building2 as Building, Camera, Upload, CheckCircle, AlertCircle, 
-  Plus, Minus, ChevronDown, ChevronUp, CalendarDays as CalendarIcon, RefreshCcw, Edit3, Trash2, Loader2 
+  Plus, Minus, ChevronDown, ChevronUp, CalendarDays as CalendarIcon, RefreshCcw, Edit3, Trash2, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import type { CheckedState } from "@radix-ui/react-checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -49,7 +51,6 @@ type AssetTx = {
 };
 
 const ROOMS = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"] as const;
-const OPS = ["Xuất kho", "Mượn TS", "Thay bìa"] as const;
 const SESSIONS = ["Sáng", "Chiều"] as const;
 
 function getLoggedInStaff(): SafeStaff | null {
@@ -106,13 +107,13 @@ export default function AssetEntryPage() {
     transaction_date: Date | null;
     parts_day: "" | "Sáng" | "Chiều";
     room: string;
-    transaction_type: "" | "Xuất kho" | "Mượn TS" | "Thay bìa";
+    transaction_type: "" | "Xuất" | "Mượn" | "Khác";
     note: string;
   }>({
     transaction_date: null,
     parts_day: "",
     room: "",
-    transaction_type: "",
+    transaction_type: "Khác",
     note: "Ship PGD",
   });
 
@@ -148,7 +149,7 @@ export default function AssetEntryPage() {
     transaction_date: Date;
     parts_day: "" | "Sáng" | "Chiều";
     room: string;
-    transaction_type: "" | "Xuất kho" | "Mượn TS" | "Thay bìa";
+    transaction_type: "" | "Xuất" | "Mượn" | "Khác";
     note: string;
   } => {
     const now = new Date();
@@ -173,7 +174,7 @@ export default function AssetEntryPage() {
       transaction_date: defaultDate,
       parts_day: getDefaultPartsDay(defaultRoom),
       room: defaultRoom,
-      transaction_type: "",
+      transaction_type: "Khác",
       note: defaultRoom === "QLN" ? "" : "Ship PGD",
     };
   }, [getDefaultPartsDay]);
@@ -242,7 +243,7 @@ export default function AssetEntryPage() {
 
   const handleAssetChange = useCallback((index: number, value: string) => {
     const newAssets = [...multipleAssets];
-    const normalized = String(value).replace(/,/g, ".");
+    const normalized = String(value).replace(/[,/\\]/g, ".");
     newAssets[index] = normalized
       .replace(/[^0-9.]/g, "")
       .replace(/(\..*)\./g, "$1")
@@ -586,7 +587,7 @@ export default function AssetEntryPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">
-                  Nhập [Mã TS] . [Năm TS]: Có dấu <span className="font-bold text-red-600">CHẤM (hoặc PHẨY)</span> ở giữa.
+                  Nhập [Mã TS] . [Năm TS]: Có dấu <span className="font-bold text-red-600">CHẤM, PHẨY, hoặc dấu "/" hoặc "\"</span> ở giữa.
                 </Label>
                 <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
                   <DialogTrigger asChild>
@@ -667,13 +668,33 @@ export default function AssetEntryPage() {
             </div>
 
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Loại tác nghiệp Xuất/Mượn/Thay bìa</Label>
-              <Select value={formData.transaction_type} onValueChange={(v) => setFormData((p) => ({ ...p, transaction_type: v as any }))}>
-                <SelectTrigger className="h-10"><SelectValue placeholder="Chọn Mượn/Xuất TS/Thay bìa" /></SelectTrigger>
-                <SelectContent>
-                  {OPS.map((op) => <SelectItem key={op} value={op}>{op}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label className="text-sm font-medium">Loại tác nghiệp Xuất/Mượn/Khác</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="flex items-center space-x-2 rounded-md border p-2">
+                  <Checkbox
+                    id="type-xuat"
+                    checked={formData.transaction_type === "Xuất"}
+                    onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Xuất" : "Khác" }))}
+                  />
+                  <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
+                </div>
+                <div className="flex items-center space-x-2 rounded-md border p-2">
+                  <Checkbox
+                    id="type-muon"
+                    checked={formData.transaction_type === "Mượn"}
+                    onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Mượn" : "Khác" }))}
+                  />
+                  <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
+                </div>
+                <div className="flex items-center space-x-2 rounded-md border p-2">
+                  <Checkbox
+                    id="type-khac"
+                    checked={formData.transaction_type === "Khác"}
+                    onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
+                  />
+                  <Label htmlFor="type-khac" className="text-sm">Khác</Label>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-3">
