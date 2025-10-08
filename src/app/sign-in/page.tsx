@@ -117,10 +117,8 @@ export default function SignInPage() {
         localStorage.setItem("loggedInStaff", JSON.stringify(staff));
         toast.success("Đăng nhập thành công");
 
-        // Điều hướng theo TS.md:
-        // Nếu phòng 'NQ' -> DailyReport, ngược lại -> AssetEntry
-        const target = staff.department === "NQ" ? "/daily-report" : "/asset-entry";
-        router.replace(target);
+        // Điều hướng sau đăng nhập: luôn vào Asset Entry
+        router.replace("/asset-entry");
       } else {
         const msg: string = json?.error || "Tên đăng nhập hoặc mật khẩu không đúng";
         setError(msg);
