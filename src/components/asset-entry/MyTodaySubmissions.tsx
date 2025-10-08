@@ -38,13 +38,13 @@ async function callAssetFunc(body: Record<string, any>) {
   try {
     const { data, error } = await supabase.functions.invoke("asset-transactions", { body });
     if (!error) {
-      // Chuẩn hóa payload
+      // Chuẩn hóa payload (có thể trả về { data } hoặc mảng trực tiếp)
       const payload = data as any;
       const normalized = payload && typeof payload === "object" && "data" in payload ? payload.data : payload;
       return { ok: true, data: normalized };
     }
   } catch {
-    // ignore và fallback
+    // fallback sang fetch nếu invoke lỗi
   }
   try {
     const res = await fetch(FUNCTION_URL, {
@@ -107,7 +107,9 @@ const MyTodaySubmissions: React.FC = () => {
         const notif = new Date(t.notified_at);
         const gmt7 = new Date(notif.getTime() + 7 * 3600 * 1000);
         const ymd = `${gmt7.getUTCFullYear()}-${String(gmt7.getUTCMonth() + 1).padStart(2, "0")}-${String(gmt7.getUTCDate()).padStart(2, "0")}`;
-        return ymd === todayStr;
+        // Hôm nay (theo GMT+7) và transaction_date không ở quá khứ so với hôm nay
+        const txYmd = String(t.transaction_date);
+        return ymd === todayStr && txYmd >= todayStr;
       });
       setRows(todayOnly);
     } finally {
@@ -125,36 +127,42 @@ const MyTodaySubmissions: React.FC = () => {
     return () => window.removeEventListener("asset:submitted", onSubmitted as any);
   }, [loadToday]);
 
-  const updateNote = React.useCallback(async (row: AssetTx) => {
-    const newNote = prompt("Nhập ghi chú mới", row.note ?? "") ?? null;
-    if (newNote === null) return;
-    const res = await callAssetFunc({
-      action: "update_note",
-      id: row.id,
-      note: newNote,
-      editor_username: staff?.username || "",
-    });
-    if (!res.ok) {
-      toast.error(typeof res.error === "string" ? res.error : "Không thể cập nhật ghi chú");
-      return;
-    }
-    toast.success("Đã cập nhật ghi chú");
-    setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, note: newNote } : x)));
-  }, [staff?.username]);
+  const updateNote = React.useCallback(
+    async (row: AssetTx) => {
+      const newNote = prompt("Nhập ghi chú mới", row.note ?? "") ?? null;
+      if (newNote === null) return;
+      const res = await callAssetFunc({
+        action: "update_note",
+        id: row.id,
+        note: newNote,
+        editor_username: staff?.username || "",
+      });
+      if (!res.ok) {
+        toast.error(typeof res.error === "string" ? res.error : "Không thể cập nhật ghi chú");
+        return;
+      }
+      toast.success("Đã cập nhật ghi chú");
+      setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, note: newNote } : x)));
+    },
+    [staff?.username]
+  );
 
-  const removeTransaction = React.useCallback(async (id: string) => {
-    const res = await callAssetFunc({
-      action: "soft_delete",
-      id,
-      deleted_by: staff?.username || "",
-    });
-    if (!res.ok) {
-      toast.error(typeof res.error === "string" ? res.error : "Không thể xóa");
-      return;
-    }
-    toast.success("Đã xóa (mềm)");
-    setRows((prev) => prev.filter((r) => r.id !== id));
-  }, [staff?.username]);
+  const removeTransaction = React.useCallback(
+    async (id: string) => {
+      const res = await callAssetFunc({
+        action: "soft_delete",
+        id,
+        deleted_by: staff?.username || "",
+      });
+      if (!res.ok) {
+        toast.error(typeof res.error === "string" ? res.error : "Không thể xóa");
+        return;
+      }
+      toast.success("Đã xóa (mềm)");
+      setRows((prev) => prev.filter((r) => r.id !== id));
+    },
+    [staff?.username]
+  );
 
   return (
     <div className="mt-4">

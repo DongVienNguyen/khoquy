@@ -187,6 +187,7 @@ export default function DailyReportPage() {
   const autoRefreshRef = useRef<any>(null);
   const hasInitializedFilter = useRef(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
   // Refs để giữ state ổn định cho backgroundRefresh/loadAllTransactions
   const isFetchingDataRef = useRef(false);
@@ -842,6 +843,11 @@ export default function DailyReportPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Nút Bộ lọc cho mobile */}
+            <Button onClick={() => setIsMobileFilterOpen(true)} variant="outline" className="md:hidden bg-white hover:bg-slate-50 text-slate-700 shadow-sm">
+              <Filter className="w-4 h-4 mr-2" />
+              Bộ lọc
+            </Button>
             <div className="hidden md:flex items-center gap-2 text-sm">
               <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} className="data-[state=checked]:bg-green-600" />
               <span className={`font-medium ${autoRefresh ? "text-green-600" : "text-gray-500"}`}>Auto refresh {autoRefresh ? "ON" : "OFF"}</span>
@@ -865,6 +871,99 @@ export default function DailyReportPage() {
           </div>
         </div>
       </div>
+
+      {/* Mobile Filter Dialog */}
+      <Dialog open={isMobileFilterOpen} onOpenChange={setIsMobileFilterOpen}>
+        <DialogContent className="max-w-md md:hidden">
+          <DialogHeader><DialogTitle>Bộ lọc</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <RadioGroup value={filterType} onValueChange={setFilterType} className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="morning" id="m_morning" />
+                <Label htmlFor="m_morning" className="font-normal">Sáng ngày ({morningDateFormatted})</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="qln_pgd_next_day" id="m_qlnpgd" />
+                <Label htmlFor="m_qlnpgd" className="font-normal">QLN Sáng & PGD trong ngày ({qlnPgdDateFormatted})</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="afternoon" id="m_afternoon" />
+                <Label htmlFor="m_afternoon" className="font-normal">Chiều ngày ({todayFormatted})</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="today" id="m_today" />
+                <Label htmlFor="m_today" className="font-normal">Trong ngày hôm nay ({todayFormatted})</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="next_day" id="m_nextday" />
+                <Label htmlFor="m_nextday" className="font-normal">Trong ngày kế tiếp ({nextWorkingDayFormatted})</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="custom" id="m_custom" />
+                <Label htmlFor="m_custom" className="font-normal">Tùy chọn khoảng thời gian</Label>
+              </div>
+            </RadioGroup>
+            {filterType === "custom" && (
+              <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-2">
+                  <Label>Buổi</Label>
+                  <Select value={customFilters.parts_day} onValueChange={(v) => setCustomFilters({ ...customFilters, parts_day: v as any })}>
+                    <SelectTrigger className="h-11"><SelectValue placeholder="Chọn buổi" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tất cả</SelectItem>
+                      <SelectItem value="Sáng">Sáng</SelectItem>
+                      <SelectItem value="Chiều">Chiều</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Từ ngày</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start h-11">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {customFilters.start ? format(new Date(customFilters.start), "dd/MM/yyyy") : <span>Chọn ngày</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={customFilters.start ? new Date(customFilters.start) : undefined}
+                        onSelect={(date) => date && setCustomFilters({ ...customFilters, start: format(date, "yyyy-MM-dd") })}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="space-y-2">
+                  <Label>Đến ngày</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start h-11">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {customFilters.end ? format(new Date(customFilters.end), "dd/MM/yyyy") : <span>Chọn ngày</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={customFilters.end ? new Date(customFilters.end) : undefined}
+                        onSelect={(date) => date && setCustomFilters({ ...customFilters, end: format(date, "yyyy-MM-dd") })}
+                        disabled={(date) => Boolean(customFilters.start) && date < new Date(customFilters.start)}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsMobileFilterOpen(false)}>Đóng</Button>
+              <Button onClick={() => setIsMobileFilterOpen(false)} className="bg-blue-600 hover:bg-blue-700">Áp dụng</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="space-y-6">
         <div className="hidden md:block">
