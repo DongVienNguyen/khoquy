@@ -26,18 +26,9 @@ const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/staff-login`;
 
 // Thêm helper gọi function với fallback
 async function callStaffLogin(body: Record<string, any>) {
-  // 1) Thử invoke qua supabase client
   try {
-    const { data, error } = await supabase.functions.invoke("staff-login", { body });
-    if (!error) return { ok: true, data };
-  } catch (err) {
-    // Giữ im lặng để fallback
-    // console.debug("invoke error", err);
-  }
-
-  // 2) Fallback: gọi trực tiếp bằng fetch với apikey/authorization
-  try {
-    const res = await fetch(FUNCTION_URL, {
+    // Gọi trực tiếp Edge Function với apikey/authorization
+    const res = await fetch(`${SUPABASE_PUBLIC_URL}/functions/v1/staff-login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -51,9 +42,11 @@ async function callStaffLogin(body: Record<string, any>) {
     if (res.ok && json) {
       return { ok: true, data: json };
     }
-    return { ok: false, error: json?.error || `HTTP ${res.status}` };
+    // Trả về thông báo rõ ràng khi function phản hồi lỗi
+    return { ok: false, error: json?.error || `Máy chủ phản hồi lỗi (HTTP ${res.status})` };
   } catch (err: any) {
-    return { ok: false, error: err?.message || "Failed to fetch" };
+    // Thân thiện hơn thay vì chuỗi "Failed to fetch"
+    return { ok: false, error: "Dịch vụ đăng nhập chưa sẵn sàng. Vui lòng thử lại sau ít phút." };
   }
 }
 
@@ -142,7 +135,7 @@ export default function SignInPage() {
       });
 
       if (!result.ok) {
-        setError(typeof result.error === "string" ? result.error : "Không thể gửi yêu cầu đến máy chủ.");
+        setError(typeof result.error === "string" ? result.error : "Không thể kết nối đến dịch vụ đăng nhập.");
         return;
       }
 
