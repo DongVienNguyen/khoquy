@@ -7,8 +7,7 @@ import { toast } from "sonner";
 import { SonnerToaster } from "@/components/ui/sonner";
 import { 
   Package, Building2 as Building, Camera, Upload, CheckCircle, AlertCircle, 
-  Plus, Minus, ChevronDown, ChevronUp, CalendarDays as CalendarIcon, RefreshCcw, Edit3, Trash2, Loader2, 
-  Clipboard, Filter
+  Plus, Minus, ChevronDown, ChevronUp, CalendarDays as CalendarIcon, RefreshCcw, Edit3, Trash2, Loader2 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -127,12 +126,6 @@ export default function AssetEntryPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
 
-  // Paste-from-text dialog states
-  const [isPasteDialogOpen, setIsPasteDialogOpen] = useState(false);
-  const [pasteText, setPasteText] = useState("");
-  const [isParsingText, setIsParsingText] = useState(false);
-  const [isPasting, setIsPasting] = useState(false);
-
   const [myRows, setMyRows] = useState<AssetTx[]>([]);
   const [listOpen, setListOpen] = useState<boolean>(false);
 
@@ -246,121 +239,6 @@ export default function AssetEntryPage() {
     if (!parsed) return false;
     return parsed.asset_year >= 20 && parsed.asset_year <= 99;
   }, [validateAssetFormat, parseAssetCode]);
-
-  // Extract asset codes and room from arbitrary text
-  const extractCodesFromText = useCallback((rawText: string) => {
-    const results = new Set<string>();
-    let detectedRoom = "";
-
-    const compact = (rawText || "").replace(/\s+/g, "");
-
-    // Pattern 1: Short form like "259.24" or "259,24"
-    const shortMatches = Array.from((rawText || "").matchAll(/\b(\d{1,4})[.,](\d{2})\b/g));
-    for (const m of shortMatches) {
-      const code = parseInt(m[1] || "", 10);
-      const year = (m[2] || "").trim();
-      const formatted = `${code}.${year}`;
-      if (isAssetValid(formatted)) results.add(formatted);
-    }
-
-    // Pattern 2: Long sequences like "0424..." or "0423..." (OCR results)
-    const longMatches = Array.from(compact.matchAll(/(0424\d{6,}|0423\d{6,})/g));
-    for (const mm of longMatches) {
-      const match = mm[1];
-      if (!match || match.length < 10) continue;
-      const prefix7 = match.substring(0, 7);
-      const prefix6 = match.substring(0, 6);
-      let room = "";
-      if (prefix7 === "0424201") room = "CMT8";
-      else if (prefix7 === "0424202") room = "NS";
-      else if (prefix7 === "0424203") room = "ĐS";
-      else if (prefix7 === "0424204") room = "LĐH";
-      else if (prefix6 === "042300") room = "DVKH";
-      else if (prefix6 === "042410") room = "QLN";
-
-      if (room && (!detectedRoom || detectedRoom === room)) {
-        detectedRoom = room;
-        const year = match.slice(-10, -8);
-        const code = parseInt(match.slice(-4), 10);
-        const formatted = `${code}.${year}`;
-        if (isAssetValid(formatted)) results.add(formatted);
-      }
-    }
-
-    return { codes: Array.from(results), detectedRoom };
-  }, [isAssetValid]);
-
-  const handleParseFromText = useCallback(() => {
-    setIsParsingText(true);
-    const { codes, detectedRoom } = extractCodesFromText(pasteText);
-    if (codes.length === 0) {
-      setIsParsingText(false);
-      toast.error("Không tìm thấy mã tài sản hợp lệ trong văn bản.");
-      return;
-    }
-    if (detectedRoom) {
-      setFormData((prev) => ({
-        ...prev,
-        room: detectedRoom,
-        note: detectedRoom === "QLN" ? "" : "Ship PGD",
-        parts_day: getDefaultPartsDay(detectedRoom),
-      }));
-    }
-    setMultipleAssets((prev) => {
-      const existing = prev.filter((a) => a.trim());
-      const merged = Array.from(new Set([...existing, ...codes]));
-      return merged.length > 0 ? merged : [""];
-    });
-    setIsParsingText(false);
-    setPasteText("");
-    setIsPasteDialogOpen(false);
-    setMessage({ type: "success", text: `Đã điền ${codes.length} mã tài sản từ văn bản.` });
-    toast.success("Đã trích mã từ văn bản");
-  }, [pasteText, extractCodesFromText, getDefaultPartsDay]);
-
-  const handlePasteFromClipboard = useCallback(async () => {
-    if (!navigator.clipboard || !navigator.clipboard.readText) {
-      toast.error("Trình duyệt không hỗ trợ đọc clipboard.");
-      return;
-    }
-    setIsPasting(true);
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text || !text.trim()) {
-        toast.error("Clipboard trống, hãy copy nội dung trước.");
-        return;
-      }
-      const { codes, detectedRoom } = extractCodesFromText(text);
-      if (codes.length === 0) {
-        toast.error("Không tìm thấy mã tài sản hợp lệ trong clipboard.");
-        return;
-      }
-      if (detectedRoom) {
-        setFormData((prev) => ({
-          ...prev,
-          room: detectedRoom,
-          note: detectedRoom === "QLN" ? "" : "Ship PGD",
-          parts_day: getDefaultPartsDay(detectedRoom),
-        }));
-      }
-      setMultipleAssets((prev) => {
-        const existing = prev.filter((a) => a.trim());
-        const merged = Array.from(new Set([...existing, ...codes]));
-        return merged.length > 0 ? merged : [""];
-      });
-      setMessage({ type: "success", text: `Đã điền ${codes.length} mã từ clipboard.` });
-      toast.success("Đã trích mã từ clipboard");
-    } finally {
-      setIsPasting(false);
-    }
-  }, [extractCodesFromText, getDefaultPartsDay]);
-
-  const handleFilterInvalid = useCallback(() => {
-    setMultipleAssets((prev) => {
-      const filtered = prev.filter((a) => a.trim()).filter((a) => isAssetValid(a));
-      return filtered.length > 0 ? filtered : [""];
-    });
-  }, [isAssetValid]);
 
   const handleAssetChange = useCallback((index: number, value: string) => {
     const newAssets = [...multipleAssets];
@@ -710,79 +588,38 @@ export default function AssetEntryPage() {
                 <Label className="text-sm font-medium">
                   Nhập [Mã TS] . [Năm TS]: Có dấu <span className="font-bold text-red-600">CHẤM (hoặc PHẨY)</span> ở giữa.
                 </Label>
-                <div className="flex items-center gap-1">
-                  <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
-                        <Camera className="w-5 h-5" />
-                        <span className="text-sm font-semibold">AI</span>
+                <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
+                      <Camera className="w-5 h-5" />
+                      <span className="text-sm font-semibold">AI</span>
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
+                    <div className="space-y-4">
+                      <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                        <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-md">
-                      <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
-                      <div className="space-y-4">
-                        <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
-                          <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
-                        </Button>
-                        <Button onClick={() => document.getElementById("camera-input")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
-                          <Camera className="w-5 h-5" /> Chụp ảnh
-                        </Button>
-                        {(isProcessingImage || aiStatus.stage) && (
-                          <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
-                            <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
-                            <div>
-                              <div className="font-medium">{aiStatus.detail || "Đang xử lý..."}</div>
-                              {aiStatus.total > 0 && (
-                                <div className="mt-2 h-2 bg-slate-200 rounded">
-                                  <div className="h-2 bg-green-600 rounded" style={{ width: `${Math.min(100, Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100))}%` }}></div>
-                                </div>
-                              )}
-                            </div>
+                      <Button onClick={() => document.getElementById("camera-input")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                        <Camera className="w-5 h-5" /> Chụp ảnh
+                      </Button>
+                      {(isProcessingImage || aiStatus.stage) && (
+                        <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
+                          <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
+                          <div>
+                            <div className="font-medium">{aiStatus.detail || "Đang xử lý..."}</div>
+                            {aiStatus.total > 0 && (
+                              <div className="mt-2 h-2 bg-slate-200 rounded">
+                                <div className="h-2 bg-green-600 rounded" style={{ width: `${Math.min(100, Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100))}%` }}></div>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  {/* Paste from text dialog */}
-                  <Dialog open={isPasteDialogOpen} onOpenChange={setIsPasteDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1 ml-1">
-                        <Edit3 className="w-5 h-5" />
-                        <span className="text-sm font-semibold">Text</span>
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle>Dán văn bản chứa mã tài sản</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-3">
-                        <Textarea
-                          rows={6}
-                          placeholder="Dán ở đây: ví dụ 259.24, 318.23 hoặc dãy 0424102470200259..."
-                          value={pasteText}
-                          onChange={(e) => setPasteText(e.target.value)}
-                        />
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" onClick={() => setIsPasteDialogOpen(false)}>Đóng</Button>
-                          <Button onClick={handleParseFromText} disabled={isParsingText} className="bg-green-600 hover:bg-green-700">
-                            {isParsingText ? "Đang phân tích..." : "Trích mã & Gộp"}
-                          </Button>
                         </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1 ml-1" onClick={handlePasteFromClipboard} disabled={isPasting}>
-                    <Clipboard className="w-5 h-5" />
-                    <span className="text-sm font-semibold">{isPasting ? "Đang dán..." : "Paste"}</span>
-                  </Button>
-
-                  <Button type="button" variant="outline" className="ml-1 h-9" onClick={handleFilterInvalid}>
-                    <Filter className="w-4 h-4 mr-2" />
-                    Lọc mã lỗi
-                  </Button>
-                </div>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
 
               {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
@@ -819,16 +656,6 @@ export default function AssetEntryPage() {
                   </div>
                 );
               })}
-
-              <div className="text-xs text-muted-foreground mt-1">
-                {(() => {
-                  const filled = multipleAssets.filter((a) => a.trim());
-                  const valid = filled.filter((a) => isAssetValid(a)).length;
-                  const invalid = filled.length - valid;
-                  const dup = Math.max(0, filled.length - new Set(filled).size);
-                  return `Hợp lệ: ${valid} • Không hợp lệ: ${invalid}${dup > 0 ? ` • Trùng: ${dup}` : ""}`;
-                })()}
-              </div>
 
               {multipleAssets.length > 5 && (
                 <div className="flex justify-center">
