@@ -30,26 +30,31 @@ async function callStaffLogin(body: Record<string, any>) {
   try {
     const { data, error } = await supabase.functions.invoke("staff-login", { body });
     if (!error) return { ok: true, data };
-  } catch {
-    // bỏ qua để fallback
+  } catch (err) {
+    // Giữ im lặng để fallback
+    // console.debug("invoke error", err);
   }
 
   // 2) Fallback: gọi trực tiếp bằng fetch với apikey/authorization
-  const res = await fetch(FUNCTION_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: SUPABASE_PUBLIC_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
+  try {
+    const res = await fetch(FUNCTION_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_PUBLIC_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
 
-  const json = await res.json().catch(() => null);
-  if (res.ok && json) {
-    return { ok: true, data: json };
+    const json = await res.json().catch(() => null);
+    if (res.ok && json) {
+      return { ok: true, data: json };
+    }
+    return { ok: false, error: json?.error || `HTTP ${res.status}` };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Failed to fetch" };
   }
-  return { ok: false, error: json?.error || `HTTP ${res.status}` };
 }
 
 export default function SignInPage() {
@@ -65,7 +70,11 @@ export default function SignInPage() {
   // Seed admin account once
   useEffect(() => {
     const runSeed = async () => {
-      await callStaffLogin({ action: "ensure-admin" });
+      try {
+        await callStaffLogin({ action: "ensure-admin" });
+      } catch {
+        // Không để lỗi seed làm vỡ UI
+      }
     };
     runSeed();
   }, []);
