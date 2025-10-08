@@ -84,8 +84,27 @@ async function upsertEmailUser(username: string, email: string | null, full_name
     last_email_sent: whenIso,
     updated_date: nowIso(),
   }
-  const { error } = await supabase.from("email_users").upsert(payload, { onConflict: "username" })
-  if (error) throw error
+  // Kiểm tra có record theo username chưa, nếu có -> update, nếu chưa -> insert
+  const { data: existing, error: selErr } = await supabase
+    .from("email_users")
+    .select("id")
+    .eq("username", username)
+    .limit(1)
+  if (selErr) throw selErr
+
+  if (existing && existing.length > 0) {
+    const targetId = existing[0].id
+    const { error: updErr } = await supabase
+      .from("email_users")
+      .update(payload)
+      .eq("id", targetId)
+    if (updErr) throw updErr
+  } else {
+    const { error: insErr } = await supabase
+      .from("email_users")
+      .insert({ ...payload, created_date: nowIso() })
+    if (insErr) throw insErr
+  }
 }
 
 serve(async (req) => {
