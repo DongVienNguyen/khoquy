@@ -70,7 +70,11 @@ async function callAssetFunc(body: Record<string, any>) {
   // 1) Invoke via supabase client
   try {
     const { data, error } = await supabase.functions.invoke("asset-transactions", { body });
-    if (!error) return { ok: true, data };
+    if (!error) {
+      const payload: any = data;
+      const normalized = payload && typeof payload === "object" && "data" in payload ? payload.data : payload;
+      return { ok: true, data: normalized };
+    }
   } catch {
     // ignore
   }
