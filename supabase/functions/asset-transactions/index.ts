@@ -150,12 +150,28 @@ serve(async (req) => {
       const { data: created, error: insErr } = await supabase.from("asset_transactions").insert(rows).select("*")
       if (insErr) throw insErr
 
-      const codes = (created || []).map((c) => `${c.asset_code}/${c.asset_year}`)
-      if (created && created.length > 0) {
-        const first = created[0]
-        await notifyAdminsAndUser(first.room, first.parts_day, first.transaction_date, created.length, codes, staff_username, staff_name || undefined)
-        await upsertEmailUser(staff_username, staff_email, staff_name, nowIso())
+      // Side-effects: thông báo + cập nhật email_users
+      // Nếu thất bại, chỉ log và KHÔNG làm hỏng kết quả lưu
+      try {
+        const codes = (created || []).map((c) => `${c.asset_code}.${c.asset_year}`)
+        if (created && created.length > 0) {
+          const first = created[0]
+          await notifyAdminsAndUser(
+            first.room,
+            first.parts_day,
+            first.transaction_date,
+            created.length,
+            codes,
+            staff_username,
+            staff_name || undefined
+          )
+          await upsertEmailUser(staff_username, staff_email, staff_name, nowIso())
+        }
+      } catch (sideErr) {
+        console.error("Side-effects failed (notifications/email_users):", sideErr)
+        // Không throw để không làm hỏng việc lưu chính
       }
+
       return new Response(JSON.stringify({ ok: true, data: created }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
