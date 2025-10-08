@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState, Suspense } from "react";
+import React, { useCallback, useEffect, useMemo, useState, Suspense, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -129,6 +129,17 @@ export default function AssetEntryPage() {
 
   const [myRows, setMyRows] = useState<AssetTx[]>([]);
   const [listOpen, setListOpen] = useState<boolean>(false);
+
+  // Khai báo refs cho các ô nhập mã và hàm format ngày ngắn
+  const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const formatDateShort = React.useCallback((date: Date | null) => {
+    if (!date) return "Chọn ngày";
+    const d = new Date(date);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}/${mm}/${yy}`;
+  }, []);
 
   // Defaults per spec
   const getDefaultPartsDay = useCallback((room: string): "Sáng" | "Chiều" => {
@@ -626,9 +637,8 @@ export default function AssetEntryPage() {
                 </div>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="h-10 w-full justify-start">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : <span>Chọn ngày</span>}
+                    <Button variant="outline" className="h-10 w-full justify-center">
+                      {formatDateShort(formData.transaction_date)}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[calc(100vw-2rem)] sm:w-auto p-0">
@@ -696,6 +706,23 @@ export default function AssetEntryPage() {
                           autoCorrect="off"
                           value={val}
                           onChange={(e) => handleAssetChange(idx, e.target.value)}
+                          ref={(el) => { assetInputRefs.current[idx] = el; }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Tab" && !e.shiftKey) {
+                              e.preventDefault();
+                              const next = idx + 1;
+                              if (next >= multipleAssets.length) {
+                                setMultipleAssets((prev) => [...prev, ""]);
+                                setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
+                              } else {
+                                assetInputRefs.current[next]?.focus();
+                              }
+                            } else if (e.key === "Tab" && e.shiftKey) {
+                              e.preventDefault();
+                              const prevIdx = idx - 1;
+                              if (prevIdx >= 0) assetInputRefs.current[prevIdx]?.focus();
+                            }
+                          }}
                           placeholder="Ví dụ: 259.24"
                           className={`h-10 pr-9 font-mono text-center ${val ? (valid ? "border-green-300" : "border-red-300") : ""}`}
                         />

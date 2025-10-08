@@ -15,6 +15,7 @@ import {
   Archive,
   Database,
   Bug,
+  LogOut,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -127,11 +128,22 @@ const AppHeader: React.FC = () => {
           <Button variant="outline" size="sm" onClick={handleLogout} className="hidden md:inline-flex">
             Đăng xuất
           </Button>
-          <Avatar className="h-9 w-9 ring-2 ring-green-600/20">
-            <AvatarFallback className="bg-green-700 text-white font-semibold">
-              {initial}
-            </AvatarFallback>
-          </Avatar>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Avatar className="h-9 w-9 ring-2 ring-green-600/20 cursor-pointer" aria-label="Tài khoản">
+                <AvatarFallback className="bg-green-700 text-white font-semibold">
+                  {initial}
+                </AvatarFallback>
+              </Avatar>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Tài khoản</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" /> Đăng xuất
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
