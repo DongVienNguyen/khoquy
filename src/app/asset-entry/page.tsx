@@ -30,6 +30,29 @@ type NotificationRow = {
   created_at: string;
 };
 
+// Thêm kiểu và helper đọc thông tin đăng nhập từ localStorage
+type SafeStaff = {
+  id: string;
+  username: string;
+  staff_name: string;
+  email: string | null;
+  role: "admin" | "user";
+  department: string | null;
+  account_status: "active" | "locked";
+};
+
+function getLoggedInStaff(): SafeStaff | null {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem("loggedInStaff") : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.id === "string") return parsed as SafeStaff;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 const ROOMS = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"] as const;
 const OPS = ["Xuất kho", "Mượn TS", "Thay bia"] as const;
 const SESSIONS = ["Sáng", "Chiều"] as const;
@@ -54,13 +77,12 @@ export default function AssetEntryPage() {
   const [listOpen, setListOpen] = useState<boolean>(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        router.replace("/sign-in");
-      } else {
-        fetchMyNotifications();
-      }
-    });
+    const staff = getLoggedInStaff();
+    if (!staff) {
+      router.replace("/sign-in");
+      return;
+    }
+    fetchMyNotifications();
   }, [router]);
 
   const addAssetRow = () => setAssets((prev) => [...prev, ""]);
@@ -97,13 +119,13 @@ export default function AssetEntryPage() {
   };
 
   const fetchMyNotifications = async () => {
-    const { data: sessionData } = await supabase.auth.getUser();
-    if (!sessionData.user) return;
+    const staff = getLoggedInStaff();
+    if (!staff) return;
 
     const { data, error } = await supabase
       .from("notifications")
       .select("*")
-      .eq("user_id", sessionData.user.id)
+      .eq("user_id", staff.id)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -114,8 +136,8 @@ export default function AssetEntryPage() {
   };
 
   const submit = async () => {
-    const { data: sessionData } = await supabase.auth.getUser();
-    if (!sessionData.user) {
+    const staff = getLoggedInStaff();
+    if (!staff) {
       toast.error("Vui lòng đăng nhập");
       router.replace("/sign-in");
       return;
@@ -132,7 +154,7 @@ export default function AssetEntryPage() {
         session,
         date,
         note: note || null,
-        user_id: sessionData.user!.id,
+        user_id: staff.id, // dùng id từ staff đã đăng nhập
       }));
 
     if (rowsToInsert.length === 0) {
