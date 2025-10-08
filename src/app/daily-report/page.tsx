@@ -653,6 +653,7 @@ export default function DailyReportPage() {
       toast.error("Bạn không có quyền chỉnh sửa mục này hoặc đang trong thời gian bị khóa.");
       return;
     }
+    if (!confirm("Bạn muốn chỉnh sửa giao dịch này?")) return;
     setEditingTransaction(t);
     setEditFormData({
       transaction_date: format(new Date(t.transaction_date), "yyyy-MM-dd"),
@@ -673,6 +674,7 @@ export default function DailyReportPage() {
       toast.error("Bạn không có quyền cập nhật mục này hoặc đang trong thời gian bị khóa.");
       return;
     }
+    if (!confirm("Xác nhận cập nhật giao dịch?")) return;
     const res = await callFunc({
       action: "update_transaction",
       id: editingTransaction.id,
@@ -1212,7 +1214,11 @@ export default function DailyReportPage() {
                           <TableCell>{stt}</TableCell>
                           {canSeeTakenColumn && (
                             <TableCell>
-                              <input type="checkbox" checked={takenTransactionIds.has(t.id)} onChange={() => handleToggleTakenStatus(t.id)} />
+                              <Switch
+                                checked={takenTransactionIds.has(t.id)}
+                                onCheckedChange={() => handleToggleTakenStatus(t.id)}
+                                className="data-[state=checked]:bg-green-600"
+                              />
                             </TableCell>
                           )}
                           <TableCell>{t.room}</TableCell>

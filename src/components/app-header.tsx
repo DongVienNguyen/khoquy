@@ -59,6 +59,12 @@ const AppHeader: React.FC = () => {
   if (pathname === "/sign-in") return null;
 
   const go = (href: string) => router.push(href);
+  const handleLogout = () => {
+    try {
+      window.localStorage.removeItem("loggedInStaff");
+    } catch {}
+    router.replace("/sign-in");
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur">
@@ -117,6 +123,9 @@ const AppHeader: React.FC = () => {
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" aria-label="Thông báo">
             <Bell className="h-5 w-5" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleLogout} className="hidden md:inline-flex">
+            Đăng xuất
           </Button>
           <Avatar className="h-9 w-9 ring-2 ring-green-600/20">
             <AvatarFallback className="bg-green-700 text-white font-semibold">
