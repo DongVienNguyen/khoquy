@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { supabase } from "@/lib/supabase/client";
 
 type SafeStaff = {
   id: string;
@@ -20,7 +21,8 @@ type SafeStaff = {
   account_status: "active" | "locked";
 };
 
-const FUNCTION_URL = "https://aytwkszqdnylsbufksmf.supabase.co/functions/v1/staff-login";
+// XÓA hằng số FUNCTION_URL hiện tại
+// const FUNCTION_URL = "https://aytwkszqdnylsbufksmf.supabase.co/functions/v1/staff-login";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -35,11 +37,9 @@ export default function SignInPage() {
   // Seed admin account once
   useEffect(() => {
     const runSeed = async () => {
-      await fetch(FUNCTION_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "ensure-admin" }),
-      }).catch(() => {});
+      await supabase.functions.invoke("staff-login", {
+        body: { action: "ensure-admin" },
+      });
     };
     runSeed();
   }, []);
@@ -58,14 +58,15 @@ export default function SignInPage() {
     }
     checkTimer.current = window.setTimeout(async () => {
       try {
-        const res = await fetch(FUNCTION_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "check", username: username.trim() }),
+        const { data, error } = await supabase.functions.invoke("staff-login", {
+          body: { action: "check", username: username.trim() },
         });
-        const json = await res.json();
-        if (json?.ok) {
-          const locked = Boolean(json?.data?.locked);
+        if (error) {
+          // Giữ im lặng để người dùng thử lại, tránh vỡ UI
+          return;
+        }
+        if (data?.ok) {
+          const locked = Boolean(data?.data?.locked);
           setIsAccountLocked(locked);
           setShowForm(!locked);
           setError(locked ? "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị." : "");
@@ -75,7 +76,7 @@ export default function SignInPage() {
           setError("");
         }
       } catch {
-        // Không che lỗi, để người dùng thử lại
+        // Không che lỗi thêm
       }
     }, 500);
     return () => {
@@ -102,27 +103,28 @@ export default function SignInPage() {
 
     setIsLoading(true);
     try {
-      const res = await fetch(FUNCTION_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke("staff-login", {
+        body: {
           action: "login",
           username: username.trim(),
           password,
-        }),
+        },
       });
-      const json = await res.json();
-      if (json?.ok) {
-        const staff: SafeStaff = json.data;
+
+      if (error) {
+        setError(error.message || "Không thể kết nối máy chủ. Vui lòng thử lại.");
+        return;
+      }
+
+      if (data?.ok) {
+        const staff: SafeStaff = data.data;
         localStorage.setItem("loggedInStaff", JSON.stringify(staff));
         toast.success("Đăng nhập thành công");
-
-        // Điều hướng sau đăng nhập: luôn vào Asset Entry
         router.replace("/asset-entry");
       } else {
-        const msg: string = json?.error || "Tên đăng nhập hoặc mật khẩu không đúng";
+        const msg: string = data?.error || "Tên đăng nhập hoặc mật khẩu không đúng";
         setError(msg);
-        if (json?.locked) {
+        if (data?.locked) {
           setIsAccountLocked(true);
           setShowForm(false);
         }
