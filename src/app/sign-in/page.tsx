@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/client";
 
 type SafeStaff = {
   id: string;
@@ -21,8 +21,36 @@ type SafeStaff = {
   account_status: "active" | "locked";
 };
 
-// XÓA hằng số FUNCTION_URL hiện tại
-// const FUNCTION_URL = "https://aytwkszqdnylsbufksmf.supabase.co/functions/v1/staff-login";
+// Thêm URL fallback cho Edge Function
+const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/staff-login`;
+
+// Thêm helper gọi function với fallback
+async function callStaffLogin(body: Record<string, any>) {
+  // 1) Thử invoke qua supabase client
+  try {
+    const { data, error } = await supabase.functions.invoke("staff-login", { body });
+    if (!error) return { ok: true, data };
+  } catch {
+    // bỏ qua để fallback
+  }
+
+  // 2) Fallback: gọi trực tiếp bằng fetch với apikey/authorization
+  const res = await fetch(FUNCTION_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_PUBLIC_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const json = await res.json().catch(() => null);
+  if (res.ok && json) {
+    return { ok: true, data: json };
+  }
+  return { ok: false, error: json?.error || `HTTP ${res.status}` };
+}
 
 export default function SignInPage() {
   const router = useRouter();
@@ -37,9 +65,7 @@ export default function SignInPage() {
   // Seed admin account once
   useEffect(() => {
     const runSeed = async () => {
-      await supabase.functions.invoke("staff-login", {
-        body: { action: "ensure-admin" },
-      });
+      await callStaffLogin({ action: "ensure-admin" });
     };
     runSeed();
   }, []);
@@ -58,25 +84,22 @@ export default function SignInPage() {
     }
     checkTimer.current = window.setTimeout(async () => {
       try {
-        const { data, error } = await supabase.functions.invoke("staff-login", {
-          body: { action: "check", username: username.trim() },
-        });
-        if (error) {
-          // Giữ im lặng để người dùng thử lại, tránh vỡ UI
-          return;
-        }
-        if (data?.ok) {
-          const locked = Boolean(data?.data?.locked);
-          setIsAccountLocked(locked);
-          setShowForm(!locked);
-          setError(locked ? "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị." : "");
-        } else {
-          setIsAccountLocked(false);
-          setShowForm(true);
-          setError("");
+        const result = await callStaffLogin({ action: "check", username: username.trim() });
+        if (result.ok) {
+          const payload: any = result.data;
+          if (payload?.ok) {
+            const locked = Boolean(payload?.data?.locked);
+            setIsAccountLocked(locked);
+            setShowForm(!locked);
+            setError(locked ? "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị." : "");
+          } else {
+            setIsAccountLocked(false);
+            setShowForm(true);
+            setError("");
+          }
         }
       } catch {
-        // Không che lỗi thêm
+        // im lặng để người dùng thử lại
       }
     }, 500);
     return () => {
@@ -103,28 +126,27 @@ export default function SignInPage() {
 
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("staff-login", {
-        body: {
-          action: "login",
-          username: username.trim(),
-          password,
-        },
+      const result = await callStaffLogin({
+        action: "login",
+        username: username.trim(),
+        password,
       });
 
-      if (error) {
-        setError(error.message || "Không thể kết nối máy chủ. Vui lòng thử lại.");
+      if (!result.ok) {
+        setError(typeof result.error === "string" ? result.error : "Không thể gửi yêu cầu đến máy chủ.");
         return;
       }
 
-      if (data?.ok) {
-        const staff: SafeStaff = data.data;
+      const payload: any = result.data;
+      if (payload?.ok) {
+        const staff: SafeStaff = payload.data;
         localStorage.setItem("loggedInStaff", JSON.stringify(staff));
         toast.success("Đăng nhập thành công");
         router.replace("/asset-entry");
       } else {
-        const msg: string = data?.error || "Tên đăng nhập hoặc mật khẩu không đúng";
+        const msg: string = payload?.error || "Tên đăng nhập hoặc mật khẩu không đúng";
         setError(msg);
-        if (data?.locked) {
+        if (payload?.locked) {
           setIsAccountLocked(true);
           setShowForm(false);
         }
