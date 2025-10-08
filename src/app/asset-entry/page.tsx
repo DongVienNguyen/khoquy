@@ -20,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import MyTodaySubmissions from "@/components/asset-entry/MyTodaySubmissions";
+import Tesseract from "tesseract.js";
 
 type SafeStaff = {
   id: string;
@@ -381,13 +382,93 @@ export default function AssetEntryPage() {
   const processImages = useCallback(async (files: File[]) => {
     setIsProcessingImage(true);
     setAiStatus({ stage: "starting", progress: 0, total: files.length, detail: "Đang chuẩn bị xử lý hình ảnh..." });
-    // Chưa tích hợp OCR/Upload, hiển thị thông báo hướng dẫn
-    setTimeout(() => {
-      setAiStatus({ stage: "error", progress: 0, total: files.length, detail: "Chưa tích hợp AI đọc mã từ ảnh." });
+
+    // Helper: trích các chuỗi có dạng 0424... hoặc 0423... (>=10 ký tự)
+    const extractCandidates = (text: string) => {
+      const matches = text.match(/(0424\d{6,}|0423\d{6,})/g) || [];
+      return matches.filter((m) => m.length >= 10);
+    };
+    // Helper: chuyển chuỗi dài sang định dạng [Mã TS].[Năm TS]
+    const toAssetCode = (longStr: string) => {
+      const s = longStr.replace(/\D/g, "");
+      if (s.length < 10) return null;
+      const yearStr = s.slice(-10, -8); // 2 ký tự thứ 9-10 từ cuối
+      const codeStr = s.slice(-4);      // 4 ký tự cuối
+      const year = parseInt(yearStr, 10);
+      const code = parseInt(codeStr, 10);
+      if (isNaN(year) || isNaN(code)) return null;
+      if (year < 20 || year > 99) return null;
+      return `${code}.${String(year).padStart(2, "0")}`;
+    };
+    // Helper: đoán phòng nếu thấy tên trong text OCR
+    const detectRoomFromText = (text: string) => {
+      const upper = text.toUpperCase();
+      const rooms = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"];
+      const found = rooms.filter((r) => upper.includes(r));
+      // Trả về phòng nếu tìm thấy duy nhất
+      if (found.length === 1) return found[0];
+      return "";
+    };
+
+    const uniqueCodes = new Set<string>();
+    let detectedRoomGlobal = "";
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setAiStatus({ stage: "recognizing", progress: i, total: files.length, detail: `Đang OCR ảnh ${i + 1}/${files.length}...` });
+      // OCR bằng tesseract.js
+      const { data } = await Tesseract.recognize(file, "eng");
+      const text = (data?.text || "").trim();
+      // Tìm ứng viên
+      const candidates = extractCandidates(text);
+      // Chuyển thành mã hợp lệ
+      candidates.forEach((cand) => {
+        const code = toAssetCode(cand);
+        if (code) uniqueCodes.add(code);
+      });
+      // Cố gắng đoán phòng từ text
+      const r = detectRoomFromText(text);
+      if (r) {
+        if (!detectedRoomGlobal) detectedRoomGlobal = r;
+        else if (detectedRoomGlobal !== r) {
+          // Không nhất quán -> bỏ qua đoán phòng
+          detectedRoomGlobal = "";
+        }
+      }
+      setAiStatus({ stage: "recognizing", progress: i + 1, total: files.length, detail: `Đã xử lý ${i + 1}/${files.length}` });
+    }
+
+    const codesArr = Array.from(uniqueCodes);
+    if (codesArr.length === 0) {
+      setAiStatus({ stage: "error", progress: files.length, total: files.length, detail: "Không tìm thấy mã phù hợp trong ảnh." });
       setIsProcessingImage(false);
-      toast.error("Chức năng AI sẽ được bổ sung sau.");
-    }, 600);
-  }, []);
+      toast.error("Không trích xuất được mã từ ảnh. Vui lòng thử lại ảnh khác hoặc nhập tay.");
+      return;
+    }
+
+    // Nếu OCR thấy tên phòng duy nhất -> tự set room
+    if (detectedRoomGlobal) {
+      setFormData((prev) => ({
+        ...prev,
+        room: detectedRoomGlobal,
+        note: detectedRoomGlobal === "QLN" ? "" : "Ship PGD",
+        parts_day: getDefaultPartsDay(detectedRoomGlobal),
+      }));
+    }
+
+    // Set danh sách mã (giữ nguyên các mã đã có, thêm các mã mới rồi loại trùng)
+    setMultipleAssets((prev) => {
+      const next = new Set<string>(prev);
+      codesArr.forEach((c) => next.add(c));
+      return Array.from(next);
+    });
+
+    setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã trích xuất ${codesArr.length} mã` });
+    setIsProcessingImage(false);
+    setIsImageDialogOpen(false);
+    toast.success(`Đã trích xuất ${codesArr.length} mã từ ảnh${detectedRoomGlobal ? ` • Phòng: ${detectedRoomGlobal}` : ""}`);
+  }, [getDefaultPartsDay]);
+
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     if (files.length > 0) processImages(files);

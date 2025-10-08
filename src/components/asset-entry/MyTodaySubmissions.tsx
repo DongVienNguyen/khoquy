@@ -107,7 +107,6 @@ const MyTodaySubmissions: React.FC = () => {
         const notif = new Date(t.notified_at);
         const gmt7 = new Date(notif.getTime() + 7 * 3600 * 1000);
         const ymd = `${gmt7.getUTCFullYear()}-${String(gmt7.getUTCMonth() + 1).padStart(2, "0")}-${String(gmt7.getUTCDate()).padStart(2, "0")}`;
-        // Hôm nay (theo GMT+7) và transaction_date không ở quá khứ so với hôm nay
         const txYmd = String(t.transaction_date);
         return ymd === todayStr && txYmd >= todayStr;
       });
