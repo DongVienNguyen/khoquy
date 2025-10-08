@@ -587,7 +587,7 @@ export default function AssetEntryPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">
-                  Nhập [Mã TS] . [Năm TS]: Có dấu <span className="font-bold text-red-600">CHẤM, PHẨY, hoặc dấu "/" hoặc "\"</span> ở giữa.
+                  Nhập [Mã TS] . [Năm TS]: Có dấu <span className="font-bold text-red-600">CHẤM, PHẨM, hoặc dấu "/" hoặc "\"</span> ở giữa.
                 </Label>
                 <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
                   <DialogTrigger asChild>
@@ -669,8 +669,8 @@ export default function AssetEntryPage() {
 
             <div className="space-y-3">
               <Label className="text-sm font-medium">Loại tác nghiệp Xuất/Mượn/Khác</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="flex items-center space-x-2 rounded-md border p-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1">
                   <Checkbox
                     id="type-xuat"
                     checked={formData.transaction_type === "Xuất"}
@@ -678,7 +678,7 @@ export default function AssetEntryPage() {
                   />
                   <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
                 </div>
-                <div className="flex items-center space-x-2 rounded-md border p-2">
+                <div className="flex items-center gap-1">
                   <Checkbox
                     id="type-muon"
                     checked={formData.transaction_type === "Mượn"}
@@ -686,7 +686,7 @@ export default function AssetEntryPage() {
                   />
                   <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
                 </div>
-                <div className="flex items-center space-x-2 rounded-md border p-2">
+                <div className="flex items-center gap-1">
                   <Checkbox
                     id="type-khac"
                     checked={formData.transaction_type === "Khác"}
