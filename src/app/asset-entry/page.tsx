@@ -242,14 +242,25 @@ export default function AssetEntryPage() {
   }, [validateAssetFormat, parseAssetCode]);
 
   const handleAssetChange = useCallback((index: number, value: string) => {
-    const newAssets = [...multipleAssets];
+    let newAssets = [...multipleAssets];
     const normalized = String(value).replace(/[,/\\]/g, ".");
     newAssets[index] = normalized
       .replace(/[^0-9.]/g, "")
       .replace(/(\..*)\./g, "$1")
       .replace(/(\.\d\d)\d+$/, "$1")
       .replace(/(\d{4})\d+/, "$1");
-    setMultipleAssets(newAssets);
+
+    // Khi đủ 6 ký tự, tự hiện thêm dòng kế tiếp nếu chưa có
+    if (newAssets[index].length >= 6 && newAssets.length === index + 1) {
+      newAssets.push("");
+    }
+    // Khi ít hơn 6 ký tự, ẩn các dòng trống phía sau
+    if (newAssets[index].length < 6) {
+      while (newAssets.length > index + 1 && newAssets[newAssets.length - 1].trim() === "") {
+        newAssets.pop();
+      }
+    }
+    setMultipleAssets(newAssets.length > 0 ? newAssets : [""]);
   }, [multipleAssets]);
 
   const addAssetField = useCallback(() => setMultipleAssets((prev) => [...prev, ""]), []);
@@ -585,92 +596,95 @@ export default function AssetEntryPage() {
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">
-                  Nhập [Mã TS] . [Năm TS]: Có dấu <span className="font-bold text-red-600">CHẤM, PHẨM, hoặc dấu "/" hoặc "\"</span> ở giữa.
-                </Label>
-                <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
-                      <Camera className="w-5 h-5" />
-                      <span className="text-sm font-semibold">AI</span>
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-md">
-                    <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
-                    <div className="space-y-4">
-                      <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
-                        <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
+              <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">
+                    Nhập [Mã TS] . [Năm TS]:
+                  </Label>
+                  <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
+                        <Camera className="w-5 h-5" />
+                        <span className="text-sm font-semibold">AI</span>
                       </Button>
-                      <Button onClick={() => document.getElementById("camera-input")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
-                        <Camera className="w-5 h-5" /> Chụp ảnh
-                      </Button>
-                      {(isProcessingImage || aiStatus.stage) && (
-                        <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
-                          <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
-                          <div>
-                            <div className="font-medium">{aiStatus.detail || "Đang xử lý..."}</div>
-                            {aiStatus.total > 0 && (
-                              <div className="mt-2 h-2 bg-slate-200 rounded">
-                                <div className="h-2 bg-green-600 rounded" style={{ width: `${Math.min(100, Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100))}%` }}></div>
-                              </div>
-                            )}
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
+                      <div className="space-y-4">
+                        <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                          <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
+                        </Button>
+                        <Button onClick={() => document.getElementById("camera-input")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                          <Camera className="w-5 h-5" /> Chụp ảnh
+                        </Button>
+                        {(isProcessingImage || aiStatus.stage) && (
+                          <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
+                            <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
+                            <div>
+                              <div className="font-medium">{aiStatus.detail || "Đang xử lý..."}</div>
+                              {aiStatus.total > 0 && (
+                                <div className="mt-2 h-2 bg-slate-200 rounded">
+                                  <div className="h-2 bg-green-600 rounded" style={{ width: `${Math.min(100, Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100))}%` }}></div>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-
-              {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
-                const valid = isAssetValid(val);
-                return (
-                  <div key={idx} className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <Input
-                        type="text"
-                        inputMode="decimal"
-                        lang="en-US"
-                        pattern="[0-9.,]*"
-                        autoComplete="off"
-                        autoCorrect="off"
-                        value={val}
-                        onChange={(e) => handleAssetChange(idx, e.target.value)}
-                        placeholder="Ví dụ: 259.24"
-                        className={`h-10 pr-9 font-mono text-center ${val ? (valid ? "border-green-300" : "border-red-300") : ""}`}
-                      />
-                      {val && (
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                          {valid ? <CheckCircle className="w-5 h-5 text-green-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}
-                        </div>
-                      )}
-                    </div>
-                    <Button type="button" onClick={addAssetField} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-green-600 text-green-800 hover:bg-green-100" aria-label="Thêm dòng">
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                    {multipleAssets.length > 1 && (
-                      <Button type="button" onClick={() => removeAssetField(idx)} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-red-500 text-red-500 hover:bg-red-100" aria-label="Xóa dòng">
-                        <Minus className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-
-              {multipleAssets.length > 5 && (
-                <div className="flex justify-center">
-                  <Button type="button" variant="ghost" onClick={() => setShowAllAssets((v) => !v)} className="text-slate-600 hover:text-slate-800">
-                    {showAllAssets ? (<><ChevronUp className="w-4 h-4 mr-1" /> Thu gọn</>) : (<><ChevronDown className="w-4 h-4 mr-1" /> Xem thêm {multipleAssets.length - 5}</>)}
-                  </Button>
+                        )}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </div>
-              )}
+
+                {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
+                  const valid = isAssetValid(val);
+                  return (
+                    <div key={idx} className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          lang="en-US"
+                          pattern="[0-9.,]*"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          value={val}
+                          onChange={(e) => handleAssetChange(idx, e.target.value)}
+                          placeholder="Ví dụ: 259.24"
+                          className={`h-10 pr-9 font-mono text-center ${val ? (valid ? "border-green-300" : "border-red-300") : ""}`}
+                        />
+                        {val && (
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                            {valid ? <CheckCircle className="w-5 h-5 text-green-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}
+                          </div>
+                        )}
+                      </div>
+                      <Button type="button" onClick={addAssetField} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-green-600 text-green-800 hover:bg-green-100" aria-label="Thêm dòng">
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                      {multipleAssets.length > 1 && (
+                        <Button type="button" onClick={() => removeAssetField(idx)} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-red-500 text-red-500 hover:bg-red-100" aria-label="Xóa dòng">
+                          <Minus className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {multipleAssets.length > 5 && (
+                  <div className="flex justify-center">
+                    <Button type="button" variant="ghost" onClick={() => setShowAllAssets((v) => !v)} className="text-slate-600 hover:text-slate-800">
+                      {showAllAssets ? (<><ChevronUp className="w-4 h-4 mr-1" /> Thu gọn</>) : (<><ChevronDown className="w-4 h-4 mr-1" /> Xem thêm {multipleAssets.length - 5}</>)}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="space-y-3">
               <Label className="text-sm font-medium">Loại tác nghiệp Xuất/Mượn/Khác</Label>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex items-center gap-1 justify-center">
                   <Checkbox
                     id="type-xuat"
                     checked={formData.transaction_type === "Xuất"}
@@ -678,7 +692,7 @@ export default function AssetEntryPage() {
                   />
                   <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 justify-center">
                   <Checkbox
                     id="type-muon"
                     checked={formData.transaction_type === "Mượn"}
@@ -686,7 +700,7 @@ export default function AssetEntryPage() {
                   />
                   <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 justify-center">
                   <Checkbox
                     id="type-khac"
                     checked={formData.transaction_type === "Khác"}
@@ -702,12 +716,28 @@ export default function AssetEntryPage() {
                 <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
               </Label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Select value={formData.parts_day} onValueChange={(v) => setFormData((p) => ({ ...p, parts_day: v as any }))}>
-                  <SelectTrigger className="h-10"><SelectValue placeholder="Chọn buổi" /></SelectTrigger>
-                  <SelectContent>
-                    {SESSIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center justify-between h-10 px-2 border rounded-md">
+                  <div className="flex items-center gap-1">
+                    <Checkbox
+                      id="session-sang"
+                      checked={formData.parts_day === "Sáng"}
+                      onCheckedChange={(v: CheckedState) =>
+                        setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
+                      }
+                    />
+                    <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Checkbox
+                      id="session-chieu"
+                      checked={formData.parts_day === "Chiều"}
+                      onCheckedChange={(v: CheckedState) =>
+                        setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
+                      }
+                    />
+                    <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
+                  </div>
+                </div>
 
                 <Popover>
                   <PopoverTrigger asChild>
