@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
+import MyTodaySubmissions from "@/components/asset-entry/MyTodaySubmissions";
 
 type SafeStaff = {
   id: string;
@@ -186,6 +187,10 @@ export default function AssetEntryPage() {
     }
     setCurrentStaff(staff);
     setFormData(calculateDefaultValues(staff));
+    // Thông báo layout/notifications rằng AssetEntry đã sẵn sàng
+    try {
+      window.dispatchEvent(new Event("asset-entry:ready"));
+    } catch {}
   }, [router, calculateDefaultValues]);
 
   useEffect(() => {
@@ -364,6 +369,12 @@ export default function AssetEntryPage() {
 
     // Làm mới danh sách hôm nay
     fetchMyToday();
+
+    // Phát sự kiện cho các phần khác (chuông thông báo, danh sách của tôi) làm mới
+    try {
+      window.dispatchEvent(new Event("asset:submitted"));
+      window.dispatchEvent(new Event("notifications:refresh"));
+    } catch {}
   }, [isRestrictedTime, currentStaff, formData, multipleAssets, requiresNoteDropdown, getUtcNowIso, getYmd, parseAssetCode, calculateDefaultValues]);
 
   // AI image process (UI có sẵn; phần OCR sẽ bổ sung sau)
@@ -715,70 +726,9 @@ export default function AssetEntryPage() {
           </button>
 
           {listOpen && (
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm text-muted-foreground">
-                  Hiển thị các giao dịch bạn đã tạo trong ngày (GMT+7) và chưa xóa.
-                </p>
-                <Button onClick={fetchMyToday} variant="outline" className="h-9">
-                  <RefreshCcw className="w-4 h-4 mr-2" /> Làm mới
-                </Button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b">
-                      <th className="py-2 px-3">Phòng</th>
-                      <th className="py-2 px-3">Năm TS</th>
-                      <th className="py-2 px-3">Mã TS</th>
-                      <th className="py-2 px-3">Loại</th>
-                      <th className="py-2 px-3">Ngày</th>
-                      <th className="py-2 px-3">Buổi</th>
-                      <th className="py-2 px-3">Ghi chú</th>
-                      <th className="py-2 px-3">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {myRows.length === 0 ? (
-                      <tr>
-                        <td className="py-3 px-3 text-muted-foreground" colSpan={8}>Chưa có giao dịch nào hôm nay.</td>
-                      </tr>
-                    ) : (
-                      myRows.map((r) => (
-                        <tr key={r.id} className="border-b">
-                          <td className="py-2 px-3">{r.room}</td>
-                          <td className="py-2 px-3">{r.asset_year}</td>
-                          <td className="py-2 px-3">{r.asset_code}</td>
-                          <td className="py-2 px-3">{r.transaction_type}</td>
-                          <td className="py-2 px-3">{r.transaction_date}</td>
-                          <td className="py-2 px-3">{r.parts_day}</td>
-                          <td className="py-2 px-3">{r.note ?? ""}</td>
-                          <td className="py-2 px-3">
-                            <div className="flex items-center gap-2">
-                              <button
-                                title="Sửa (ghi chú)"
-                                className="h-8 w-8 rounded-md border flex items-center justify-center hover:bg-muted"
-                                onClick={() => updateNote(r)}
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button
-                                title="Xóa (mềm)"
-                                className="h-8 w-8 rounded-md border flex items-center justify-center hover:bg-muted"
-                                onClick={() => removeTransaction(r.id)}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <Suspense fallback={<div className="mt-4 text-sm text-muted-foreground">Đang tải danh sách của bạn...</div>}>
+              <MyTodaySubmissions />
+            </Suspense>
           )}
         </div>
       </div>

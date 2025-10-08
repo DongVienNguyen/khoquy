@@ -802,6 +802,17 @@ export default function DailyReportPage() {
     return `Tuần ${sWeek} - ${sYear} (${format(startOfCurrentWeek, "dd/MM")} - ${format(endOfCurrentWeek, "dd/MM")})`;
   }, [startOfCurrentWeek, endOfCurrentWeek]);
 
+  // Auto scroll đến nội dung chính trên mobile để dễ xem
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.innerWidth < 768;
+    if (!isMobile) return;
+    const el = document.getElementById("main-content-section");
+    if (el) {
+      setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+    }
+  }, []);
+
   return (
     <div className="p-4 md:p-8">
       <SonnerToaster />
@@ -1080,6 +1091,7 @@ export default function DailyReportPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-14">STT</TableHead>
                       {canSeeTakenColumn && <TableHead className="w-16">Đã lấy</TableHead>}
                       <TableHead>Phòng</TableHead>
                       <TableHead>Năm TS</TableHead>
@@ -1094,36 +1106,40 @@ export default function DailyReportPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedTransactions.map((t) => (
-                      <TableRow key={t.id}>
-                        {canSeeTakenColumn && (
+                    {paginatedTransactions.map((t, idx) => {
+                      const stt = (currentPage - 1) * ITEMS_PER_PAGE + idx + 1;
+                      return (
+                        <TableRow key={t.id}>
+                          <TableCell>{stt}</TableCell>
+                          {canSeeTakenColumn && (
+                            <TableCell>
+                              <input type="checkbox" checked={takenTransactionIds.has(t.id)} onChange={() => handleToggleTakenStatus(t.id)} />
+                            </TableCell>
+                          )}
+                          <TableCell>{t.room}</TableCell>
+                          <TableCell>{t.asset_year}</TableCell>
+                          <TableCell>{t.asset_code}</TableCell>
+                          <TableCell>{t.transaction_type}</TableCell>
+                          <TableCell>{t.transaction_date}</TableCell>
+                          <TableCell>{t.parts_day}</TableCell>
+                          <TableCell>{t.note || "-"}</TableCell>
+                          <TableCell>{t.staff_code}</TableCell>
+                          <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
                           <TableCell>
-                            <input type="checkbox" checked={takenTransactionIds.has(t.id)} onChange={() => handleToggleTakenStatus(t.id)} />
+                            <div className="flex items-center gap-2">
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50" title="Chỉnh sửa" onClick={() => handleEditTransaction(t)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-600 hover:bg-red-50" title="Xóa" onClick={() => handleDeleteTransaction(t.id)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
-                        )}
-                        <TableCell>{t.room}</TableCell>
-                        <TableCell>{t.asset_year}</TableCell>
-                        <TableCell>{t.asset_code}</TableCell>
-                        <TableCell>{t.transaction_type}</TableCell>
-                        <TableCell>{t.transaction_date}</TableCell>
-                        <TableCell>{t.parts_day}</TableCell>
-                        <TableCell>{t.note || "-"}</TableCell>
-                        <TableCell>{t.staff_code}</TableCell>
-                        <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50" title="Chỉnh sửa" onClick={() => handleEditTransaction(t)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-600 hover:bg-red-50" title="Xóa" onClick={() => handleDeleteTransaction(t.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                        </TableRow>
+                      )
+                    })}
                     {paginatedTransactions.length === 0 && (
-                      <TableRow><TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="text-center h-20">Không có dữ liệu.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={canSeeTakenColumn ? 12 : 11} className="text-center h-20">Không có dữ liệu.</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -1142,6 +1158,7 @@ export default function DailyReportPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-14">STT</TableHead>
                         <TableHead>Phòng</TableHead>
                         <TableHead>Năm TS</TableHead>
                         <TableHead>Mã TS</TableHead>
@@ -1155,8 +1172,9 @@ export default function DailyReportPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredDeletedTransactions.map((t) => (
+                      {filteredDeletedTransactions.map((t, idx) => (
                         <TableRow key={t.id}>
+                          <TableCell>{idx + 1}</TableCell>
                           <TableCell>{t.room}</TableCell>
                           <TableCell>{t.asset_year}</TableCell>
                           <TableCell>{t.asset_code}</TableCell>
