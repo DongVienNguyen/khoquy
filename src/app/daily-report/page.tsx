@@ -79,7 +79,13 @@ const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
 async function callFunc(body: Record<string, any>) {
   try {
     const { data, error } = await supabase.functions.invoke("asset-transactions", { body });
-    if (!error) return { ok: true, data };
+    if (!error) {
+      const payload = data ?? null;
+      const normalized = payload && typeof payload === "object" && "data" in (payload as any)
+        ? (payload as any).data
+        : payload;
+      return { ok: true, data: normalized };
+    }
   } catch {}
   try {
     const res = await fetch(FUNCTION_URL, {
@@ -92,7 +98,7 @@ async function callFunc(body: Record<string, any>) {
       body: JSON.stringify(body),
     });
     const json = await res.json().catch(() => null);
-    if (res.ok && json) return { ok: true, data: json.data };
+    if (res.ok && json) return { ok: true, data: (json as any).data };
     return { ok: false, error: json?.error || `HTTP ${res.status}` };
   } catch (err: any) {
     return { ok: false, error: err?.message || "Failed" };
@@ -206,7 +212,7 @@ export default function DailyReportPage() {
   const loadProcessedNotes = useCallback(async () => {
     const res = await callFunc({ action: "list_notes" });
     if (!res.ok) return;
-    setProcessedNotes((res.data as ProcessedNote[]) || []);
+    setProcessedNotes(Array.isArray(res.data) ? (res.data as ProcessedNote[]) : []);
   }, []);
 
   const loadTakenStatus = useCallback(async () => {
@@ -220,7 +226,8 @@ export default function DailyReportPage() {
       setTakenTransactionIds(new Set());
       return;
     }
-    const ids = new Set(((res.data as any[]) || []).map((x) => String(x.transaction_id)));
+    const list = Array.isArray(res.data) ? (res.data as any[]) : [];
+    const ids = new Set(list.map((x) => String(x.transaction_id)));
     setTakenTransactionIds(ids);
   }, [currentStaff?.username, canSeeTakenColumn]);
 
@@ -234,7 +241,7 @@ export default function DailyReportPage() {
       if (!res.ok) {
         setAllTransactions([]);
       } else {
-        setAllTransactions((res.data as AssetTx[]) || []);
+        setAllTransactions(Array.isArray(res.data) ? (res.data as AssetTx[]) : []);
       }
       setLastRefreshTime(new Date());
     } finally {
@@ -282,14 +289,17 @@ export default function DailyReportPage() {
     try {
       const range = getScopedDateRange();
       const resTx = await callFunc({ action: "list_range", start: range.start, end: range.end, parts_day: null, include_deleted: true });
-      const resNotes = canManageDailyReport ? await callFunc({ action: "list_notes" }) : { ok: false, data: [] };
+      const resNotes = canManageDailyReport ? await callFunc({ action: "list_notes" }) : { ok: false, data: [] as any };
       const resTaken = canSeeTakenColumn && currentStaff?.username
         ? await callFunc({ action: "list_taken_status", user_username: currentStaff.username, week_year: getCurrentWeekYear() })
-        : { ok: false, data: [] };
+        : { ok: false, data: [] as any };
 
-      if (resTx.ok) setAllTransactions((resTx.data as AssetTx[]) || []);
-      if (resNotes.ok) setProcessedNotes((resNotes.data as ProcessedNote[]) || []);
-      if (resTaken.ok) setTakenTransactionIds(new Set(((resTaken.data as any[]) || []).map((x) => String(x.transaction_id))));
+      if (resTx.ok) setAllTransactions(Array.isArray(resTx.data) ? (resTx.data as AssetTx[]) : []);
+      if (resNotes.ok) setProcessedNotes(Array.isArray(resNotes.data) ? (resNotes.data as ProcessedNote[]) : []);
+      if (resTaken.ok) {
+        const list = Array.isArray(resTaken.data) ? (resTaken.data as any[]) : [];
+        setTakenTransactionIds(new Set(list.map((x) => String(x.transaction_id))));
+      }
       setLastRefreshTime(new Date());
     } finally {
       setIsFetchingData(false);
