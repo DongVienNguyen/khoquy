@@ -421,7 +421,7 @@ export default function AssetEntryPage() {
                 const year = match.slice(-10, -8);
                 const code = parseInt(match.slice(-4), 10);
                 const formatted = `${code}.${year}`;
-                if (validateAssetFormat(formatted)) {
+                if (isAssetValid(formatted)) {
                   allCodes.push(formatted);
                 }
               }
@@ -454,7 +454,7 @@ export default function AssetEntryPage() {
       setIsProcessingImage(false);
       setTimeout(() => setAiStatus({ stage: "", progress: 0, total: 0, detail: "" }), 1200);
     }
-  }, [validateAssetFormat, handleRoomChange]);
+  }, [isAssetValid, handleRoomChange]);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
