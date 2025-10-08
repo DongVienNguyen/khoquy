@@ -233,9 +233,9 @@ export default function DailyReportPage() {
     setTakenTransactionIds(ids);
   }, [currentStaff?.username, canSeeTakenColumn]);
 
-  const loadAllTransactions = useCallback(async (useCache: boolean = true) => {
+  const loadAllTransactions = useCallback(async (useCache: boolean = true, isManual: boolean = false) => {
     if (isFetchingData) return;
-    setIsManualRefreshing(true);
+    if (isManual) setIsManualRefreshing(true);
     setIsFetchingData(true);
     setIsLoading(true);
     try {
@@ -250,13 +250,13 @@ export default function DailyReportPage() {
     } finally {
       setIsLoading(false);
       setIsFetchingData(false);
-      setIsManualRefreshing(false);
+      if (isManual) setIsManualRefreshing(false);
     }
   }, [isFetchingData]);
 
   useEffect(() => {
     // Defer initial heavy fetch a bit
-    const run = () => loadAllTransactions(true);
+    const run = () => loadAllTransactions(true, false);
     let h: any;
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
       // @ts-ignore
@@ -793,15 +793,15 @@ export default function DailyReportPage() {
                 <span className="text-xs text-green-600 ml-2">Đang tự làm mới...</span>
               )}
             </div>
-            <Button onClick={() => loadAllTransactions(false)} disabled={isLoading || isFetchingData} variant="outline" className="bg-white hover:bg-slate-50 text-slate-600 shadow-sm">
+            <Button onClick={() => loadAllTransactions(false, true)} disabled={isLoading || isFetchingData} variant="outline" className="bg-white hover:bg-slate-50 text-slate-600 shadow-sm">
               <RefreshCw className={`w-4 h-4 mr-2 ${isManualRefreshing ? "animate-spin" : ""}`} />
               Làm mới
             </Button>
-            <Button onClick={exportToPDF} disabled={isExporting || filteredTransactions.length === 0} className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-lg shadow-green-500/25">
+            <Button onClick={exportToPDF} disabled={isExporting} className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-lg shadow-green-500/25">
               <Download className="w-4 h-4 mr-2" />
               {isExporting ? "Đang xuất..." : "Xuất PDF"}
             </Button>
-            <Button onClick={() => setShowGrouped(!showGrouped)} disabled={filteredTransactions.length === 0 && (!canManageDailyReport || processedNotes.length === 0)} variant="outline" className="bg-white hover:bg-purple-50 border-purple-600 text-purple-600 shadow-lg shadow-purple-500/10">
+            <Button onClick={() => setShowGrouped(!showGrouped)} variant="outline" className="bg-white hover:bg-purple-50 border-purple-600 text-purple-600 shadow-lg shadow-purple-500/10">
               <ListTree className="w-4 h-4 mr-2" />
               {showGrouped ? "Ẩn DS" : "Hiện DS"}
             </Button>
