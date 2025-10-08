@@ -186,6 +186,29 @@ export default function DailyReportPage() {
   const hasInitializedFilter = useRef(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
+  // Refs để giữ state ổn định cho backgroundRefresh/loadAllTransactions
+  const isFetchingDataRef = useRef(false);
+  useEffect(() => { isFetchingDataRef.current = isFetchingData; }, [isFetchingData]);
+
+  const canManageDailyReportRef = useRef(false);
+  useEffect(() => { canManageDailyReportRef.current = !!(currentStaff?.department === "NQ"); }, [currentStaff]);
+
+  const canSeeTakenColumnRef = useRef(false);
+  useEffect(() => { canSeeTakenColumnRef.current = !!(currentStaff?.department === "NQ"); }, [currentStaff]);
+
+  const currentUsernameRef = useRef<string | undefined>(undefined);
+  useEffect(() => { currentUsernameRef.current = currentStaff?.username; }, [currentStaff]);
+
+  // Debounce hiển thị trạng thái auto refreshing để tránh chớp
+  const [showAutoRefreshing, setShowAutoRefreshing] = useState(false);
+  useEffect(() => {
+    if (autoRefresh && !isManualRefreshing && isFetchingData) {
+      const t = setTimeout(() => setShowAutoRefreshing(true), 400);
+      return () => clearTimeout(t);
+    }
+    setShowAutoRefreshing(false);
+  }, [autoRefresh, isManualRefreshing, isFetchingData]);
+
   useEffect(() => {
     const raw = getLoggedInStaff();
     if (!raw) {
@@ -234,7 +257,7 @@ export default function DailyReportPage() {
   }, [currentStaff?.username, canSeeTakenColumn]);
 
   const loadAllTransactions = useCallback(async (useCache: boolean = true, isManual: boolean = false) => {
-    if (isFetchingData) return;
+    if (isFetchingDataRef.current) return;
     if (isManual) setIsManualRefreshing(true);
     setIsFetchingData(true);
     setIsLoading(true);
@@ -252,10 +275,10 @@ export default function DailyReportPage() {
       setIsFetchingData(false);
       if (isManual) setIsManualRefreshing(false);
     }
-  }, [isFetchingData]);
+  }, []);
 
   useEffect(() => {
-    // Defer initial heavy fetch a bit
+    // Defer initial heavy fetch một lần
     const run = () => loadAllTransactions(true, false);
     let h: any;
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
@@ -274,7 +297,7 @@ export default function DailyReportPage() {
         clearTimeout(h);
       }
     };
-  }, [loadAllTransactions, loadProcessedNotes, loadTakenStatus, canManageDailyReport, canSeeTakenColumn]);
+  }, [/* chạy một lần sau mount */]);
 
   useEffect(() => {
     if (hasInitializedFilter.current) return;
@@ -288,14 +311,19 @@ export default function DailyReportPage() {
   }, []);
 
   const backgroundRefresh = useCallback(async () => {
-    if (document.hidden || isFetchingData) return;
+    if (document.hidden || isFetchingDataRef.current) return;
+
     setIsFetchingData(true);
     try {
       const range = getScopedDateRange();
       const resTx = await callFunc({ action: "list_range", start: range.start, end: range.end, parts_day: null, include_deleted: true });
-      const resNotes = canManageDailyReport ? await callFunc({ action: "list_notes" }) : { ok: false, data: [] as any };
-      const resTaken = canSeeTakenColumn && currentStaff?.username
-        ? await callFunc({ action: "list_taken_status", user_username: currentStaff.username, week_year: getCurrentWeekYear() })
+
+      const doNotes = canManageDailyReportRef.current;
+      const doTaken = canSeeTakenColumnRef.current && !!currentUsernameRef.current;
+
+      const resNotes = doNotes ? await callFunc({ action: "list_notes" }) : { ok: false, data: [] as any };
+      const resTaken = doTaken
+        ? await callFunc({ action: "list_taken_status", user_username: currentUsernameRef.current, week_year: getCurrentWeekYear() })
         : { ok: false, data: [] as any };
 
       if (resTx.ok) setAllTransactions(Array.isArray(resTx.data) ? (resTx.data as AssetTx[]) : []);
@@ -308,7 +336,7 @@ export default function DailyReportPage() {
     } finally {
       setIsFetchingData(false);
     }
-  }, [isFetchingData, canManageDailyReport, canSeeTakenColumn, currentStaff?.username]);
+  }, []);
 
   useEffect(() => {
     if (autoRefreshRef.current) {
@@ -327,7 +355,7 @@ export default function DailyReportPage() {
       }
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [autoRefresh, backgroundRefresh]);
+  }, [autoRefresh]); // không phụ thuộc backgroundRefresh để tránh re-create interval
 
   useEffect(() => {
     setCurrentPage(1);
@@ -789,11 +817,11 @@ export default function DailyReportPage() {
               <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} className="data-[state=checked]:bg-green-600" />
               <span className={`font-medium ${autoRefresh ? "text-green-600" : "text-gray-500"}`}>Auto refresh {autoRefresh ? "ON" : "OFF"}</span>
               {autoRefresh && <span className="text-xs text-gray-500">(60s)</span>}
-              {autoRefresh && !isManualRefreshing && isFetchingData && (
+              {autoRefresh && showAutoRefreshing && (
                 <span className="text-xs text-green-600 ml-2">Đang tự làm mới...</span>
               )}
             </div>
-            <Button onClick={() => loadAllTransactions(false, true)} disabled={isLoading || isFetchingData} variant="outline" className="bg-white hover:bg-slate-50 text-slate-600 shadow-sm">
+            <Button onClick={() => loadAllTransactions(false, true)} disabled={isLoading || isManualRefreshing} variant="outline" className="bg-white hover:bg-slate-50 text-slate-600 shadow-sm">
               <RefreshCw className={`w-4 h-4 mr-2 ${isManualRefreshing ? "animate-spin" : ""}`} />
               Làm mới
             </Button>
