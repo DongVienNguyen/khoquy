@@ -191,6 +191,7 @@ export default function DailyReportPage() {
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
   const autoRefreshRef = useRef<any>(null);
   const hasInitializedFilter = useRef(false);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   useEffect(() => {
     const raw = getLoggedInStaff();
@@ -233,6 +234,7 @@ export default function DailyReportPage() {
 
   const loadAllTransactions = useCallback(async (useCache: boolean = true) => {
     if (isFetchingData) return;
+    setIsManualRefreshing(true);
     setIsFetchingData(true);
     setIsLoading(true);
     try {
@@ -247,6 +249,7 @@ export default function DailyReportPage() {
     } finally {
       setIsLoading(false);
       setIsFetchingData(false);
+      setIsManualRefreshing(false);
     }
   }, [isFetchingData]);
 
@@ -307,14 +310,21 @@ export default function DailyReportPage() {
   }, [isFetchingData, canManageDailyReport, canSeeTakenColumn, currentStaff?.username]);
 
   useEffect(() => {
-    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    if (autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current);
+      autoRefreshRef.current = null;
+    }
+    let timeoutId: any = null;
     if (autoRefresh) {
       autoRefreshRef.current = setInterval(() => backgroundRefresh(), 60000);
-      const t = setTimeout(() => backgroundRefresh(), 5000);
-      return () => clearTimeout(t);
+      timeoutId = setTimeout(() => backgroundRefresh(), 5000);
     }
     return () => {
-      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current);
+        autoRefreshRef.current = null;
+      }
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [autoRefresh, backgroundRefresh]);
 
@@ -778,9 +788,12 @@ export default function DailyReportPage() {
               <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} className="data-[state=checked]:bg-green-600" />
               <span className={`font-medium ${autoRefresh ? "text-green-600" : "text-gray-500"}`}>Auto refresh {autoRefresh ? "ON" : "OFF"}</span>
               {autoRefresh && <span className="text-xs text-gray-500">(60s)</span>}
+              {autoRefresh && !isManualRefreshing && isFetchingData && (
+                <span className="text-xs text-green-600 ml-2">Đang tự làm mới...</span>
+              )}
             </div>
             <Button onClick={() => loadAllTransactions(false)} disabled={isLoading || isFetchingData} variant="outline" className="bg-white hover:bg-slate-50 text-slate-600 shadow-sm">
-              <RefreshCw className={`w-4 h-4 mr-2 ${isLoading || isFetchingData ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 mr-2 ${isManualRefreshing ? "animate-spin" : ""}`} />
               Làm mới
             </Button>
             <Button onClick={exportToPDF} disabled={isExporting || filteredTransactions.length === 0} className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-lg shadow-green-500/25">
