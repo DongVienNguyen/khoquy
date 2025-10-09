@@ -1,3 +1,5 @@
+// Add ambient type declarations for URL modules
+/// <reference path="../types.d.ts" />
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -169,8 +171,10 @@ Không thêm mô tả ngoài JSON.`;
         const year = s.slice(-10, -8);
         const codeRaw = s.slice(-4);
         const codeNum = parseInt(codeRaw, 10);
+        const yearNum = parseInt(year, 10);
         if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
-        const code = String(codeNum);
+        if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
+        const code = String(codeNum); // bỏ 0 đầu, đảm bảo 1-4 chữ số
         const formatted = `${code}.${year}`;
         if (/^\d{1,4}\.\d{2}$/.test(formatted)) derived.add(formatted);
       }
@@ -178,7 +182,26 @@ Không thêm mô tả ngoài JSON.`;
         codes = Array.from(new Set([...(codes || []), ...Array.from(derived)]));
       }
     }
-    // 3) Sắp xếp ổn định theo năm rồi mã để UI hiển thị nhất quán
+
+    // 3) Lọc chặt chẽ theo năm 20–99 và mã 1–4 chữ số
+    if (codes.length) {
+      const normalized = new Set<string>();
+      for (const c of codes) {
+        const parts = String(c).split(".");
+        if (parts.length !== 2) continue;
+        const codePart = parts[0];
+        const yearPart = parts[1];
+        const codeNum = parseInt(codePart, 10);
+        const yearNum = parseInt(yearPart, 10);
+        if (!Number.isFinite(codeNum) || codeNum < 1 || codeNum > 9999) continue;
+        if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
+        const formatted = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
+        normalized.add(formatted);
+      }
+      codes = Array.from(normalized);
+    }
+
+    // 4) Sắp xếp ổn định theo năm rồi mã để UI hiển thị nhất quán
     if (codes.length) {
       codes.sort((a: string, b: string) => {
         const [ca, ya] = a.split(".");
