@@ -614,15 +614,14 @@ serve(async (req: Request) => {
     warnings: warnings.length ? warnings : undefined,
   };
 
-  // Nếu tất cả ảnh đều lỗi OCR, trả về 502 để client hiển thị đúng nguyên nhân
+  // Nếu tất cả ảnh đều lỗi OCR, trả về payload 200 với trường error, tránh non-2xx
   const allFailed = responses.length > 0 && responses.every((r) => !!r.error);
   if (allFailed) {
     return new Response(JSON.stringify({
-      error: "Vision OCR failed for all images",
-      diagnostics,
-      details: { responses }
+      data: { codes: [], images: responses, diagnostics },
+      error: "Vision OCR failed for all images"
     }), {
-      status: 502,
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
