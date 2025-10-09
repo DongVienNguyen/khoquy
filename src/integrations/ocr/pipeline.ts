@@ -677,7 +677,8 @@ function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
   const blurred = boxBlur(grayData);
   let bestScore = -1;
   let bestCanvas = baseCanvas;
-  for (let ang = -6; ang <= 6; ang += 0.5) {
+  // Mở rộng biên độ tìm góc từ ±6° thành ±12°
+  for (let ang = -12; ang <= 12; ang += 0.5) {
     const rotated = rotateCanvas(baseCanvas, ang);
     const rd = toGrayscale(getImageData(rotated));
     const rb = boxBlur(rd);
@@ -821,6 +822,18 @@ const processOne = async (roi: HTMLCanvasElement): Promise<ROIProcessResult> => 
   const tOtsu = otsuThreshold(gray);
   const binOtsu = threshold(gray, tOtsu);
   const binClosed = closing(binOtsu);
+
+  // Quick scan PSM13 chỉ là tín hiệu sớm, KHÔNG thoát sớm nếu không thấy chuỗi
+  const cQuick = createCanvas(roiScaled.width, roiScaled.height);
+  putImageData(cQuick, binClosed);
+  const quickCand = await ocrOne(cQuick, 13);
+  variantsTried += 1;
+  const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
+  if (quickSeq && seqLooksValid(quickSeq) && (quickCand.confidence || 0) >= 75) {
+    // Nếu rất tự tin thì trả về luôn
+    return { chosenStr: quickSeq, chosenConf: Math.round(quickCand.confidence || 75), variantsTried };
+  }
+  // Nếu không đủ tự tin, tiếp tục chạy đầy đủ các biến thể
 
   const c1 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c1, gray);
   const c2 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c2, binClosed);
