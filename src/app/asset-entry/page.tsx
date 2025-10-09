@@ -23,7 +23,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import MyTodaySubmissions from "@/components/asset-entry/MyTodaySubmissions";
 import { UploadFile, ExtractDataFromUploadedFile } from "@/integrations/Core";
-import { Switch } from "@/components/ui/switch";
 
 type SafeStaff = {
   id: string;
@@ -130,8 +129,6 @@ export default function AssetEntryPage() {
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ stage: string; progress: number; total: number; detail: string }>({ stage: "", progress: 0, total: 0, detail: "" });
-  const [aiTurbo, setAiTurbo] = useState<boolean>(false);
-  const [aiMaxLines, setAiMaxLines] = useState<"auto" | "20" | "50">("auto");
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
 
@@ -429,68 +426,50 @@ export default function AssetEntryPage() {
     setMessage({ type: "", text: "" });
     try {
       const allCodes: string[] = [];
+      let detectedRoom = "";
       let index = 0;
-      // Tổng hợp thống kê qua nhiều ảnh
-      let totalLinesAll = 0;
-      let keptLinesAll = 0;
-      let sumWeightedConf = 0;
-      let totalKeptForConf = 0;
-
       for (const file of files) {
         index += 1;
         setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang tải ảnh ${index}/${files.length}...` });
         const { file_url } = await UploadFile({ file });
 
-        setAiStatus({ stage: "extracting", progress: 0, total: 1, detail: `Đang xử lý ảnh ${index}/${files.length}...` });
-        const fileNo = index; // capture for closures
-
+        setAiStatus({ stage: "extracting", progress: index - 1, total: files.length, detail: `Đang đọc mã từ ảnh ${index}/${files.length}...` });
         const result = await ExtractDataFromUploadedFile({
           file_url,
           json_schema: { type: "object", properties: { text_content: { type: "string" } } },
-        }, {
-          batchSize: 4,
-          turbo: aiTurbo,
-          maxLines: aiMaxLines === "auto" ? undefined : parseInt(aiMaxLines, 10),
-          onProgress: (p) => {
-            const phaseLabel =
-              p.phase === "deskew_crop" ? "Căn thẳng & cắt" :
-              p.phase === "normalize" ? "Chuẩn hóa" :
-              p.phase === "segment" ? "Tách dòng" :
-              p.phase === "recognize" ? "Nhận dạng" :
-              p.phase === "vote" ? "Ghép kết quả" :
-              "Điền mã";
-            const totalLines = Math.max(1, p.total || 1);
-            const cur = Math.min(p.current || 0, totalLines);
-            setAiStatus({
-              stage: phaseLabel,
-              progress: cur,
-              total: totalLines,
-              detail: `${phaseLabel} • Ảnh ${fileNo}/${files.length}${p.phase === "recognize" || p.phase === "vote" ? ` • Dòng ${cur}/${totalLines}` : ""}`,
-            });
-          },
         });
 
-        if (result.status === "success") {
-          const codesFromPipeline = result.output?.codes || [];
-          const stats = result.output?.stats;
-          if (stats) {
-            totalLinesAll += stats.totalLines || 0;
-            keptLinesAll += stats.keptLines || 0;
-            if (typeof stats.avgConfidence === "number") {
-              sumWeightedConf += stats.avgConfidence * (stats.keptLines || 0);
-              totalKeptForConf += stats.keptLines || 0;
-            }
-          }
-          if (codesFromPipeline.length > 0) {
-            for (const formatted of codesFromPipeline) {
-              if (isAssetValid(formatted)) {
-                allCodes.push(formatted);
+        if (result.status === "success" && result.output?.text_content) {
+          const rawText = result.output.text_content || "";
+          const compactText = rawText.replace(/\s+/g, "");
+          const matchesRaw = rawText.match(/(0424\d+|0423\d+)/g) || [];
+          const matchesCompact = compactText.match(/(0424\d+|0423\d+)/g) || [];
+          const matches = Array.from(new Set([...matchesRaw, ...matchesCompact]));
+          for (const match of matches) {
+            if (match.length >= 10) {
+              const prefix7 = match.substring(0, 7);
+              const prefix6 = match.substring(0, 6);
+              let room = "";
+              if (prefix7 === "0424201") room = "CMT8";
+              else if (prefix7 === "0424202") room = "NS";
+              else if (prefix7 === "0424203") room = "ĐS";
+              else if (prefix7 === "0424204") room = "LĐH";
+              else if (prefix6 === "042300") room = "DVKH";
+              else if (prefix6 === "042410") room = "QLN";
+
+              if (room && (!detectedRoom || detectedRoom === room)) {
+                detectedRoom = room;
+                const year = match.slice(-10, -8);
+                const code = parseInt(match.slice(-4), 10);
+                const formatted = `${code}.${year}`;
+                if (isAssetValid(formatted)) {
+                  allCodes.push(formatted);
+                }
               }
             }
           }
         }
-
-        setAiStatus({ stage: "done-image", progress: index, total: files.length, detail: `Đã xử lý ${index}/${files.length} ảnh` });
+        setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã xử lý ${index}/${files.length} ảnh` });
       }
 
       if (allCodes.length === 0) {
@@ -500,19 +479,15 @@ export default function AssetEntryPage() {
       }
 
       const uniqueCodes = Array.from(new Set(allCodes));
+      if (detectedRoom) handleRoomChange(detectedRoom);
       setMultipleAssets((prev) => {
         const existing = prev.filter((a) => a.trim());
         const merged = Array.from(new Set([...existing, ...uniqueCodes]));
         return merged.length > 0 ? merged : [""];
       });
       setIsImageDialogOpen(false);
-      const overallAvg = totalKeptForConf ? Math.round(sumWeightedConf / totalKeptForConf) : undefined;
-      const summaryDetail =
-        keptLinesAll && totalLinesAll
-          ? `Đã điền ${uniqueCodes.length} mã • Giữ ${keptLinesAll}/${totalLinesAll} dòng${typeof overallAvg === "number" ? ` • Tin cậy ~${overallAvg}%` : ""}.`
-          : `Đã điền ${uniqueCodes.length} mã tài sản.`;
-      setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: summaryDetail });
-      setMessage({ type: "success", text: summaryDetail });
+      setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.` });
+      setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
     } catch (_err) {
       setAiStatus({ stage: "error", progress: 0, total: 0, detail: "Có lỗi xảy ra khi xử lý hình ảnh." });
       setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
@@ -520,7 +495,7 @@ export default function AssetEntryPage() {
       setIsProcessingImage(false);
       setTimeout(() => setAiStatus({ stage: "", progress: 0, total: 0, detail: "" }), 1200);
     }
-  }, [isAssetValid, aiTurbo, aiMaxLines]);
+  }, [isAssetValid, handleRoomChange]);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -707,26 +682,6 @@ export default function AssetEntryPage() {
                     <DialogContent className="max-w-md">
                       <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                          <div>
-                            <div className="text-sm font-medium">Chế độ nhanh</div>
-                            <div className="text-xs text-muted-foreground">Ưu tiên tốc độ, có thể giảm nhẹ độ chính xác</div>
-                          </div>
-                          <Switch checked={aiTurbo} onCheckedChange={setAiTurbo} className="data-[state=checked]:bg-green-600" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-2">
-                            <Label>Giới hạn số dòng OCR</Label>
-                            <Select value={aiMaxLines} onValueChange={(v) => setAiMaxLines(v as any)}>
-                              <SelectTrigger className="h-10"><SelectValue placeholder="Chọn giới hạn" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="auto">Auto</SelectItem>
-                                <SelectItem value="20">20 dòng</SelectItem>
-                                <SelectItem value="50">50 dòng</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
                         <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
                           <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
                         </Button>
