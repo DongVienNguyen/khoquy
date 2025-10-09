@@ -141,6 +141,8 @@ export default function AssetEntryPage() {
   
   // Khai báo refs cho các ô nhập mã và hàm format ngày ngắn
   const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
   const formatDateShort = React.useCallback((date: Date | null) => {
     if (!date) return "Chọn ngày";
     const d = new Date(date);
@@ -148,6 +150,40 @@ export default function AssetEntryPage() {
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const yy = String(d.getFullYear()).slice(-2);
     return `${dd}/${mm}/${yy}`;
+  }, []);
+
+  // Tự động focus vào ô nhập đầu tiên khi mở trang
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const el = assetInputRefs.current[0];
+      if (el) {
+        try {
+          el.focus();
+          // Đưa con trỏ về cuối nội dung
+          const len = el.value?.length ?? 0;
+          el.setSelectionRange?.(len, len);
+        } catch {}
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Lắng nghe thay đổi VisualViewport để né bàn phím ảo
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const onChange = () => {
+      // Phần không gian bị che phía dưới
+      const occluded = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+      setKeyboardOffset(occluded);
+    };
+    onChange();
+    vv.addEventListener("resize", onChange);
+    vv.addEventListener("scroll", onChange);
+    return () => {
+      vv.removeEventListener("resize", onChange);
+      vv.removeEventListener("scroll", onChange);
+    };
   }, []);
 
   // Defaults per spec
@@ -607,6 +643,9 @@ export default function AssetEntryPage() {
     setMyRows((prev) => prev.filter((r) => r.id !== id));
   }, [currentStaff]);
 
+  // Tính toán vị trí đáy cho thanh hành động mobile (tôn trọng safe area)
+  const mobileBarBottom = `calc(${Math.max(8, keyboardOffset + 8)}px + env(safe-area-inset-bottom))`;
+
   return (
     <div className="w-full">
       <SonnerToaster />
@@ -988,8 +1027,8 @@ export default function AssetEntryPage() {
 
         {/* Mobile sticky actions */}
         {(!isRestrictedTime || currentStaff?.role === "admin") ? (
-          <div className="md:hidden fixed bottom-4 left-0 right-0 z-40 px-4">
-            <div className="bg-white/95 backdrop-blur shadow-lg rounded-xl p-3 flex items-center gap-2 border">
+          <div className="md:hidden fixed left-0 right-0 z-40 px-4" style={{ bottom: mobileBarBottom }}>
+            <div className="bg-white/95 backdrop-blur shadow-lg rounded-xl p-3 flex items-center gap-2 border" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
               <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setMessage({ type: "", text: "" }); }} variant="outline" className="flex-1">Clear</Button>
               <Button onClick={() => handleOpenConfirm()} disabled={!isFormValid || isLoading} className="flex-1 bg-green-600 text-white hover:bg-green-700">
                 {isLoading ? "Đang gửi..." : "Gửi thông báo"}
@@ -997,8 +1036,8 @@ export default function AssetEntryPage() {
             </div>
           </div>
         ) : (
-          <div className="md:hidden fixed bottom-4 left-0 right-0 z-40 px-4">
-            <div className="bg-orange-50 border border-orange-200 text-orange-700 rounded-xl p-3 text-center">
+          <div className="md:hidden fixed left-0 right-0 z-40 px-4" style={{ bottom: mobileBarBottom }}>
+            <div className="bg-orange-50 border border-orange-200 text-orange-700 rounded-xl p-3 text-center" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
               Khung giờ nghỉ • Vui lòng nhắn Zalo
             </div>
           </div>
