@@ -14,6 +14,7 @@ type OcrImageResult = {
   candidates_count: number;
   codes: string[];
   error?: string;
+  raw_042_segments?: string[]; // thêm: chuỗi số thô bắt đầu 042
 };
 
 type Diagnostics = {
@@ -196,6 +197,17 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
   });
 
   return { codes: sorted, lines_count: lines_count, candidates_count };
+}
+
+function find042Segments(text: string): string[] {
+  const normalized = normalizeText(text);
+  const pattern = /(?:^|[^0-9])(042(?:[ \t\r\n\-\/_]*\d){8,})(?:[^0-9]|$)/g;
+  const out: string[] = [];
+  for (const match of normalized.matchAll(pattern)) {
+    const seg = (match[1] ?? match[0]).replace(/\D/g, "");
+    if (seg.startsWith("042")) out.push(seg);
+  }
+  return Array.from(new Set(out));
 }
 
 async function ensureBucket(supabase: any, bucketName: string) {
@@ -499,8 +511,9 @@ serve(async (req: Request) => {
     // Gọi OCR lần 1: TEXT_DETECTION với timeout + retry
     const first = await callVisionOCR(GOOGLE_VISION_API_KEY, img.base64, "TEXT_DETECTION", 12000, 1);
     if (!first.ok) {
-      warnings.push(`Vision error for image ${index}: ${first.status || "network/timeout"}`);
-      responses.push({ index, lines_count: 0, candidates_count: 0, codes: [], error: `Vision error ${first.status || "timeout"}` });
+      const msg = first.json?.error?.message || "network/timeout";
+      warnings.push(`Vision error for image ${index}: ${first.status || "unknown"} - ${msg}`);
+      responses.push({ index, lines_count: 0, candidates_count: 0, codes: [], error: `Vision error ${first.status || "timeout"}: ${msg}`, raw_042_segments: [] });
       return;
     }
 
@@ -519,11 +532,14 @@ serve(async (req: Request) => {
           annotation?.fullTextAnnotation?.text ??
           annotation?.textAnnotations?.[0]?.description ??
           "";
+      } else {
+        const msg = second.json?.error?.message || "no text detected";
+        warnings.push(`Vision fallback error for image ${index}: ${second.status || "unknown"} - ${msg}`);
       }
     }
 
     if (!fullText || typeof fullText !== "string") {
-      responses.push({ index, lines_count: 0, candidates_count: 0, codes: [], error: "No text detected" });
+      responses.push({ index, lines_count: 0, candidates_count: 0, codes: [], error: "No text detected", raw_042_segments: [] });
       return;
     }
 
@@ -542,7 +558,8 @@ serve(async (req: Request) => {
       candidatesCount = secondPass.candidates_count;
     }
 
-    responses.push({ index, lines_count: linesCount, candidates_count: candidatesCount, codes });
+    const raw042 = find042Segments(fullText);
+    responses.push({ index, lines_count: linesCount, candidates_count: candidatesCount, codes, raw_042_segments: raw042 });
   }
 
   const tasks: Promise<void>[] = [];
@@ -596,6 +613,19 @@ serve(async (req: Request) => {
     payload_bytes: totalBytes,
     warnings: warnings.length ? warnings : undefined,
   };
+
+  // Nếu tất cả ảnh đều lỗi OCR, trả về 502 để client hiển thị đúng nguyên nhân
+  const allFailed = responses.length > 0 && responses.every((r) => !!r.error);
+  if (allFailed) {
+    return new Response(JSON.stringify({
+      error: "Vision OCR failed for all images",
+      diagnostics,
+      details: { responses }
+    }), {
+      status: 502,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   return new Response(JSON.stringify({ data: { codes: merged, images: responses, diagnostics } }), {
     status: 200,
