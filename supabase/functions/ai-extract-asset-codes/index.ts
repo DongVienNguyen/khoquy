@@ -144,15 +144,30 @@ function codeFromLongSequence(seq: string): string | null {
   return /^\d{1,4}\.\d{2}$/.test(formatted) ? formatted : null;
 }
 
-function extractCodesFromSequences(seqs: string[]): { formatted: string; weight: number }[] {
+function extractCodesFromSequences(
+  seqs: string[],
+  counters?: { invalidYearOrCode: number; shortSeq: number }
+): { formatted: string; weight: number }[] {
   const out: { formatted: string; weight: number }[] = [];
   for (const raw of seqs) {
     const seq = String(raw || "").replace(/[^\d]/g, "");
-    if (!/^\d{12,}$/.test(seq)) continue;
-    if (isDateLikeSequence(raw)) continue; // if raw contained separators, skip
-    const formatted = codeFromLongSequence(seq);
-    if (formatted) {
-      out.push({ formatted, weight: seq.length });
+    if (seq.length < 12) {
+      if (counters) counters.shortSeq += 1;
+      continue;
+    }
+    // Deterministic parse inline to categorize invalids
+    const s = seq;
+    const yearStr = s.slice(-10, -8);
+    const codeRaw = s.slice(-4);
+    const codeNum = parseInt(codeRaw, 10);
+    const yearNum = parseInt(yearStr, 10);
+    if (!Number.isFinite(codeNum) || codeNum <= 0 || !Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) {
+      if (counters) counters.invalidYearOrCode += 1;
+      continue;
+    }
+    const formatted = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
+    if (/^\d{1,4}\.\d{2}$/.test(formatted)) {
+      out.push({ formatted, weight: s.length });
     }
   }
   return out;
@@ -173,25 +188,31 @@ function deriveFromRawText(raw: string): string[] {
 
 type VoteInput = { code: number; year: number; weight: number };
 function voteCodes(items: VoteInput[]): { final: string[]; needsConfirm: { codes: string[]; options: Record<string, string[]> } } {
-  const byCode: Record<number, Record<number, number>> = {}; // code -> year -> weight
-  const yearOptions: Record<number, Set<number>> = {};
+  // Aggregation: sum weights and track max sequence-derived weight per (code, year)
+  const byCodeSum: Record<number, Record<number, number>> = {};
+  const byCodeMax: Record<number, Record<number, number>> = {};
   for (const it of items) {
-    byCode[it.code] ??= {};
-    byCode[it.code][it.year] = (byCode[it.code][it.year] ?? 0) + it.weight;
-    yearOptions[it.code] ??= new Set<number>();
-    yearOptions[it.code].add(it.year);
+    byCodeSum[it.code] ??= {};
+    byCodeMax[it.code] ??= {};
+    byCodeSum[it.code][it.year] = (byCodeSum[it.code][it.year] ?? 0) + it.weight;
+    byCodeMax[it.code][it.year] = Math.max(byCodeMax[it.code][it.year] ?? 0, it.weight);
   }
   const final: string[] = [];
   const needsCodes: string[] = [];
   const options: Record<string, string[]> = {};
-  for (const codeStr of Object.keys(byCode)) {
+  for (const codeStr of Object.keys(byCodeSum)) {
     const code = parseInt(codeStr, 10);
-    const years = byCode[code];
-    const entries = Object.entries(years).map(([y, w]) => ({ year: parseInt(y, 10), weight: w }));
-    entries.sort((a, b) => b.weight - a.weight || a.year - b.year);
+    const yearsSum = byCodeSum[code];
+    const yearsMax = byCodeMax[code];
+    const entries = Object.keys(yearsSum).map((y) => ({
+      year: parseInt(y, 10),
+      weight: yearsSum[parseInt(y, 10)],
+      maxW: yearsMax[parseInt(y, 10)] ?? 0
+    }));
+    entries.sort((a, b) => b.weight - a.weight || b.maxW - a.maxW || a.year - b.year);
     if (entries.length === 0) continue;
-    if (entries.length > 1 && entries[0].weight === entries[1].weight) {
-      // tie → needs confirmation
+    if (entries.length > 1 && entries[0].weight === entries[1].weight && entries[0].maxW === entries[1].maxW) {
+      // Still tie after considering longest sequence → needs confirmation
       needsCodes.push(String(code));
       options[String(code)] = entries.map((e) => `${code}.${String(e.year).padStart(2, "0")}`);
     } else {
@@ -357,12 +378,14 @@ serve(async (req: Request) => {
       headers["X-Title"] = "Asset AI Extractor (URL mode)";
     }
 
-    type ImageResult = { index: number; lines_count: number; long_numeric_sequences: string[]; codes: string[] };
+    type ImageResult = { index: number; lines_count: number; long_numeric_sequences: string[]; codes: string[]; confidence?: number };
     const perImageResults: ImageResult[] = [];
     const votePool: VoteInput[] = [];
     let allCodesFromModel: string[] = [];
     let removedDatePattern = 0;
     let longSeqTotal = 0;
+    let invalidYearOrCode = 0;
+    const confidences: number[] = [];
 
     for (let i = 0; i < signedUrls.length; i++) {
       const url = signedUrls[i];
@@ -403,10 +426,14 @@ serve(async (req: Request) => {
       }
 
       // Build per image result with fallback
-      const entry: ImageResult = { index: i, lines_count: 0, long_numeric_sequences: [], codes: [] };
+      const entry: ImageResult = { index: i, lines_count: 0, long_numeric_sequences: [], codes: [], confidence: 0 };
       if (parsed && Array.isArray(parsed.images) && parsed.images.length > 0) {
         const img0 = parsed.images[0];
         entry.lines_count = Number(img0?.lines_count ?? 0);
+        const confRaw = Number(img0?.confidence ?? 0);
+        const conf = Number.isFinite(confRaw) ? Math.min(1, Math.max(0, confRaw)) : 0;
+        entry.confidence = conf;
+        confidences.push(conf);
         const seqs = Array.isArray(img0?.long_numeric_sequences) ? img0.long_numeric_sequences.map((s: any) => String(s || "")) : [];
         const cleanSeqs = seqs.filter((s: string) => /^\d{12,}$/.test(s));
         removedDatePattern += seqs.length - cleanSeqs.length;
@@ -425,12 +452,16 @@ serve(async (req: Request) => {
       perImageResults.push(entry);
 
       // Deterministic extraction from long sequences
-      const extracted = extractCodesFromSequences(entry.long_numeric_sequences);
+      const extracted = extractCodesFromSequences(entry.long_numeric_sequences, { invalidYearOrCode, shortSeq: 0 });
+      // Update invalidYearOrCode counter from the temp container
+      invalidYearOrCode = (extracted as any).invalidYearOrCode ?? invalidYearOrCode;
       for (const ex of extracted) {
         const [codePart, yearPart] = ex.formatted.split(".");
         const codeNum = parseInt(codePart, 10);
         const yearNum = parseInt(yearPart, 10);
-        votePool.push({ code: codeNum, year: yearNum, weight: ex.weight });
+        const conf = typeof entry.confidence === "number" ? Math.min(1, Math.max(0, entry.confidence)) : 0;
+        const weighted = ex.weight * (1 + conf);
+        votePool.push({ code: codeNum, year: yearNum, weight: weighted });
       }
 
       // Collect model-provided codes for reference (not trusted)
@@ -461,6 +492,8 @@ serve(async (req: Request) => {
       ai_ms_per_image: aiDurations,
       long_sequences_total: longSeqTotal,
       removed_due_to_date_like: removedDatePattern,
+      invalid_year_or_code: invalidYearOrCode,
+      avg_confidence: confidences.length ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 100) / 100 : null,
       codes_count_final: normalizedFinal.length,
       needs_confirmation_count: voteResult.needsConfirm.codes.length,
       rate_limit: { key: rateKey, window_start: rlWindowStartIso, count_before: rlCountBefore }
