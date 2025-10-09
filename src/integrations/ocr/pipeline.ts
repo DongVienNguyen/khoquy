@@ -16,7 +16,23 @@ export type OCRPipelineResult = {
     keptLines: number;
     avgConfidence?: number;
     durationMs: number;
+    droppedIndices?: number[];
+    variantsTriedPerLine?: number;
   };
+};
+
+export type OCRProgress = {
+  phase: "deskew_crop" | "normalize" | "segment" | "recognize" | "vote" | "done";
+  current: number;
+  total: number;
+  detail?: string;
+};
+
+type DetectOptions = {
+  onProgress?: (p: OCRProgress) => void;
+  batchSize?: number; // số dòng xử lý song song
+  turbo?: boolean; // true: ít biến thể hơn để nhanh hơn
+  maxLines?: number; // giới hạn số dòng tối đa
 };
 
 // Helpers
@@ -407,7 +423,15 @@ function cropColumn(binary: ImageData, srcCanvas: HTMLCanvasElement): HTMLCanvas
  * - For each line: build multi variants (gamma, thresholds incl. Otsu), run OCR with PSM 7 & 11 in parallel, per-char voting
  * - Filter 0423/0424, dedupe, detect room by prefix
  */
-export async function detectCodesFromImage(input: Blob | string): Promise<OCRPipelineResult> {
+export async function detectCodesFromImage(
+  input: Blob | string,
+  options?: DetectOptions
+): Promise<OCRPipelineResult> {
+  const onProgress = options?.onProgress;
+  const batchSize = Math.max(1, options?.batchSize ?? 4);
+  const turbo = options?.turbo ?? false;
+  const maxLines = options?.maxLines;
+
   const t0 = performance.now();
   const img = await loadImageFrom(input);
   let baseCanvas = drawImageToCanvas(img);
@@ -420,6 +444,7 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
 
   // Deskew
   const deskewed = deskewBySearch(baseCanvas);
+  onProgress?.({ phase: "deskew_crop", current: 0, total: 1, detail: "Căn thẳng & cắt cột số" });
 
   // Base grayscale + binary
   const grayData0 = toGrayscale(getImageData(deskewed));
@@ -438,14 +463,25 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
   const binCanvas = createCanvas(columnCanvas.width, columnCanvas.height);
   putImageData(binCanvas, binForSeg);
 
+  onProgress?.({ phase: "normalize", current: 0, total: 1, detail: "Chuẩn hóa & nhị phân hóa" });
+
   // Segment lines
   const lines = segmentLines(binForSeg);
-  const lineRois = lines.map((box) => cropToCanvas(columnCanvas, box));
+  let lineRois = lines.map((box) => cropToCanvas(columnCanvas, box));
+  if (typeof maxLines === "number" && maxLines > 0) {
+    lineRois = lineRois.slice(0, maxLines);
+  }
+  onProgress?.({ phase: "segment", current: lineRois.length, total: lineRois.length, detail: `Tách ${lineRois.length} dòng` });
 
   const results: string[] = [];
   const confidences: number[] = [];
+  const droppedIndices: number[] = [];
 
-  for (const roi of lineRois) {
+  const total = lineRois.length;
+  let done = 0;
+
+  // helper xử lý 1 dòng
+  const processOne = async (roi: HTMLCanvasElement) => {
     // Normalize height for OCR
     const targetH = 64;
     const roiScaled = scaleCanvas(roi, targetH);
@@ -470,12 +506,19 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
       canvases.push(c);
     };
 
-    pushDataCanvas(roiGray);
-    pushDataCanvas(roiGamma08);
-    pushDataCanvas(roiGamma12);
-    pushDataCanvas(roiBinOtsu);
-    pushDataCanvas(roiBin160);
-    pushDataCanvas(roiBin190);
+    // Turbo: ít biến thể hơn để nhanh
+    if (turbo) {
+      pushDataCanvas(roiGray);
+      pushDataCanvas(roiBinOtsu);
+      pushDataCanvas(roiBin160);
+    } else {
+      pushDataCanvas(roiGray);
+      pushDataCanvas(roiGamma08);
+      pushDataCanvas(roiGamma12);
+      pushDataCanvas(roiBinOtsu);
+      pushDataCanvas(roiBin160);
+      pushDataCanvas(roiBin190);
+    }
 
     const PSM7 = 7;
     const PSM11 = 11;
@@ -544,10 +587,24 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
       }
     }
 
-    if (chosenStr) {
-      results.push(chosenStr);
-      confidences.push(chosenConf);
-    }
+    return { chosenStr, chosenConf };
+  };
+
+  onProgress?.({ phase: "recognize", current: 0, total, detail: "Nhận dạng các dòng" });
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = lineRois.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map((roi) => processOne(roi)));
+    batchResults.forEach((br, idx) => {
+      const lineIndex = i + idx;
+      if (br.chosenStr) {
+        results.push(br.chosenStr);
+        confidences.push(br.chosenConf || 0);
+      } else {
+        droppedIndices.push(lineIndex);
+      }
+      done += 1;
+      onProgress?.({ phase: "recognize", current: done, total, detail: `Nhận dạng dòng ${done}/${total}` });
+    });
   }
 
   // Dedupe while preserving order
@@ -557,6 +614,8 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
     seen.add(r);
     return true;
   });
+
+  onProgress?.({ phase: "vote", current: orderedUnique.length, total: total, detail: "Ghép kết quả & lọc trùng" });
 
   // Detect room by prefixes
   let detectedRoom = "";
@@ -580,6 +639,8 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
   const t1 = performance.now();
   const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
 
+  onProgress?.({ phase: "done", current: orderedUnique.length, total: total, detail: "Điền mã" });
+
   return {
     codes: orderedUnique,
     detectedRoom: detectedRoom || undefined,
@@ -588,6 +649,8 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
       keptLines: orderedUnique.length,
       avgConfidence,
       durationMs: Math.round(t1 - t0),
+      droppedIndices,
+      variantsTriedPerLine: turbo ? 3 * 2 : 6 * 2, // variants * PSM
     },
   };
 }

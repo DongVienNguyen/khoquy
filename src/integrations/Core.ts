@@ -2,11 +2,18 @@
 
 import Tesseract from "tesseract.js";
 import { detectCodesFromImage, warmUpOcr } from "./ocr/pipeline.ts";
+import type { OCRProgress } from "./ocr/pipeline.ts";
 
 type UploadFileParams = { file: File };
 type UploadFileResult = { file_url: string };
 
 type ExtractParams = { file_url: string; json_schema?: Record<string, any> };
+type ExtractOptions = {
+  onProgress?: (p: OCRProgress) => void;
+  turbo?: boolean;
+  batchSize?: number;
+  maxLines?: number;
+};
 type ExtractResult =
   | { status: "success"; output: { text_content: string; codes?: string[]; detected_room?: string } }
   | { status: "error"; error: string };
@@ -23,12 +30,20 @@ export async function UploadFile({ file }: UploadFileParams): Promise<UploadFile
 // Warm up Tesseract in background when module loads (reduce first-call latency)
 void warmUpOcr().catch(() => {});
 
-export async function ExtractDataFromUploadedFile({ file_url }: ExtractParams): Promise<ExtractResult> {
+export async function ExtractDataFromUploadedFile(
+  { file_url }: ExtractParams,
+  options?: ExtractOptions
+): Promise<ExtractResult> {
   const blob = uploadedFilesMap.get(file_url);
 
   try {
     // Prefer our pipeline (handles preprocessing, line segmentation, ensemble OCR, voting, business parsing)
-    const result = await detectCodesFromImage(blob ?? file_url);
+    const result = await detectCodesFromImage(blob ?? file_url, {
+      onProgress: options?.onProgress,
+      turbo: options?.turbo,
+      batchSize: options?.batchSize,
+      maxLines: options?.maxLines,
+    });
 
     // Keep backward compatibility: return newline-joined codes as text_content
     const text_content = (result.codes || []).join("\n");

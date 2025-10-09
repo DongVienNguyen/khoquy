@@ -433,10 +433,34 @@ export default function AssetEntryPage() {
         setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang tải ảnh ${index}/${files.length}...` });
         const { file_url } = await UploadFile({ file });
 
-        setAiStatus({ stage: "extracting", progress: index - 1, total: files.length, detail: `Đang đọc mã từ ảnh ${index}/${files.length}...` });
+        setAiStatus({ stage: "extracting", progress: 0, total: 1, detail: `Đang xử lý ảnh ${index}/${files.length}...` });
+        const fileNo = index; // capture for closures
+
         const result = await ExtractDataFromUploadedFile({
           file_url,
           json_schema: { type: "object", properties: { text_content: { type: "string" } } },
+        }, {
+          // Tối ưu an toàn: dùng batch 4, không bật turbo để chính xác hơn
+          batchSize: 4,
+          onProgress: (p) => {
+            // Map phase -> label
+            const phaseLabel =
+              p.phase === "deskew_crop" ? "Căn thẳng & cắt" :
+              p.phase === "normalize" ? "Chuẩn hóa" :
+              p.phase === "segment" ? "Tách dòng" :
+              p.phase === "recognize" ? "Nhận dạng" :
+              p.phase === "vote" ? "Ghép kết quả" :
+              "Điền mã";
+            // Nếu có tổng dòng, hiển thị phần trăm theo dòng
+            const totalLines = Math.max(1, p.total || 1);
+            const cur = Math.min(p.current || 0, totalLines);
+            setAiStatus({
+              stage: phaseLabel,
+              progress: cur,
+              total: totalLines,
+              detail: `${phaseLabel} • Ảnh ${fileNo}/${files.length}${p.phase === "recognize" || p.phase === "vote" ? ` • Dòng ${cur}/${totalLines}` : ""}`,
+            });
+          },
         });
 
         // Ưu tiên dùng kết quả từ pipeline: codes và detected_room
@@ -456,7 +480,7 @@ export default function AssetEntryPage() {
           }
         }
 
-        setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã xử lý ${index}/${files.length} ảnh` });
+        setAiStatus({ stage: "done-image", progress: index, total: files.length, detail: `Đã xử lý ${index}/${files.length} ảnh` });
       }
 
       if (allCodes.length === 0) {
