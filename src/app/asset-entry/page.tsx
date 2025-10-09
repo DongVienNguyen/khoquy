@@ -478,8 +478,48 @@ export default function AssetEntryPage() {
         },
       });
 
+      // helper: AI fallback
+      const tryAiFallback = async (): Promise<string[] | null> => {
+        setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang dùng AI fallback..." });
+        const aiRes = await supabase.functions.invoke("ai-extract-asset-codes", {
+          body: { images },
+          headers: { 
+            Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
+            apikey: SUPABASE_PUBLIC_ANON_KEY
+          },
+        });
+        if (aiRes.error) {
+          const aiMsg = aiRes.error.message || "AI fallback error";
+          setAiStatus({ stage: "error", progress: 0, total: files.length, detail: aiMsg });
+          setMessage({ type: "error", text: aiMsg });
+          return null;
+        }
+        const aiPayload: any = aiRes.data?.data ?? aiRes.data;
+        const aiCodes: string[] = Array.isArray(aiPayload?.codes) ? aiPayload.codes : [];
+        if (!aiCodes.length) return null;
+        return Array.from(new Set(aiCodes));
+      };
+
       if (error) {
         const errMsg = error.message || "AI lỗi khi phân tích hình ảnh.";
+        // Nếu là lỗi bị block, thử fallback
+        if (/blocked/i.test(errMsg) || /403/.test(errMsg)) {
+          const codes = await tryAiFallback();
+          if (codes && codes.length) {
+            const uniqueCodes = Array.from(new Set(codes)).filter((formatted) => isAssetValid(formatted));
+            if (uniqueCodes.length) {
+              setMultipleAssets((prev) => {
+                const existing = prev.filter((a) => a.trim());
+                const merged = Array.from(new Set([...existing, ...uniqueCodes]));
+                return merged.length > 0 ? merged : [""];
+              });
+              setIsImageDialogOpen(false);
+              setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
+              setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
+              return;
+            }
+          }
+        }
         setAiStatus({ stage: "error", progress: 0, total: files.length, detail: errMsg });
         setMessage({ type: "error", text: errMsg });
         return;
@@ -494,6 +534,26 @@ export default function AssetEntryPage() {
         const firstWarn = Array.isArray(diagnostics?.warnings) ? diagnostics.warnings[0] : undefined;
         const firstImgErr = Array.isArray(imagesInfo) ? imagesInfo.find((x: any) => x?.error)?.error : undefined;
         const errMsg = firstWarn || firstImgErr || serverError;
+
+        // Nếu bị chặn Vision thì fallback AI
+        if (/blocked/i.test(String(errMsg))) {
+          const codes = await tryAiFallback();
+          if (codes && codes.length) {
+            const uniqueCodes = Array.from(new Set(codes)).filter((formatted) => isAssetValid(formatted));
+            if (uniqueCodes.length) {
+              setMultipleAssets((prev) => {
+                const existing = prev.filter((a) => a.trim());
+                const merged = Array.from(new Set([...existing, ...uniqueCodes]));
+                return merged.length > 0 ? merged : [""];
+              });
+              setIsImageDialogOpen(false);
+              setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
+              setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
+              return;
+            }
+          }
+        }
+
         setAiStatus({ stage: "error", progress: 0, total: files.length, detail: errMsg });
         setMessage({ type: "error", text: errMsg });
         return;
@@ -502,6 +562,23 @@ export default function AssetEntryPage() {
       const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
 
       if (!aiCodes.length) {
+        // Không ra mã từ Vision -> thử AI fallback
+        const codes = await tryAiFallback();
+        if (codes && codes.length) {
+          const uniqueCodes = Array.from(new Set(codes)).filter((formatted) => isAssetValid(formatted));
+          if (uniqueCodes.length) {
+            setMultipleAssets((prev) => {
+              const existing = prev.filter((a) => a.trim());
+              const merged = Array.from(new Set([...existing, ...uniqueCodes]));
+              return merged.length > 0 ? merged : [""];
+            });
+            setIsImageDialogOpen(false);
+            setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
+            setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
+            return;
+          }
+        }
+
         const firstWarn = Array.isArray(diagnostics?.warnings) ? diagnostics.warnings[0] : undefined;
         const firstImgErr = Array.isArray(imagesInfo) ? imagesInfo.find((x: any) => x?.error)?.error : undefined;
         const msg = firstWarn || firstImgErr || "Không tìm thấy mã tài sản hợp lệ trong hình ảnh.";
