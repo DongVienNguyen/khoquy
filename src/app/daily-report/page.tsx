@@ -798,6 +798,43 @@ export default function DailyReportPage() {
     setIsExporting(false);
   };
 
+  const exportFilteredCSV = useCallback(() => {
+    if (!filteredTransactions.length) {
+      toast.info("Không có dữ liệu để xuất.");
+      return;
+    }
+    const esc = (s: any) => {
+      const v = String(s ?? "");
+      const w = v.replace(/"/g, '""');
+      return /[",\n\r]/.test(w) ? `"${w}"` : w;
+    };
+    const header = ["Phòng","Năm TS","Mã TS","Loại","Ngày","Buổi","Ghi chú","CB","Time nhắn","ID"];
+    const lines: string[] = [header.join(",")];
+    for (const t of filteredTransactions) {
+      lines.push([
+        esc(t.room),
+        esc(t.asset_year),
+        esc(t.asset_code),
+        esc(t.transaction_type),
+        esc(t.transaction_date),
+        esc(t.parts_day),
+        esc(t.note || ""),
+        esc(t.staff_code),
+        esc(t.notified_at),
+        esc(t.id),
+      ].join(","));
+    }
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `DailyReport_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [filteredTransactions]);
+
   const todayText = useMemo(() => {
     const nowLocal = new Date();
     const sWeek = format(startOfCurrentWeek, "II");
@@ -861,6 +898,10 @@ export default function DailyReportPage() {
             <Button onClick={() => loadAllTransactions(false, true)} disabled={isLoading || isManualRefreshing} variant="outline" className="bg-white hover:bg-slate-50 text-slate-600 shadow-sm">
               <RefreshCw className={`w-4 h-4 mr-2 ${isManualRefreshing ? "animate-spin" : ""}`} />
               Làm mới
+            </Button>
+            <Button onClick={exportFilteredCSV} variant="outline" className="bg-white hover:bg-slate-50 text-slate-600 shadow-sm">
+              <Download className="w-4 h-4 mr-2" />
+              Xuất CSV
             </Button>
             <Button onClick={exportToPDF} disabled={isExporting} className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-lg shadow-green-500/25">
               <Download className="w-4 h-4 mr-2" />
