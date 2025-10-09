@@ -106,6 +106,43 @@ function histogram(imageData: ImageData): number[] {
   return hist;
 }
 
+// Tăng tương phản theo percentile để làm rõ chữ số trước khi threshold
+function enhanceContrast(imageData: ImageData, lowerPct: number = 0.05, upperPct: number = 0.95): ImageData {
+  const { width, height, data } = imageData;
+  const total = width * height;
+  const hist = histogram(imageData);
+
+  const lowThr = Math.max(0, Math.min(total - 1, Math.floor(total * lowerPct)));
+  const highThr = Math.max(0, Math.min(total - 1, Math.floor(total * upperPct)));
+
+  let cum = 0;
+  let lowVal = 0;
+  for (let i = 0; i < 256; i++) {
+    cum += hist[i];
+    if (cum >= lowThr) { lowVal = i; break; }
+  }
+  cum = 0;
+  let highVal = 255;
+  for (let i = 0; i < 256; i++) {
+    cum += hist[i];
+    if (cum >= highThr) { highVal = i; break; }
+  }
+
+  if (highVal <= lowVal) return imageData;
+
+  const out = new ImageData(width, height);
+  const o = out.data;
+  const scale = 255 / Math.max(1, highVal - lowVal);
+
+  for (let i = 0; i < data.length; i += 4) {
+    const y = data[i];
+    const v = clamp(Math.round((y - lowVal) * scale), 0, 255);
+    o[i] = o[i + 1] = o[i + 2] = v;
+    o[i + 3] = 255;
+  }
+  return out;
+}
+
 function otsuThreshold(imageData: ImageData): number {
   const hist = histogram(imageData);
   const total = imageData.width * imageData.height;
@@ -669,11 +706,12 @@ async function ocrDigitBest(c: HTMLCanvasElement, turbo: boolean): Promise<{ ch:
   const jobs: Promise<OCRCandidate>[] = [];
   // Chuẩn bị biến thể nhẹ nhàng
   const gray = toGrayscale(getImageData(c));
-  const tOtsu = otsuThreshold(gray);
-  const binOtsu = threshold(gray, tOtsu);
+  const grayEnhanced = enhanceContrast(gray, 0.03, 0.97);
+  const tOtsu = otsuThreshold(grayEnhanced);
+  const binOtsu = threshold(grayEnhanced, tOtsu);
   const binClosed = closing(binOtsu);
 
-  const cv1 = createCanvas(c.width, c.height); putImageData(cv1, gray);
+  const cv1 = createCanvas(c.width, c.height); putImageData(cv1, grayEnhanced);
   const cv2 = createCanvas(c.width, c.height); putImageData(cv2, binOtsu);
   const cv3 = createCanvas(c.width, c.height); putImageData(cv3, binClosed);
 
@@ -775,11 +813,12 @@ export async function detectCodesFromImage(
     const roiScaled = scaleCanvas(roi, targetH);
 
     const roiGray = toGrayscale(getImageData(roiScaled));
+    const roiGrayEnhanced = enhanceContrast(roiGray, 0.03, 0.97);
     const roiGrayCanvas = createCanvas(roiScaled.width, roiScaled.height);
-    putImageData(roiGrayCanvas, roiGray);
+    putImageData(roiGrayCanvas, roiGrayEnhanced);
 
-    const tOtsuRoi = otsuThreshold(roiGray);
-    const roiBinOtsu = threshold(roiGray, tOtsuRoi);
+    const tOtsuRoiE = otsuThreshold(roiGrayEnhanced);
+    const roiBinOtsu = threshold(roiGrayEnhanced, tOtsuRoiE);
     const roiBinClosed = closing(roiBinOtsu);
 
     // 1) Khảo sát nhanh (PSM13) để kiểm tra có '042'
@@ -798,10 +837,10 @@ export async function detectCodesFromImage(
       return { chosenStr: quickSeq, chosenConf: quickCand.confidence || (options?.turbo ? 60 : 75), variantsTried };
     }
 
-    // 2) Nhận dạng chi tiết theo dòng
-    const roiGamma08 = applyGamma(roiGray, 0.8);
-    const roiGamma12 = applyGamma(roiGray, 1.2);
-    const roiBin160 = threshold(roiGray, 160);
+    // 2) Nhận dạng chi tiết khi đã biết có '042'
+    const roiGamma08 = applyGamma(roiGrayEnhanced, 0.8);
+    const roiGamma12 = applyGamma(roiGrayEnhanced, 1.2);
+    const roiBin160 = threshold(roiGrayEnhanced, 160);
 
     const canvases: HTMLCanvasElement[] = [];
     const pushDataCanvas = (d: ImageData) => {
@@ -812,15 +851,14 @@ export async function detectCodesFromImage(
 
     if (options?.turbo) {
       // Turbo: ít biến thể để nhanh
-      pushDataCanvas(roiGray);
-      pushDataCanvas(roiBinClosed);
+      pushDataCanvas(roiGrayEnhanced);
+      pushDataCanvas(roiBinOtsu);
       pushDataCanvas(roiBin160);
     } else {
       // Non-turbo: thêm gamma & Otsu để tăng cơ hội đúng
-      pushDataCanvas(roiGray);
+      pushDataCanvas(roiGrayEnhanced);
       pushDataCanvas(roiGamma08);
       pushDataCanvas(roiGamma12);
-      pushDataCanvas(roiBinClosed);
       pushDataCanvas(roiBinOtsu);
       pushDataCanvas(roiBin160);
     }
@@ -914,8 +952,8 @@ export async function detectCodesFromImage(
 
     // 4) Fallback nhẹ khi vẫn chưa đủ tin cậy: thử biến thể blur+threshold
     if (!chosenStr || chosenConf < 60) {
-      const roiBlurred = boxBlur(roiGray);
-      const roiBinAlt = closing(threshold(roiBlurred, Math.max(100, tOtsuRoi - 10)));
+      const roiBlurred = boxBlur(roiGrayEnhanced);
+      const roiBinAlt = closing(threshold(roiBlurred, Math.max(100, tOtsuRoiE - 10)));
       const altCanvas = createCanvas(roiScaled.width, roiScaled.height);
       putImageData(altCanvas, roiBinAlt);
       const altCands = await Promise.all([ocrOne(altCanvas, PSM7), ocrOne(altCanvas, PSM11)]);
