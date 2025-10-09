@@ -1,4 +1,4 @@
-/// <reference path="../types.d.ts" />
+// Edge function for OCR extraction of asset codes (clean header, no stray chars)
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -160,7 +160,7 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     return byYear !== 0 ? byYear : (parseInt(ca, 10) - parseInt(cb, 10));
   });
 
-  return { codes: sorted, lines_count, candidates_count };
+  return { codes: sorted, lines_count: lines_count, candidates_count: candidates_count };
 }
 
 function find042Segments(text: string): string[] {
