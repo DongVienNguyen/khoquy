@@ -470,7 +470,7 @@ export default function AssetEntryPage() {
 
       setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang phân tích bằng AI..." });
       const { data, error } = await supabase.functions.invoke("ai-extract-asset-codes", {
-        body: { images },
+        body: { images, rate_limit_key: currentStaff?.username || "anon" },
         headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
       });
 
@@ -512,7 +512,7 @@ export default function AssetEntryPage() {
       setIsProcessingImage(false);
       setTimeout(() => setAiStatus({ stage: "", progress: 0, total: 0, detail: "" }), 1200);
     }
-  }, [isAssetValid]);
+  }, [isAssetValid, currentStaff]);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);

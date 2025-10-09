@@ -33,6 +33,8 @@ const BUCKET = "ai-inputs";
 const SIGN_TTL_SECONDS = 300; // 5 phút
 const MAX_IMAGES = 10;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 phút
+const RATE_LIMIT_MAX_COUNT = 30; // tối đa 30 ảnh mỗi 5 phút cho mỗi khóa
 
 function parseDataUrl(input: string): { mime: string; bytes: Uint8Array } {
   // Hỗ trợ cả data URL lẫn base64 thuần (fallback image/jpeg)
@@ -147,12 +149,53 @@ serve(async (req: Request) => {
   const aiDurations: number[] = [];
 
   try {
-    const body = await req.json().catch(() => null) as { images?: string[] };
+    const body = await req.json().catch(() => null) as { images?: string[]; rate_limit_key?: string };
     if (!body || !Array.isArray(body.images) || body.images.length === 0) {
       return new Response(JSON.stringify({ error: "No images provided" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.images.length > MAX_IMAGES) {
       return new Response(JSON.stringify({ error: `Too many images: max ${MAX_IMAGES}` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Rate limit theo khóa (username từ client; fallback 'anon')
+    const rateKey = String(body.rate_limit_key || "anon");
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const { data: rlRow } = await supabase
+      .from("ocr_rate_limit")
+      .select("*")
+      .eq("key", rateKey)
+      .limit(1)
+      .maybeSingle();
+    let rlAllowed = true;
+    let rlCountBefore = 0;
+    let rlWindowStartIso = nowIso;
+    if (rlRow) {
+      const ws = new Date(rlRow.window_start).getTime();
+      const withinWindow = nowMs - ws < RATE_LIMIT_WINDOW_MS;
+      rlCountBefore = Number(rlRow.count || 0);
+      rlWindowStartIso = rlRow.window_start;
+      if (withinWindow && rlCountBefore + body.images.length > RATE_LIMIT_MAX_COUNT) {
+        rlAllowed = false;
+      }
+    }
+    if (!rlAllowed) {
+      try { console.log(JSON.stringify({ event: "ai_rate_limit_block", key: rateKey, count_before: rlCountBefore, requested: body.images.length })); } catch {}
+      return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // Cập nhật/bắt đầu lại cửa sổ
+    if (!rlRow || (nowMs - new Date(rlRow.window_start).getTime() >= RATE_LIMIT_WINDOW_MS)) {
+      await supabase.from("ocr_rate_limit").upsert({
+        key: rateKey,
+        window_start: nowIso,
+        count: body.images.length,
+      });
+      rlWindowStartIso = nowIso;
+      rlCountBefore = 0;
+    } else {
+      await supabase.from("ocr_rate_limit").update({
+        count: rlCountBefore + body.images.length,
+      }).eq("key", rateKey);
     }
 
     // Đảm bảo bucket tồn tại (private). Nếu đã có thì bỏ qua lỗi tạo.
@@ -319,7 +362,8 @@ serve(async (req: Request) => {
       sign_ms: tAfterSign - tAfterUpload,
       ai_ms_total: aiDurations.reduce((a, b) => a + b, 0),
       ai_ms_per_image: aiDurations,
-      codes_count: normalized.length
+      codes_count: normalized.length,
+      rate_limit: { key: rateKey, window_start: rlWindowStartIso, count_before: rlCountBefore }
     };
     try { console.log(JSON.stringify(metrics)); } catch {}
 
