@@ -23,6 +23,22 @@ declare module "https://esm.sh/@supabase/supabase-js@2.45.0" {
     functions: {
       invoke: (name: string, opts?: any) => Promise<any>;
     };
+    storage: {
+      getBucket: (name: string) => Promise<{ data: any; error?: any }>;
+      createBucket: (name: string, options: { public: boolean }) => Promise<{ data: any; error?: any }>;
+      from: (bucket: string) => {
+        upload: (
+          path: string,
+          body: Uint8Array | ArrayBuffer | Blob,
+          options?: { contentType?: string; upsert?: boolean }
+        ) => Promise<{ data: any; error?: any }>;
+        createSignedUrl: (
+          path: string,
+          expiresIn: number
+        ) => Promise<{ data: { signedUrl: string } | null; error?: any }>;
+        remove: (paths: string[]) => Promise<{ data: any; error?: any }>;
+      };
+    };
   };
   export function createClient(url: string, key: string, opts?: any): SupabaseClient;
 }

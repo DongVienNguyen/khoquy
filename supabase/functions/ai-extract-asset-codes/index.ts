@@ -1,4 +1,3 @@
-// Add ambient type declarations for URL modules
 /// <reference path="../types.d.ts" />
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -30,6 +29,103 @@ const DEFAULTS: AISettings = {
   custom_model: "gpt-4o-mini",
 };
 
+const BUCKET = "ai-inputs";
+const SIGN_TTL_SECONDS = 300; // 5 phút
+
+function parseDataUrl(input: string): { mime: string; bytes: Uint8Array } {
+  // Hỗ trợ cả data URL lẫn base64 thuần (fallback image/jpeg)
+  if (input.startsWith("data:")) {
+    const m = input.match(/^data:([^;]+);base64,(.*)$/);
+    if (!m) throw new Error("Invalid data URL");
+    const mime = m[1] || "image/jpeg";
+    const b64 = m[2] || "";
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { mime, bytes };
+  }
+  // Base64 thuần
+  const b64 = input.includes(",") ? input.split(",").pop()! : input;
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return { mime: "image/jpeg", bytes };
+}
+
+function uuid() {
+  // Deno: crypto.randomUUID()
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function ymdPath(now = new Date()) {
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(now.getUTCDate()).padStart(2, "0");
+  return `${y}/${m}/${d}`;
+}
+
+function buildSystemPrompt() {
+  return `Bạn là trợ lý đọc ảnh trích xuất mã tài sản nhanh và chính xác. TUYỆT ĐỐI KHÔNG ĐOÁN.
+Yêu cầu:
+1) Với mỗi ảnh, ước lượng tổng số dòng văn bản (lines_count).
+2) Ưu tiên tìm các chuỗi số dài (>= 12 ký tự). Từ chuỗi số dài, chuẩn hóa mã tài sản theo quy tắc:
+   - Lấy 2 ký tự năm ở vị trí thứ 9 và 10 tính từ phải sang trái (ví dụ "0424102470200259" -> năm "24").
+   - Lấy 4 ký tự cuối làm mã thô, loại bỏ số 0 ở đầu để được mã 1-4 chữ số (ví dụ "0259" -> "259").
+   - Tạo định dạng "code.year" (ví dụ "259.24").
+3) CHỈ nhận mã hợp lệ theo định dạng \\d{1,4}\\.\\d{2}, năm chỉ trong khoảng 20..99. Không suy diễn từ ngày tháng hoặc văn bản khác.
+4) Trả về JSON THUẦN có cấu trúc:
+{
+  "images": [
+    { "index": number, "lines_count": number, "codes": string[] }
+  ],
+  "codes": string[]
+}
+Không thêm mô tả ngoài JSON.`;
+}
+
+function normalizeCodes(inputCodes: string[]): string[] {
+  let codes = inputCodes.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x)));
+  // Lọc và chuẩn hóa chặt chẽ
+  const normalized = new Set<string>();
+  for (const c of codes) {
+    const [codePart, yearPart] = String(c).split(".");
+    const codeNum = parseInt(codePart, 10);
+    const yearNum = parseInt(yearPart, 10);
+    if (!Number.isFinite(codeNum) || codeNum < 1 || codeNum > 9999) continue;
+    if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
+    normalized.add(`${codeNum}.${String(yearNum).padStart(2, "0")}`);
+  }
+  const result = Array.from(normalized);
+  result.sort((a, b) => {
+    const [ca, ya] = a.split(".");
+    const [cb, yb] = b.split(".");
+    const byYear = ya.localeCompare(yb);
+    return byYear !== 0 ? byYear : (parseInt(ca, 10) - parseInt(cb, 10));
+  });
+  return result;
+}
+
+function deriveFromRawText(raw: string): string[] {
+  // 1) Trực tiếp lấy mẫu X.YY
+  const direct = raw.match(/\b(\d{1,4}\.\d{2})\b/g) || [];
+  // 2) Phục dựng từ chuỗi số dài
+  const longSeqs = raw.match(/\d{12,}/g) || [];
+  const derived = new Set<string>();
+  for (const s of longSeqs) {
+    if (!s || s.length < 12) continue;
+    const year = s.slice(-10, -8);
+    const codeRaw = s.slice(-4);
+    const codeNum = parseInt(codeRaw, 10);
+    const yearNum = parseInt(year, 10);
+    if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
+    if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
+    const code = String(codeNum);
+    const formatted = `${code}.${year}`;
+    if (/^\d{1,4}\.\d{2}$/.test(formatted)) derived.add(formatted);
+  }
+  return Array.from(new Set([...direct, ...Array.from(derived)]));
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -40,16 +136,56 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
-  try {
-    const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = Deno.env.toObject();
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const body = await req.json().catch(() => null) as { images?: string[] };
+  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = Deno.env.toObject();
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+  try {
+    const body = await req.json().catch(() => null) as { images?: string[] };
     if (!body || !Array.isArray(body.images) || body.images.length === 0) {
       return new Response(JSON.stringify({ error: "No images provided" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Load AI settings from system_settings
+    // Đảm bảo bucket tồn tại (private). Nếu đã có thì bỏ qua lỗi tạo.
+    try {
+      const { data: bData } = await supabase.storage.getBucket(BUCKET);
+      if (!bData) {
+        await supabase.storage.createBucket(BUCKET, { public: false });
+      }
+    } catch {
+      await supabase.storage.createBucket(BUCKET, { public: false });
+    }
+
+    // Upload ảnh vào Storage (private) theo path ngày/uuid
+    const now = new Date();
+    const basePath = ymdPath(now);
+    const uploadedPaths: string[] = [];
+    for (let i = 0; i < body.images.length; i++) {
+      const item = body.images[i];
+      const { mime, bytes } = parseDataUrl(item);
+      const safeMime = /^image\/(png|jpeg|jpg|webp)$/i.test(mime) ? mime : "image/jpeg";
+      const ext = safeMime.includes("png") ? "png" : (safeMime.includes("webp") ? "webp" : "jpg");
+      const key = `${basePath}/${uuid()}_${i}.${ext}`;
+      const { error: upErr } = await supabase.storage.from(BUCKET).upload(key, bytes, { contentType: safeMime, upsert: false });
+      if (upErr) {
+        // Nếu upload lỗi, thử đổi tên một lần
+        const fallbackKey = `${basePath}/${uuid()}_${i}.${ext}`;
+        const { error: upErr2 } = await supabase.storage.from(BUCKET).upload(fallbackKey, bytes, { contentType: safeMime, upsert: false });
+        if (upErr2) throw new Error(`Upload failed for image ${i + 1}`);
+        uploadedPaths.push(fallbackKey);
+      } else {
+        uploadedPaths.push(key);
+      }
+    }
+
+    // Lấy signed URL ngắn hạn cho từng file
+    const signedUrls: string[] = [];
+    for (const path of uploadedPaths) {
+      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL_SECONDS);
+      if (error || !data?.signedUrl) throw new Error("Cannot create signed URL");
+      signedUrls.push(data.signedUrl);
+    }
+
+    // Đọc AI settings
     let settings: AISettings = DEFAULTS;
     try {
       const { data } = await supabase
@@ -66,153 +202,106 @@ serve(async (req: Request) => {
         }
       }
     } catch {
-      // Keep defaults
+      // dùng defaults
     }
 
     const provider = settings.default_provider || "custom";
     const model = provider === "openrouter" ? (settings.default_openrouter_model || "openrouter/auto") : (settings.custom_model || "gpt-4o-mini");
     const apiKey = provider === "openrouter" ? (settings.openrouter_api_key || "") : (settings.custom_api_key || "");
     const baseUrl = provider === "openrouter" ? (settings.openrouter_base_url || "https://openrouter.ai/api/v1") : ((settings.custom_base_url || "https://v98store.com").replace(/\/+$/, ""));
-
     if (!apiKey) {
+      // Dọn dẹp trước khi trả lỗi
+      await supabase.storage.from(BUCKET).remove(uploadedPaths);
       return new Response(JSON.stringify({ error: "Missing API key for selected provider" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
     const endpoint = provider === "openrouter" ? `${baseUrl}/chat/completions` : `${baseUrl}/v1/chat/completions`;
 
-    const systemPrompt = `Bạn là trợ lý đọc ảnh trích xuất mã tài sản thật nhanh và chính xác.
-Yêu cầu:
-1) Với mỗi ảnh đầu vào, ước lượng tổng số dòng văn bản (lines_count).
-2) Từ các chuỗi số nhận diện được, chuẩn hóa mã tài sản theo quy tắc:
-   - Nếu có chuỗi số dài (>= 12 ký tự), lấy 2 ký tự năm ở vị trí thứ 9 và 10 tính từ phải sang trái (ví dụ "0424102470200259" -> năm "24").
-   - Lấy 4 ký tự cuối cùng làm mã thô, loại bỏ số 0 ở đầu để được mã tài sản 1-4 chữ số (ví dụ "0259" -> "259").
-   - Tạo định dạng "code.year" (ví dụ "259.24").
-3) Chỉ nhận các mã hợp lệ theo định dạng \\d{1,4}\\.\\d{2}.
-4) Trả về JSON thuần với cấu trúc:
-{
-  "images": [
-    { "index": number, "lines_count": number, "codes": string[] }
-  ],
-  "codes": string[] // danh sách mã hợp lệ (duy nhất) hợp nhất từ tất cả ảnh
-}
-Không thêm mô tả ngoài JSON.`;
-
-    const userText = "Hãy trích xuất room và danh sách mã tài sản từ các ảnh sau (trả về JSON thuần).";
-
-    const content: any[] = [{ type: "text", text: userText }];
-    for (const dataUrl of body.images) {
-      content.push({ type: "image_url", image_url: { url: dataUrl } });
-    }
-
-    const payload: Record<string, unknown> = {
-      model,
-      messages: [
-        { role: "system", content: [{ type: "text", text: systemPrompt }] },
-        { role: "user", content }
-      ],
-      temperature: 0,
-      max_tokens: 512,
-      // Use JSON response if supported
-      response_format: { type: "json_object" }
-    };
+    const systemPrompt = buildSystemPrompt();
 
     const headers: Record<string, string> = {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     };
     if (provider === "openrouter") {
-      const referer = "https://aytwkszqdnylsbufksmf.supabase.co";
+      const referer = `${SUPABASE_URL}`;
       headers["HTTP-Referer"] = referer;
-      headers["X-Title"] = "Asset AI Extractor";
+      headers["X-Title"] = "Asset AI Extractor (URL mode)";
     }
 
-    const resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(payload) });
-    if (!resp.ok) {
-      const txt = await resp.text();
-      return new Response(JSON.stringify({ error: `Provider error ${resp.status}`, detail: txt }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    const json = await resp.json();
-    let contentText = json?.choices?.[0]?.message?.content ?? "";
-    let parsed: { images?: Array<{ index: number; lines_count: number; codes: string[] }>; codes?: string[] } | null = null;
+    // Gọi AI theo từng ảnh để tăng độ chính xác
+    const perImageResults: Array<{ index: number; lines_count: number; codes: string[] }> = [];
+    let allCodes: string[] = [];
+    for (let i = 0; i < signedUrls.length; i++) {
+      const url = signedUrls[i];
+      const userText = "Hãy trích xuất danh sách mã tài sản từ ảnh này (trả về JSON thuần).";
+      const payload: Record<string, unknown> = {
+        model,
+        messages: [
+          { role: "system", content: [{ type: "text", text: systemPrompt }] },
+          { role: "user", content: [{ type: "text", text: userText }, { type: "image_url", image_url: { url } }] }
+        ],
+        temperature: 0,
+        max_tokens: 512,
+        response_format: { type: "json_object" }
+      };
 
-    if (typeof contentText === "string" && contentText.trim()) {
-      try {
-        parsed = JSON.parse(contentText);
-      } catch {
-        // Fallback: try find JSON between braces
-        const m = contentText.match(/\{[\s\S]*\}/);
-        if (m) {
-          try { parsed = JSON.parse(m[0]); } catch {}
+      const resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(payload) });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        // Không dừng toàn bộ; tiếp tục ảnh khác, nhưng vẫn ghi nhận lỗi ảnh này
+        const fallbackCodes = deriveFromRawText(txt);
+        if (fallbackCodes.length) allCodes = Array.from(new Set([...allCodes, ...fallbackCodes]));
+        continue;
+      }
+
+      const json = await resp.json();
+      let contentText = json?.choices?.[0]?.message?.content ?? "";
+      let parsed: { images?: Array<{ index?: number; lines_count?: number; codes?: string[] }>; codes?: string[] } | null = null;
+      if (typeof contentText === "string" && contentText.trim()) {
+        try {
+          parsed = JSON.parse(contentText);
+        } catch {
+          const m = contentText.match(/\{[\s\S]*\}/);
+          if (m) {
+            try { parsed = JSON.parse(m[0]); } catch {}
+          }
         }
       }
-    }
 
-    // Final normalization and fallback regex extraction
-    let codes: string[] = [];
-    if (Array.isArray(parsed?.codes)) {
-      codes = parsed!.codes!.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x)));
-    } else if (Array.isArray(parsed?.images)) {
-      const collect = parsed!.images!.flatMap((img) => Array.isArray(img.codes) ? img.codes : []);
-      codes = Array.from(new Set(collect.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x)))));
-    }
-
-    const raw = typeof contentText === "string" ? contentText : JSON.stringify(json);
-    // 1) Bổ sung fallback: lấy thẳng mã có định dạng X.YY từ văn bản trả về
-    const matches = raw.match(/\b(\d{1,4}\.\d{2})\b/g) || [];
-    if (matches.length) {
-      codes = Array.from(new Set([...(codes || []), ...matches]));
-    }
-    // 2) Fallback nâng cao: khôi phục từ chuỗi số dài (>= 12 ký tự)
-    const longSeqs = raw.match(/\d{12,}/g) || [];
-    if (longSeqs.length) {
-      const derived = new Set<string>();
-      for (const s of longSeqs) {
-        if (!s || s.length < 12) continue;
-        const year = s.slice(-10, -8);
-        const codeRaw = s.slice(-4);
-        const codeNum = parseInt(codeRaw, 10);
-        const yearNum = parseInt(year, 10);
-        if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
-        if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
-        const code = String(codeNum); // bỏ 0 đầu, đảm bảo 1-4 chữ số
-        const formatted = `${code}.${year}`;
-        if (/^\d{1,4}\.\d{2}$/.test(formatted)) derived.add(formatted);
+      // Thu thập theo ảnh
+      const imgEntry = { index: i, lines_count: 0, codes: [] as string[] };
+      if (Array.isArray(parsed?.images) && parsed!.images!.length > 0) {
+        const best = parsed!.images![0];
+        imgEntry.lines_count = Number(best?.lines_count ?? 0);
+        imgEntry.codes = Array.isArray(best?.codes) ? best!.codes!.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x))) : [];
       }
-      if (derived.size) {
-        codes = Array.from(new Set([...(codes || []), ...Array.from(derived)]));
+      if ((!imgEntry.codes || imgEntry.codes.length === 0) && typeof contentText === "string") {
+        const fallback = deriveFromRawText(contentText);
+        imgEntry.codes = fallback.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x)));
+      }
+      perImageResults.push(imgEntry);
+      if (Array.isArray(parsed?.codes)) {
+        allCodes = Array.from(new Set([...allCodes, ...parsed!.codes!.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x))) ]));
+      } else if (imgEntry.codes?.length) {
+        allCodes = Array.from(new Set([...allCodes, ...imgEntry.codes]));
       }
     }
 
-    // 3) Lọc chặt chẽ theo năm 20–99 và mã 1–4 chữ số
-    if (codes.length) {
-      const normalized = new Set<string>();
-      for (const c of codes) {
-        const parts = String(c).split(".");
-        if (parts.length !== 2) continue;
-        const codePart = parts[0];
-        const yearPart = parts[1];
-        const codeNum = parseInt(codePart, 10);
-        const yearNum = parseInt(yearPart, 10);
-        if (!Number.isFinite(codeNum) || codeNum < 1 || codeNum > 9999) continue;
-        if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
-        const formatted = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
-        normalized.add(formatted);
-      }
-      codes = Array.from(normalized);
-    }
+    // Hợp nhất + chuẩn hóa + sắp xếp
+    // Bổ sung fallback từ raw signed URLs string (hầu như không có text)
+    const normalized = normalizeCodes(allCodes);
+    // Dọn dẹp Storage
+    await supabase.storage.from(BUCKET).remove(uploadedPaths);
 
-    // 4) Sắp xếp ổn định theo năm rồi mã để UI hiển thị nhất quán
-    if (codes.length) {
-      codes.sort((a: string, b: string) => {
-        const [ca, ya] = a.split(".");
-        const [cb, yb] = b.split(".");
-        const byYear = ya.localeCompare(yb);
-        return byYear !== 0 ? byYear : (parseInt(ca, 10) - parseInt(cb, 10));
-      });
-    }
-
-    return new Response(JSON.stringify({ data: { codes, images: Array.isArray(parsed?.images) ? parsed!.images! : [] } }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ data: { codes: normalized, images: perImageResults } }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Thử dọn dẹp nếu có paths đính kèm trong error (không có ở đây)
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
