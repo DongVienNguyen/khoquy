@@ -285,6 +285,7 @@ export default function ManagementPage() {
   const itemsPerPage = 30;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   // Stats tab progress
   const [isDeletingLogs, setIsDeletingLogs] = useState(false);
@@ -420,6 +421,9 @@ export default function ManagementPage() {
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, columnFilters, sortKey, sortDirection]);
 
+  // Reset lựa chọn khi đổi bảng hoặc sau khi tải dữ liệu
+  useEffect(() => { setSelectedIds([]) }, [selectedEntity, data]);
+
   // Filters/search/sort/pagination
   const filteredData = useMemo(() => {
     if (!selectedEntity || !Array.isArray(data)) return data || [];
@@ -488,6 +492,66 @@ export default function ManagementPage() {
     const endIndex = startIndex + itemsPerPage;
     return sortedFilteredData.slice(startIndex, endIndex);
   }, [sortedFilteredData, currentPage, itemsPerPage]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }, []);
+
+  const toggleSelectAllCurrentPage = useCallback(() => {
+    const pageIds = currentTableData.map((i: any) => i?.id).filter(Boolean);
+    const allSelected = pageIds.every(id => selectedIds.includes(id));
+    setSelectedIds(prev => {
+      if (allSelected) return prev.filter(id => !pageIds.includes(id));
+      const merged = new Set([...prev, ...pageIds]);
+      return Array.from(merged);
+    });
+  }, [currentTableData, selectedIds]);
+
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`Bạn có chắc muốn xóa ${selectedIds.length} mục đã chọn?`)) return;
+    setIsLoading(true);
+    try {
+      if (selectedEntity === "AssetTransaction") {
+        for (const id of selectedIds) {
+          await callAssetFunc({ action: "hard_delete_transaction", id });
+          await sleep(5);
+        }
+      } else {
+        const table = entityConfig[selectedEntity].table;
+        const chunks: string[][] = [];
+        for (let i = 0; i < selectedIds.length; i += 50) chunks.push(selectedIds.slice(i, i + 50));
+        for (const batch of chunks) {
+          const { error } = await supabase.from(table).delete().in("id", batch);
+          if (error) throw error;
+          await sleep(10);
+        }
+      }
+      setMessage({ type: "success", text: `Đã xóa ${selectedIds.length} mục.` });
+      setSelectedIds([]);
+      await loadData();
+    } catch (e: any) {
+      setMessage({ type: "error", text: e?.message || "Không thể xóa các mục đã chọn." });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedIds, selectedEntity, loadData]);
+
+  const exportJSON = useCallback(() => {
+    if (!Array.isArray(filteredData) || filteredData.length === 0) {
+      setMessage({ type: "info", text: "Không có dữ liệu để xuất." });
+      return;
+    }
+    const blob = new Blob([JSON.stringify(filteredData, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${entityConfig[selectedEntity].name}_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [filteredData, selectedEntity]);
 
   // CRUD dialog
   const handleAdd = useCallback(() => {
@@ -1200,8 +1264,20 @@ export default function ManagementPage() {
                       <Button onClick={exportToCSV} variant="outline" disabled={(filteredData?.length || 0) === 0}>
                         <Download className="w-4 h-4 mr-2" /> Xuất CSV
                       </Button>
+                      <Button onClick={exportJSON} variant="outline" disabled={(filteredData?.length || 0) === 0}>
+                        <Download className="w-4 h-4 mr-2" /> Xuất JSON
+                      </Button>
                       <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="bg-blue-50 hover:bg-blue-100 text-blue-700">
                         <Upload className="w-4 h-4 mr-2" /> Nhập CSV
+                      </Button>
+                      <Button
+                        onClick={handleDeleteSelected}
+                        variant="destructive"
+                        disabled={selectedIds.length === 0 || isLoading}
+                        title="Xóa các mục đã chọn"
+                      >
+                        <TrashIcon className="w-4 h-4 mr-2" />
+                        Xóa đã chọn{selectedIds.length ? ` (${selectedIds.length})` : ""}
                       </Button>
                     </div>
                   )}
@@ -1289,6 +1365,17 @@ export default function ManagementPage() {
                     <table className="min-w-full text-sm">
                       <thead>
                         <tr className="text-left border-b">
+                          <th className="py-2 px-3">
+                            <label className="inline-flex items-center gap-2">
+                              <input
+                                aria-label="Chọn tất cả trang hiện tại"
+                                type="checkbox"
+                                checked={currentTableData.length > 0 && currentTableData.every((i: any) => selectedIds.includes(i?.id))}
+                                onChange={toggleSelectAllCurrentPage}
+                              />
+                              Chọn
+                            </label>
+                          </th>
                           {visibleColumns.map(colKey => {
                             const field = entityConfig[selectedEntity].fields.find(f => f.key === colKey)!;
                             return (
@@ -1306,6 +1393,7 @@ export default function ManagementPage() {
                           <th className="py-2 px-3">Thao tác</th>
                         </tr>
                         <tr className="text-left border-b">
+                          <th className="py-2 px-3"></th>
                           {visibleColumns.map(colKey => {
                             const field = entityConfig[selectedEntity].fields.find(f => f.key === colKey)!;
                             return (
@@ -1330,6 +1418,14 @@ export default function ManagementPage() {
                       <tbody>
                         {currentTableData.map(item => (
                           <tr key={item?.id || Math.random()} className="border-b">
+                            <td className="py-2 px-3">
+                              <input
+                                type="checkbox"
+                                aria-label="Chọn dòng"
+                                checked={!!item?.id && selectedIds.includes(item.id)}
+                                onChange={() => item?.id && toggleSelect(item.id)}
+                              />
+                            </td>
                             {visibleColumns.map(colKey => {
                               const field = entityConfig[selectedEntity].fields.find(f => f.key === colKey)!;
                               return (
