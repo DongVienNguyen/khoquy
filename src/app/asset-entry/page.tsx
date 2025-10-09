@@ -485,6 +485,9 @@ export default function AssetEntryPage() {
       }
 
       const payload: any = data?.data ?? data;
+      const meta = payload?.meta || {};
+      const abVariant = meta?.ab_variant || "";
+      const modelName = meta?.model || "";
       const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
 
       if (!aiCodes.length) {
@@ -525,7 +528,8 @@ export default function AssetEntryPage() {
       }
 
       setIsImageDialogOpen(false);
-      setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.` });
+      const modelInfo = modelName ? ` • Model: ${modelName}${abVariant ? ` (${abVariant})` : ""}` : "";
+      setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}` });
     } catch (_err) {
       setAiStatus({ stage: "error", progress: 0, total: 0, detail: "Có lỗi xảy ra khi xử lý hình ảnh." });
       setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
