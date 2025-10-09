@@ -15,7 +15,21 @@ type ExtractOptions = {
   maxLines?: number;
 };
 type ExtractResult =
-  | { status: "success"; output: { text_content: string; codes?: string[]; detected_room?: string } }
+  | {
+      status: "success";
+      output: {
+        text_content: string;
+        codes?: string[];
+        detected_room?: string;
+        stats?: {
+          totalLines: number;
+          keptLines: number;
+          avgConfidence?: number;
+          durationMs: number;
+          droppedIndices?: number[];
+        };
+      };
+    }
   | { status: "error"; error: string };
 
 // Lưu trữ tạm thời mapping giữa object URL và File để OCR chính xác từ blob.
@@ -94,6 +108,13 @@ export async function ExtractDataFromUploadedFile(
         text_content,
         codes: formattedCodes,
         detected_room: room || undefined,
+        stats: {
+          totalLines: result.stats.totalLines,
+          keptLines: result.stats.keptLines,
+          avgConfidence: result.stats.avgConfidence,
+          durationMs: result.stats.durationMs,
+          droppedIndices: result.stats.droppedIndices,
+        },
       },
     };
   } catch (e: any) {
@@ -132,6 +153,13 @@ export async function ExtractDataFromUploadedFile(
           text_content: formattedCodes.join("\n") || text,
           codes: formattedCodes.length ? formattedCodes : undefined,
           detected_room: room || undefined,
+          stats: {
+            totalLines: rawMatches.length,
+            keptLines: formattedCodes.length,
+            avgConfidence: undefined,
+            durationMs: 0,
+            droppedIndices: [],
+          },
         },
       };
     } catch (inner: any) {

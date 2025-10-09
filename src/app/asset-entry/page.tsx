@@ -428,6 +428,12 @@ export default function AssetEntryPage() {
       const allCodes: string[] = [];
       let detectedRoom = "";
       let index = 0;
+      // Tổng hợp thống kê qua nhiều ảnh
+      let totalLinesAll = 0;
+      let keptLinesAll = 0;
+      let sumWeightedConf = 0;
+      let totalKeptForConf = 0;
+
       for (const file of files) {
         index += 1;
         setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang tải ảnh ${index}/${files.length}...` });
@@ -466,6 +472,15 @@ export default function AssetEntryPage() {
         // Ưu tiên dùng kết quả từ pipeline: codes và detected_room
         if (result.status === "success") {
           const codesFromPipeline = result.output?.codes || [];
+          const stats = result.output?.stats;
+          if (stats) {
+            totalLinesAll += stats.totalLines || 0;
+            keptLinesAll += stats.keptLines || 0;
+            if (typeof stats.avgConfidence === "number") {
+              sumWeightedConf += stats.avgConfidence * (stats.keptLines || 0);
+              totalKeptForConf += stats.keptLines || 0;
+            }
+          }
           if (codesFromPipeline.length > 0) {
             for (const formatted of codesFromPipeline) {
               // Giữ lại kiểm tra hợp lệ cuối cùng theo form
@@ -497,8 +512,13 @@ export default function AssetEntryPage() {
         return merged.length > 0 ? merged : [""];
       });
       setIsImageDialogOpen(false);
-      setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.` });
-      setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
+      const overallAvg = totalKeptForConf ? Math.round(sumWeightedConf / totalKeptForConf) : undefined;
+      const summaryDetail =
+        keptLinesAll && totalLinesAll
+          ? `Đã điền ${uniqueCodes.length} mã • Giữ ${keptLinesAll}/${totalLinesAll} dòng${typeof overallAvg === "number" ? ` • Tin cậy ~${overallAvg}%` : ""}.`
+          : `Đã điền ${uniqueCodes.length} mã tài sản.`;
+      setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: summaryDetail });
+      setMessage({ type: "success", text: summaryDetail });
     } catch (_err) {
       setAiStatus({ stage: "error", progress: 0, total: 0, detail: "Có lỗi xảy ra khi xử lý hình ảnh." });
       setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
