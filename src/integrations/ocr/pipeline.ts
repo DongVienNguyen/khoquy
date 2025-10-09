@@ -239,10 +239,10 @@ function verticalProjection(binary: ImageData): number[] {
 
 type LineBox = { x: number; y: number; w: number; h: number };
 
-function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
+function segmentLines(binary: ImageData, minGap: number = 1): LineBox[] {
   const { width, height } = binary;
   const proj = horizontalProjection(binary);
-  const inkThreshold = Math.max(2, Math.floor(width * 0.02));
+  const inkThreshold = Math.max(2, Math.floor(width * 0.01));
   const lines: LineBox[] = [];
   let inBand = false;
   let startY = 0;
@@ -254,7 +254,7 @@ function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
       startY = y;
     } else if (!hasInk && inBand) {
       const endY = y - 1;
-      if (endY - startY + 1 >= 10) {
+      if (endY - startY + 1 >= 8) {
         lines.push({ x: 0, y: Math.max(0, startY - 2), w: width, h: Math.min(height - startY + 2, endY - startY + 5) });
       }
       inBand = false;
@@ -262,7 +262,7 @@ function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
   }
   if (inBand) {
     const endY = height - 1;
-    if (endY - startY + 1 >= 10) {
+    if (endY - startY + 1 >= 8) {
       lines.push({ x: 0, y: Math.max(0, startY - 2), w: width, h: Math.min(height - startY + 2, endY - startY + 5) });
     }
   }
@@ -279,7 +279,31 @@ function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
       merged.push({ ...lb });
     }
   }
-  return merged.filter((l) => l.h >= 12);
+  return merged.filter((l) => l.h >= 10);
+}
+
+// Chọn nhiều cột có mật độ số cao để tránh bỏ sót dòng nằm lệch cột
+function cropTopColumns(binary: ImageData, srcCanvas: HTMLCanvasElement, k: number = 2): HTMLCanvasElement[] {
+  const width = binary.width;
+  const proj = verticalProjection(binary);
+  const peaks = Array.from({ length: width }, (_, x) => ({ x, val: proj[x] }));
+  peaks.sort((a, b) => b.val - a.val);
+
+  const roiW = Math.max(48, Math.floor(width * 0.45));
+  const minSeparation = Math.floor(roiW * 0.6);
+  const chosen: number[] = [];
+  const outs: HTMLCanvasElement[] = [];
+
+  for (const p of peaks) {
+    if (chosen.some((cx) => Math.abs(cx - p.x) < minSeparation)) continue;
+    const startX = clamp(Math.floor(p.x - roiW / 2), 0, width - roiW);
+    outs.push(cropToCanvas(srcCanvas, { x: startX, y: 0, w: roiW, h: binary.height }));
+    chosen.push(p.x);
+    if (outs.length >= k) break;
+  }
+
+  if (outs.length === 0) return [srcCanvas];
+  return outs;
 }
 
 function cropToCanvas(src: HTMLCanvasElement, box: LineBox): HTMLCanvasElement {
@@ -452,25 +476,24 @@ export async function detectCodesFromImage(
   const tOtsu0 = otsuThreshold(blurred0);
   const binForProj = threshold(blurred0, tOtsu0);
 
-  // Crop to numeric column (best vertical density)
-  const columnCanvas = cropColumn(binForProj, deskewed);
+  // Cắt theo nhiều cột có mật độ số cao (thay vì chỉ 1 cột)
+  const columnCanvases = cropTopColumns(binForProj, deskewed, 2);
 
-  // Build grayscale + binary for segmentation
-  const grayData = toGrayscale(getImageData(columnCanvas));
-  const blurred = boxBlur(grayData);
-  const tOtsu = otsuThreshold(blurred);
-  const binForSeg = threshold(blurred, tOtsu);
-  const binCanvas = createCanvas(columnCanvas.width, columnCanvas.height);
-  putImageData(binCanvas, binForSeg);
-
-  onProgress?.({ phase: "normalize", current: 0, total: 1, detail: "Chuẩn hóa & nhị phân hóa" });
-
-  // Segment lines
-  const lines = segmentLines(binForSeg);
-  let lineRois = lines.map((box) => cropToCanvas(columnCanvas, box));
-  if (typeof maxLines === "number" && maxLines > 0) {
-    lineRois = lineRois.slice(0, maxLines);
+  // Xây dựng binary cho từng cột và tách dòng
+  const lineRois: HTMLCanvasElement[] = [];
+  for (const columnCanvas of columnCanvases) {
+    const grayData = toGrayscale(getImageData(columnCanvas));
+    const blurred = boxBlur(grayData);
+    const tOtsu = otsuThreshold(blurred);
+    const binForSeg = threshold(blurred, tOtsu);
+    const lines = segmentLines(binForSeg, 1);
+    let rois = lines.map((box) => cropToCanvas(columnCanvas, box));
+    if (typeof maxLines === "number" && maxLines > 0) {
+      rois = rois.slice(0, Math.max(1, maxLines - lineRois.length));
+    }
+    lineRois.push(...rois);
   }
+
   onProgress?.({ phase: "segment", current: lineRois.length, total: lineRois.length, detail: `Tách ${lineRois.length} dòng` });
 
   const results: string[] = [];
