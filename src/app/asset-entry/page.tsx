@@ -489,29 +489,6 @@ export default function AssetEntryPage() {
       const abVariant = meta?.ab_variant || "";
       const modelName = meta?.model || "";
       const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
-      
-      // Phát hiện room từ chuỗi số dài
-      let detectedRoom = "";
-      const imageEntries = Array.isArray(payload?.images) ? payload.images : [];
-      for (const img of imageEntries) {
-        const seqs = Array.isArray(img?.long_numeric_sequences) ? img.long_numeric_sequences : [];
-        for (const raw of seqs) {
-          const s = String(raw || "");
-          if (!s) continue;
-          const prefix7 = s.substring(0, 7);
-          const prefix6 = s.substring(0, 6);
-          let room = "";
-          if (prefix7 === "0424201") room = "CMT8";
-          else if (prefix7 === "0424202") room = "NS";
-          else if (prefix7 === "0424203") room = "ĐS";
-          else if (prefix7 === "0424204") room = "LĐH";
-          else if (prefix6 === "042300") room = "DVKH";
-          else if (prefix6 === "042410") room = "QLN";
-          if (room && (!detectedRoom || detectedRoom === room)) {
-            detectedRoom = room;
-          }
-        }
-      }
 
       if (!aiCodes.length) {
         setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: "Không tìm thấy mã tài sản hợp lệ." });
@@ -531,11 +508,6 @@ export default function AssetEntryPage() {
         const merged = Array.from(new Set([...existing, ...uniqueCodes]));
         return merged.length > 0 ? merged : [""];
       });
-      
-      // Nếu phát hiện được phòng, cập nhật form
-      if (detectedRoom) {
-        handleRoomChange(detectedRoom);
-      }
 
       // Inform about ambiguous codes if any
       const needsCodes: string[] = Array.isArray(payload?.needs_confirmation?.codes) ? payload.needs_confirmation.codes : [];
@@ -565,7 +537,7 @@ export default function AssetEntryPage() {
       setIsProcessingImage(false);
       setTimeout(() => setAiStatus({ stage: "", progress: 0, total: 0, detail: "" }), 1200);
     }
-  }, [isAssetValid, currentStaff, handleRoomChange]);
+  }, [isAssetValid, currentStaff]);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -741,11 +713,7 @@ export default function AssetEntryPage() {
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium text-black">
-                    Nhập [Mã TS] . [Năm TS]: Có dấu
-                    <span className="font-bold text-red-600"> CHẤM (hoặc PHẨY) </span>
-                    ở giữa.
-                  </Label>
+                  <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
                   <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
                     <DialogTrigger asChild>
                       <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
