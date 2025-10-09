@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import StatsOverview from "@/components/management/StatsOverview";
 
 type SafeStaff = {
   id: string;
@@ -1120,7 +1121,8 @@ export default function ManagementPage() {
               )}
             </div>
           </div>
-          {/* AdvancedStats có thể thêm sau nếu cần */}
+
+          <StatsOverview />
         </div>
       )}
 
