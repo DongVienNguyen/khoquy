@@ -150,6 +150,67 @@ function threshold(imageData: ImageData, t: number): ImageData {
   return out;
 }
 
+// Thao tác hình thái: dilation (nở) cho vùng mực đen (0), erosion (co) và closing (dilation rồi erosion)
+function dilate(binary: ImageData): ImageData {
+  const { width, height, data } = binary;
+  const out = new ImageData(width, height);
+  const o = out.data;
+  const idx = (x: number, y: number) => (y * width + x) * 4;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let setBlack = false;
+      for (let ky = -1; ky <= 1 && !setBlack; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const xx = clamp(x + kx, 0, width - 1);
+          const yy = clamp(y + ky, 0, height - 1);
+          const i = idx(xx, yy);
+          if (data[i] < 128) { // pixel đen (mực)
+            setBlack = true;
+            break;
+          }
+        }
+      }
+      const ii = idx(x, y);
+      const v = setBlack ? 0 : 255;
+      o[ii] = o[ii + 1] = o[ii + 2] = v;
+      o[ii + 3] = 255;
+    }
+  }
+  return out;
+}
+
+function erode(binary: ImageData): ImageData {
+  const { width, height, data } = binary;
+  const out = new ImageData(width, height);
+  const o = out.data;
+  const idx = (x: number, y: number) => (y * width + x) * 4;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let allBlack = true;
+      for (let ky = -1; ky <= 1 && allBlack; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const xx = clamp(x + kx, 0, width - 1);
+          const yy = clamp(y + ky, 0, height - 1);
+          const i = idx(xx, yy);
+          if (data[i] >= 128) { // gặp trắng -> không đủ đen
+            allBlack = false;
+            break;
+          }
+        }
+      }
+      const ii = idx(x, y);
+      const v = allBlack ? 0 : 255;
+      o[ii] = o[ii + 1] = o[ii + 2] = v;
+      o[ii + 3] = 255;
+    }
+  }
+  return out;
+}
+
+function closing(binary: ImageData): ImageData {
+  return erode(dilate(binary));
+}
+
 function boxBlur(imageData: ImageData): ImageData {
   const { data, width, height } = imageData;
   const out = new ImageData(width, height);
@@ -436,13 +497,58 @@ function votePerChar(strings: string[]): string | null {
   return outChars.join("");
 }
 
+// Weighted per-char voting theo confidence
+function votePerCharWeighted(strings: string[], weights: number[]): string | null {
+  if (strings.length === 0 || strings.length !== weights.length) return null;
+  const lengths = new Map<number, number>();
+  for (const s of strings) lengths.set(s.length, (lengths.get(s.length) || 0) + 1);
+  let targetLen = strings[0].length;
+  let bestCount = -1;
+  for (const [len, cnt] of lengths.entries()) {
+    if (cnt > bestCount) {
+      bestCount = cnt;
+      targetLen = len;
+    }
+  }
+  // Lọc theo độ dài đồng thuận
+  const filtered: { s: string; w: number }[] = [];
+  for (let i = 0; i < strings.length; i++) {
+    if (strings[i].length === targetLen) filtered.push({ s: strings[i], w: weights[i] ?? 0 });
+  }
+  if (filtered.length === 0) return null;
+  const outChars: string[] = [];
+  for (let i = 0; i < targetLen; i++) {
+    const bucket = new Map<string, number>();
+    for (const { s, w } of filtered) {
+      const ch = s[i]!;
+      bucket.set(ch, (bucket.get(ch) || 0) + w);
+    }
+    let bestCh = "0";
+    let bestWeight = -1;
+    for (const [ch, wt] of bucket.entries()) {
+      if (wt > bestWeight) {
+        bestWeight = wt;
+        bestCh = ch;
+      }
+    }
+    outChars.push(bestCh);
+  }
+  return outChars.join("");
+}
+
 async function ocrOne(canvas: HTMLCanvasElement, psm: number): Promise<OCRCandidate> {
   const { data } = await Tesseract.recognize(canvas, "eng", {
     tessedit_char_whitelist: "0123456789",
+    tessedit_char_blacklist: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
     user_defined_dpi: "300",
     preserve_interword_spaces: "0",
     tessedit_pageseg_mode: String(psm),
     psm: String(psm),
+    // Ưu tiên số, giảm ảnh hưởng từ điển
+    classify_bln_numeric_mode: "1",
+    load_system_dawg: "F",
+    load_freq_dawg: "F",
+    language_model_penalty_non_dict_word: "1",
   } as any);
   const raw = (data?.text || "").toString();
   const conf = typeof data?.confidence === "number" ? data.confidence : 0;
@@ -589,8 +695,8 @@ export async function detectCodesFromImage(
   const processOne = async (roi: HTMLCanvasElement) => {
     let variantsTried = 0;
 
-    // Normalize height for OCR
-    const targetH = 96;
+    // Tăng scale để rõ nét ký tự số hơn
+    const targetH = 128;
     const roiScaled = scaleCanvas(roi, targetH);
 
     const roiGray = toGrayscale(getImageData(roiScaled));
@@ -599,10 +705,11 @@ export async function detectCodesFromImage(
 
     const tOtsuRoi = otsuThreshold(roiGray);
     const roiBinOtsu = threshold(roiGray, tOtsuRoi);
+    const roiBinClosed = closing(roiBinOtsu);
 
     // 1) Khảo sát nhanh (PSM13) để kiểm tra có '042'
     const quickCanvas = createCanvas(roiScaled.width, roiScaled.height);
-    putImageData(quickCanvas, roiBinOtsu);
+    putImageData(quickCanvas, roiBinClosed);
     const quickCand = await ocrOne(quickCanvas, 13);
     variantsTried += 1;
     const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
@@ -611,15 +718,15 @@ export async function detectCodesFromImage(
       // Không có '042' -> bỏ qua sớm
       return { chosenStr: null as string | null, chosenConf: 0, variantsTried };
     }
-    // Nếu chuỗi trông hợp lệ và độ tin cậy tốt: chấp nhận luôn (cả turbo và non-turbo)
+    // Nếu chuỗi trông hợp lệ và độ tin cậy tốt: chấp nhận luôn
     if (seqLooksValid(quickSeq) && (quickCand.confidence || 0) >= (options?.turbo ? 60 : 75)) {
       return { chosenStr: quickSeq, chosenConf: quickCand.confidence || (options?.turbo ? 60 : 75), variantsTried };
     }
 
     // 2) Nhận dạng chi tiết khi đã biết có '042'
     const roiGamma08 = applyGamma(roiGray, 0.8);
+    const roiGamma12 = applyGamma(roiGray, 1.2);
     const roiBin160 = threshold(roiGray, 160);
-    const roiGamma12 = applyGamma(roiGray, 1.2); // giữ tối thiểu 1 gamma tăng
 
     const canvases: HTMLCanvasElement[] = [];
     const pushDataCanvas = (d: ImageData) => {
@@ -631,14 +738,16 @@ export async function detectCodesFromImage(
     if (options?.turbo) {
       // Turbo: ít biến thể để nhanh
       pushDataCanvas(roiGray);
-      pushDataCanvas(roiBinOtsu);
+      pushDataCanvas(roiBinClosed);
       pushDataCanvas(roiBin160);
     } else {
-      // Non-turbo: 4 biến thể đủ mạnh, giảm bớt để tăng tốc
+      // Non-turbo: thêm gamma & Otsu để tăng cơ hội đúng
       pushDataCanvas(roiGray);
       pushDataCanvas(roiGamma08);
       pushDataCanvas(roiGamma12);
+      pushDataCanvas(roiBinClosed);
       pushDataCanvas(roiBinOtsu);
+      pushDataCanvas(roiBin160);
     }
 
     const PSM7 = 7;
@@ -657,25 +766,32 @@ export async function detectCodesFromImage(
       variantsTried += partial.length;
     }
 
-    const normalizedStrings = candsRaw
-      .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
-      .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
+    // Lấy chuỗi và trọng số (confidence) cho weighted voting
+    const candStrings: string[] = [];
+    const candWeights: number[] = [];
+    for (const c of candsRaw) {
+      const s = extractPrefixedSequence(normalizeDigits(c.raw));
+      if (s && s.length >= 13 && s.startsWith("042")) {
+        candStrings.push(s);
+        candWeights.push(c.confidence || 0);
+      }
+    }
 
     let chosenStr: string | null = null;
     let chosenConf = 0;
 
-    if (normalizedStrings.length > 0) {
-      const voted = votePerChar(normalizedStrings);
-      chosenStr = voted || null;
+    if (candStrings.length > 0) {
+      const votedW = votePerCharWeighted(candStrings, candWeights);
+      chosenStr = votedW || votePerChar(candStrings);
 
       if (!chosenStr) {
         const freq = new Map<string, { count: number; maxConf: number }>();
-        for (const c of candsRaw) {
-          const s = extractPrefixedSequence(normalizeDigits(c.raw));
-          if (!s || !s.startsWith("042")) continue;
+        for (let i = 0; i < candStrings.length; i++) {
+          const s = candStrings[i];
+          const w = candWeights[i] || 0;
           const f = freq.get(s) || { count: 0, maxConf: 0 };
           f.count += 1;
-          f.maxConf = Math.max(f.maxConf, c.confidence);
+          f.maxConf = Math.max(f.maxConf, w);
           freq.set(s, f);
         }
         let bestStr = "";
@@ -698,10 +814,10 @@ export async function detectCodesFromImage(
       chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
     }
 
-    // Fallback nhẹ khi chưa đủ tin cậy: thử một biến thể blur+threshold
+    // Fallback nhẹ khi chưa đủ tin cậy: thử biến thể đóng khác
     if (!chosenStr || chosenConf < 60) {
       const roiBlurred = boxBlur(roiGray);
-      const roiBinAlt = threshold(roiBlurred, Math.max(100, tOtsuRoi - 10));
+      const roiBinAlt = closing(threshold(roiBlurred, Math.max(100, tOtsuRoi - 10)));
       const altCanvas = createCanvas(roiScaled.width, roiScaled.height);
       putImageData(altCanvas, roiBinAlt);
       const altCands = await Promise.all([ocrOne(altCanvas, PSM7), ocrOne(altCanvas, PSM11)]);
@@ -709,7 +825,7 @@ export async function detectCodesFromImage(
       const altStrings = altCands
         .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
         .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
-      const altVoted = votePerChar(altStrings);
+      const altVoted = votePerCharWeighted(altStrings, altCands.map((c) => c.confidence || 0)) || votePerChar(altStrings);
       if (altVoted && seqLooksValid(altVoted)) {
         chosenStr = altVoted;
         chosenConf = Math.max(...altCands.map((c) => c.confidence || 0));
