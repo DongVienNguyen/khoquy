@@ -32,6 +32,7 @@ type DetectOptions = {
   batchSize?: number; // số dòng xử lý song song
   turbo?: boolean; // true: ít biến thể hơn để nhanh hơn
   maxLines?: number; // giới hạn số dòng tối đa
+  debug?: boolean; // bật log ROI/chi tiết khi cần
 };
 
 // Helpers
@@ -843,11 +844,18 @@ function maskNonGreenToWhite(srcCanvas: HTMLCanvasElement, percentile: number = 
   for (let k = 0; k < scores.length; k++) {
     if (scores[k] > thr) greenCount++;
   }
-  // Fallback if too few greens
+  // Fallback if too few greens: thử hạ percentile về ~0.80 trước khi dùng tỉ lệ G/RB
   const minArea = Math.max(500, Math.floor(0.0005 * w * h));
   if (greenCount < minArea) {
-    // fallback: require G significantly larger than R/B and above minimal absolute
-    thr = -1; // use ratio fallback
+    const nth2 = Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * 0.80)));
+    thr = sorted[nth2];
+    greenCount = 0;
+    for (let k = 0; k < scores.length; k++) {
+      if (scores[k] > thr) greenCount++;
+    }
+    if (greenCount < minArea) {
+      thr = -1; // cuối cùng fallback: dùng điều kiện tương đối G lớn hơn R/B
+    }
   }
 
   idxPix = 0;
@@ -923,6 +931,7 @@ export async function detectCodesFromImage(
   options?: DetectOptions
 ): Promise<OCRPipelineResult> {
   const onProgress = options?.onProgress;
+  const debug = !!options?.debug;
   const defaultBatch = isMobileUA() ? 4 : 6;
   const batchSize = Math.max(1, options?.batchSize ?? defaultBatch);
   const turbo = options?.turbo ?? false;
@@ -944,7 +953,8 @@ export async function detectCodesFromImage(
 
   // 1) Quick whole-image scan first
   onProgress?.({ phase: "recognize", current: 0, total: 1, detail: "quick_scan • bắt đầu" });
-  const quick = await quickWholeImageScan(baseCanvas, onProgress, { turbo, maxExpect: 10 });
+  const quickExpand = baseCanvas.height >= 1400;
+  const quick = await quickWholeImageScan(baseCanvas, onProgress, { turbo, maxExpect: 10, expandAngles: quickExpand });
   const quickConfByCode = quick.confByCode;
   if (quick.codes.length > 0) {
     // Early return if quick scan succeeded
@@ -985,7 +995,7 @@ export async function detectCodesFromImage(
   const quickMiss = !(quick.codes && quick.codes.length);
   const baseMaxLines =
     typeof options?.maxLines === "number" && options.maxLines > 0
-      ? options.maxLines
+      ? options?.maxLines
       : maxLinesAutoScale(baseCanvas.height);
   let maxLines = baseMaxLines;
   if (quickMiss && baseCanvas.height >= 1400) {
@@ -1015,6 +1025,9 @@ export async function detectCodesFromImage(
     let variantsTried = 0;
     const targetH = 128;
     const roiScaled = scaleCanvas(roi, targetH);
+    if (debug) {
+      onProgress?.({ phase: "segment", current: 0, total: 1, detail: `roi • ${roiScaled.width}x${roiScaled.height}` });
+    }
 
     const roiGray = toGrayscale(getImageData(roiScaled));
     const roiGrayEnhanced = enhanceContrast(roiGray, 0.03, 0.97);
@@ -1225,7 +1238,7 @@ export async function detectCodesFromImage(
   onProgress?.({ phase: "recognize", current: 0, total: lineRois.length, detail: `recognition • batchSize=${batchSize}` });
 
   const uniqueSet = new Set<string>();
-  const enoughThreshold = 20; // early-exit when enough unique codes
+  const enoughThreshold = turbo ? 14 : (quickMiss ? 20 : 16);
   const total = lineRois.length;
   let done = 0;
 
@@ -1314,13 +1327,14 @@ export async function detectCodesFromImage(
 async function quickWholeImageScan(
   baseCanvas: HTMLCanvasElement,
   onProgress?: (p: OCRProgress) => void,
-  opts?: { turbo?: boolean; maxExpect?: number }
+  opts?: { turbo?: boolean; maxExpect?: number; expandAngles?: boolean }
 ): Promise<{ codes: string[]; unique: string[]; anglesTried: number; earlyExit: string | null; confByCode: Record<string, number> }> {
   const t0 = performance.now();
   const targetH = 760;
   const canvas = baseCanvas.height > targetH ? scaleCanvas(baseCanvas, targetH) : baseCanvas;
   const angles: number[] = [];
-  for (let a = -25; a <= 25; a += 3) angles.push(a);
+  const maxAngle = opts?.expandAngles ? 30 : 25;
+  for (let a = -maxAngle; a <= maxAngle; a += 3) angles.push(a);
   const seen = new Map<string, number>(); // code -> bestConf
   const angleSeen = new Map<string, number>(); // code -> count of angles
   const maxExpect = Math.max(1, opts?.maxExpect ?? 10);
