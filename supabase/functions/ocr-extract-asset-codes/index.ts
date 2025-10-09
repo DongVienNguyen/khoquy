@@ -144,17 +144,17 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     }
   }
 
-  // Strategy 1d: các chuỗi bắt đầu bằng 042 (cho phép khoảng trắng/tab/xuống dòng/gạch/chéo/underscore giữa các số)
+  // Strategy 1d: các chuỗi bắt đầu bằng 042 (cho phép khoảng trắng/tab/xuống dòng/gạch/chéo/underscore/dấu chấm giữa các số)
   // Dùng matchAll với nhóm bắt để luôn lấy đúng phần chuỗi sau 042, rồi gom lại thành chuỗi số liền.
-  const prefix042Pattern = /(?:^|[^0-9])(042(?:[ \t\r\n\-\/_]*\d){8,})(?:[^0-9]|$)/g;
+  const prefix042Pattern = /(?:^|[^0-9])(042(?:[ \t\r\n\-\/_.]*\d){8,})(?:[^0-9]|$)/g;
   const prefix042Matches = normalized.matchAll(prefix042Pattern);
   for (const match of prefix042Matches) {
     const rawSegment = match[1] ?? match[0];
     const digits = rawSegment.replace(/\D/g, "");
     if (!digits.startsWith("042")) continue;
 
-    // Nếu đủ dài, suy ra X.YY như quy tắc hiện tại; nếu ngắn, bỏ qua để tránh nhiễu.
-    if (digits.length >= 12) {
+    // Nếu đủ dài, suy ra X.YY theo quy tắc: 2 ký tự thứ 9-10 từ phải là năm; 4 ký tự cuối là mã TS
+    if (digits.length >= 10) {
       const yearStr = digits.slice(-10, -8);
       const codeStr = digits.slice(-4);
       const codeNum = parseInt(codeStr, 10);
@@ -201,7 +201,7 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
 
 function find042Segments(text: string): string[] {
   const normalized = normalizeText(text);
-  const pattern = /(?:^|[^0-9])(042(?:[ \t\r\n\-\/_]*\d){8,})(?:[^0-9]|$)/g;
+  const pattern = /(?:^|[^0-9])(042(?:[ \t\r\n\-\/_.]*\d){8,})(?:[^0-9]|$)/g;
   const out: string[] = [];
   for (const match of normalized.matchAll(pattern)) {
     const seg = (match[1] ?? match[0]).replace(/\D/g, "");
