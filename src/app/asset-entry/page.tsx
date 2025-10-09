@@ -468,7 +468,7 @@ export default function AssetEntryPage() {
         setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã nạp ${index}/${files.length} ảnh` });
       }
 
-      setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang phân tích bằng AI..." });
+      setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang OCR & phân tích..." });
       const { data, error } = await supabase.functions.invoke("ocr-extract-asset-codes", {
         body: { images },
         headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },

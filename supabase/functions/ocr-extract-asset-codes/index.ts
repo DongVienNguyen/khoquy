@@ -161,6 +161,67 @@ function getClientIp(req: Request): string {
   return (fromXf || realIp || cfIp || "").trim() || "unknown";
 }
 
+// Add top-level constants used by OCR helpers
+const endpointBase = "https://vision.googleapis.com/v1/images:annotate";
+const langHints = ["en", "vi"];
+
+// Thêm: tiện ích sleep và hàm gọi OCR có timeout + retry
+async function sleep(ms: number) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+async function callVisionOCR(
+  apiKey: string,
+  base64: string,
+  featureType: "TEXT_DETECTION" | "DOCUMENT_TEXT_DETECTION",
+  timeoutMs = 12000,
+  retries = 1
+): Promise<{ ok: boolean; status: number; json: any | null }> {
+  const payload = {
+    requests: [
+      {
+        image: { content: base64 },
+        features: [{ type: featureType }],
+        imageContext: { languageHints: langHints },
+      },
+    ],
+  };
+
+  let attempt = 0;
+  while (true) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(`${endpointBase}?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(t);
+
+      // Retry khi 429 hoặc 5xx
+      if (resp.status === 429 || (resp.status >= 500 && resp.status <= 599)) {
+        if (attempt < retries) {
+          attempt++;
+          await sleep(500 * attempt);
+          continue;
+        }
+      }
+      const json = await resp.json().catch(() => null);
+      return { ok: resp.ok, status: resp.status, json };
+    } catch {
+      clearTimeout(t);
+      if (attempt < retries) {
+        attempt++;
+        await sleep(500 * attempt);
+        continue;
+      }
+      return { ok: false, status: 0, json: null };
+    }
+  }
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -304,41 +365,95 @@ serve(async (req: Request) => {
   const responses: OcrImageResult[] = [];
   const warnings: string[] = [];
 
+  // Thêm: tiện ích sleep và hàm gọi OCR có timeout + retry
+  async function sleep(ms: number) {
+    return new Promise((res) => setTimeout(res, ms));
+  }
+
+  async function callVisionOCR(
+    apiKey: string,
+    base64: string,
+    featureType: "TEXT_DETECTION" | "DOCUMENT_TEXT_DETECTION",
+    timeoutMs = 12000,
+    retries = 1
+  ): Promise<{ ok: boolean; status: number; json: any | null }> {
+    const payload = {
+      requests: [
+        {
+          image: { content: base64 },
+          features: [{ type: featureType }],
+          imageContext: { languageHints: langHints },
+        },
+      ],
+    };
+
+    let attempt = 0;
+    while (true) {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const resp = await fetch(`${endpointBase}?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        clearTimeout(t);
+
+        // Retry khi 429 hoặc 5xx
+        if (resp.status === 429 || (resp.status >= 500 && resp.status <= 599)) {
+          if (attempt < retries) {
+            attempt++;
+            await sleep(500 * attempt);
+            continue;
+          }
+        }
+        const json = await resp.json().catch(() => null);
+        return { ok: resp.ok, status: resp.status, json };
+      } catch {
+        clearTimeout(t);
+        if (attempt < retries) {
+          attempt++;
+          await sleep(500 * attempt);
+          continue;
+        }
+        return { ok: false, status: 0, json: null };
+      }
+    }
+  }
+
   // simple concurrency control
   const CONCURRENCY = 3;
   let idx = 0;
 
   async function processOne(index: number) {
     const img = parsedImages[index];
-    const payload = {
-      requests: [
-        {
-          image: { content: img.base64 },
-          features: [{ type: "TEXT_DETECTION" }],
-          imageContext: { languageHints: langHints },
-        },
-      ],
-    };
 
-    const resp = await fetch(`${endpointBase}?key=${GOOGLE_VISION_API_KEY}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      warnings.push(`Vision error for image ${index}: ${resp.status}`);
-      responses.push({ index, lines_count: 0, candidates_count: 0, codes: [], error: `Vision error ${resp.status}` });
+    // Gọi OCR lần 1: TEXT_DETECTION với timeout + retry
+    const first = await callVisionOCR(GOOGLE_VISION_API_KEY, img.base64, "TEXT_DETECTION", 12000, 1);
+    if (!first.ok) {
+      warnings.push(`Vision error for image ${index}: ${first.status || "network/timeout"}`);
+      responses.push({ index, lines_count: 0, candidates_count: 0, codes: [], error: `Vision error ${first.status || "timeout"}` });
       return;
     }
 
-    const json = await resp.json();
-    const annotation = json?.responses?.[0];
-    const fullText: string =
+    let annotation = first.json?.responses?.[0];
+    let fullText: string =
       annotation?.fullTextAnnotation?.text ??
       annotation?.textAnnotations?.[0]?.description ??
       "";
+
+    // Fallback: nếu không có text, thử DOCUMENT_TEXT_DETECTION
+    if (!fullText || typeof fullText !== "string" || fullText.trim().length === 0) {
+      const second = await callVisionOCR(GOOGLE_VISION_API_KEY, img.base64, "DOCUMENT_TEXT_DETECTION", 12000, 0);
+      if (second.ok) {
+        annotation = second.json?.responses?.[0];
+        fullText =
+          annotation?.fullTextAnnotation?.text ??
+          annotation?.textAnnotations?.[0]?.description ??
+          "";
+      }
+    }
 
     if (!fullText || typeof fullText !== "string") {
       responses.push({ index, lines_count: 0, candidates_count: 0, codes: [], error: "No text detected" });
@@ -346,18 +461,18 @@ serve(async (req: Request) => {
     }
 
     // First pass
-    const first = extractCodesFromText(fullText);
-    let codes = first.codes;
-    let linesCount = first.lines_count;
-    let candidatesCount = first.candidates_count;
+    const firstPass = extractCodesFromText(fullText);
+    let codes = firstPass.codes;
+    let linesCount = firstPass.lines_count;
+    let candidatesCount = firstPass.candidates_count;
 
     // Fallback pass: confusable mapping and try again if empty
     if (codes.length === 0) {
       const mapped = mapConfusableChars(fullText);
-      const second = extractCodesFromText(mapped);
-      codes = second.codes;
-      linesCount = second.lines_count;
-      candidatesCount = second.candidates_count;
+      const secondPass = extractCodesFromText(mapped);
+      codes = secondPass.codes;
+      linesCount = secondPass.lines_count;
+      candidatesCount = secondPass.candidates_count;
     }
 
     responses.push({ index, lines_count: linesCount, candidates_count: candidatesCount, codes });
