@@ -188,6 +188,61 @@ function threshold(imageData: ImageData, t: number): ImageData {
   return out;
 }
 
+// Add: Adaptive threshold using integral image for speed
+function adaptiveThreshold(imageData: ImageData, blockSize: number, C: number): ImageData {
+  const { data, width, height } = imageData;
+  const out = new ImageData(width, height);
+  const o = out.data;
+
+  const W = width + 1;
+  const H = height + 1;
+  const integral = new Float64Array(W * H);
+
+  // Build integral image (use grayscale value in red channel)
+  for (let y = 0; y < height; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const val = data[idx];
+      rowSum += val;
+      const ii = (y + 1) * W + (x + 1);
+      integral[ii] = integral[y * W + (x + 1)] + rowSum;
+    }
+  }
+
+  const bs = Math.max(3, Math.floor(blockSize) | 0);
+  const r = Math.floor(bs / 2);
+
+  const rectSum = (x0: number, y0: number, x1: number, y1: number): number => {
+    x0 = Math.max(0, Math.min(width - 1, x0));
+    y0 = Math.max(0, Math.min(height - 1, y0));
+    x1 = Math.max(0, Math.min(width - 1, x1));
+    y1 = Math.max(0, Math.min(height - 1, y1));
+    const A = integral[y0 * W + x0];
+    const B = integral[y0 * W + (x1 + 1)];
+    const C2 = integral[(y1 + 1) * W + x0];
+    const D = integral[(y1 + 1) * W + (x1 + 1)];
+    return D - B - C2 + A;
+  };
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const x0 = x - r, y0 = y - r, x1 = x + r, y1 = y + r;
+      const count = (Math.min(width - 1, x1) - Math.max(0, x0) + 1) * (Math.min(height - 1, y1) - Math.max(0, y0) + 1);
+      const sum = rectSum(x0, y0, x1, y1);
+      const mean = sum / Math.max(1, count);
+      const idx = (y * width + x) * 4;
+      const v = data[idx];
+      const thr = mean - C;
+      const bin = v > thr ? 255 : 0;
+      o[idx] = o[idx + 1] = o[idx + 2] = bin;
+      o[idx + 3] = 255;
+    }
+  }
+
+  return out;
+}
+
 // Thao tác hình thái: dilation (nở) cho vùng mực đen (0), erosion (co) và closing (dilation rồi erosion)
 function dilate(binary: ImageData): ImageData {
   const { width, height, data } = binary;
@@ -574,73 +629,74 @@ function votePerCharWeighted(strings: string[], weights: number[]): string | nul
   return outChars.join("");
 }
 
-function buildIntegral(gray: ImageData): { ii: Float64Array; width: number; height: number } {
-  const { width, height, data } = gray;
-  const ii = new Float64Array(width * height);
-  const idx = (x: number, y: number) => y * width + x;
-  for (let y = 0; y < height; y++) {
-    let rowSum = 0;
-    for (let x = 0; x < width; x++) {
-      const iData = (y * width + x) * 4;
-      const val = data[iData]; // grayscale in R
-      rowSum += val;
-      ii[idx(x, y)] = rowSum + (y > 0 ? ii[idx(x, y - 1)] : 0);
-    }
-  }
-  return { ii, width, height };
+// Lấy toàn bộ chuỗi "042..." trong văn bản số
+function extractAllPrefixedSequences(digits: string): string[] {
+  return digits.match(/042\d{9,14}/g) ?? [];
 }
 
-function sumRect(ii: Float64Array, width: number, x0: number, y0: number, x1: number, y1: number): number {
-  const idx = (x: number, y: number) => y * width + x;
-  const A = x0 > 0 && y0 > 0 ? ii[idx(x0 - 1, y0 - 1)] : 0;
-  const B = y0 > 0 ? ii[idx(x1, y0 - 1)] : 0;
-  const C = x0 > 0 ? ii[idx(x0 - 1, y1)] : 0;
-  const D = ii[idx(x1, y1)];
-  return D - B - C + A;
-}
-
-function adaptiveThreshold(gray: ImageData, win: number, C: number): ImageData {
-  const { width, height } = gray;
-  const out = new ImageData(width, height);
-  const o = out.data;
-  const { ii } = buildIntegral(gray);
-  const half = Math.max(1, Math.floor(win / 2));
-  for (let y = 0; y < height; y++) {
-    const y0 = clamp(y - half, 0, height - 1);
-    const y1 = clamp(y + half, 0, height - 1);
-    for (let x = 0; x < width; x++) {
-      const x0 = clamp(x - half, 0, width - 1);
-      const x1 = clamp(x + half, 0, width - 1);
-      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
-      const sum = sumRect(ii, width, x0, y0, x1, y1);
-      const mean = sum / area;
-      const iData = (y * width + x) * 4;
-      const val = gray.data[iData];
-      const bin = val > mean - C ? 255 : 0;
-      o[iData] = o[iData + 1] = o[iData + 2] = bin;
-      o[iData + 3] = 255;
+// Tạo mặt nạ xanh lá để giữ lại vùng chữ số màu xanh (link)
+function maskNonGreenToWhite(src: HTMLCanvasElement): HTMLCanvasElement {
+  const out = createCanvas(src.width, src.height);
+  const ctxSrc = src.getContext("2d")!;
+  const img = ctxSrc.getImageData(0, 0, src.width, src.height);
+  const data = img.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const isGreen = g > 80 && g > 1.15 * r && g > 1.15 * b;
+    if (!isGreen) {
+      data[i] = 255; data[i + 1] = 255; data[i + 2] = 255; // trắng hóa vùng không xanh
+    } else {
+      // làm đậm vùng xanh để nổi bật chữ số
+      data[i] = 20; data[i + 1] = 200; data[i + 2] = 20;
     }
   }
+  const ctxOut = out.getContext("2d")!;
+  ctxOut.putImageData(img, 0, 0);
   return out;
 }
 
-async function ocrOne(canvas: HTMLCanvasElement, psm: number): Promise<OCRCandidate> {
-  const { data } = await Tesseract.recognize(canvas, "eng", {
-    tessedit_char_whitelist: "0123456789",
-    tessedit_char_blacklist: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
-    user_defined_dpi: "300",
-    preserve_interword_spaces: "0",
-    tessedit_pageseg_mode: String(psm),
-    psm: String(psm),
-    oem: "1", // LSTM-only for better digit accuracy
-    classify_bln_numeric_mode: "1",
-    load_system_dawg: "F",
-    load_freq_dawg: "F",
-    language_model_penalty_non_dict_word: "1",
-  } as any);
-  const raw = (data?.text || "").toString();
-  const conf = typeof data?.confidence === "number" ? data.confidence : 0;
-  return { raw, digits: normalizeDigits(raw), confidence: conf };
+// Quét nhanh toàn ảnh theo nhiều góc, áp mặt nạ xanh, OCR PSM=6, trả về sớm nếu thấy mã
+async function quickWholeImageScan(
+  baseCanvas: HTMLCanvasElement,
+  angles: number[],
+  minConf: number
+): Promise<{ codes: string[]; avgConf?: number } | null> {
+  const found: { code: string; conf: number }[] = [];
+  for (const ang of angles) {
+    const rotated = rotateCanvas(baseCanvas, ang);
+    const masked = maskNonGreenToWhite(rotated);
+
+    // Chuẩn hóa nhẹ và nhị phân để Tesseract dễ đọc
+    const gray = toGrayscale(getImageData(masked));
+    const enhanced = enhanceContrast(gray, 0.04, 0.96);
+    const bin = adaptiveThreshold(enhanced, Math.max(11, Math.floor(masked.height * 0.04)), 8);
+    const cv = createCanvas(masked.width, masked.height);
+    putImageData(cv, closing(bin));
+
+    const cand = await ocrOne(cv, 6);
+    const digits = normalizeDigits(cand.raw);
+    const seqs = extractAllPrefixedSequences(digits).filter(seqLooksValid);
+    const conf = typeof cand.confidence === "number" ? Math.round(cand.confidence) : 0;
+
+    if (seqs.length && conf >= minConf) {
+      for (const s of seqs) found.push({ code: s, conf });
+      // Nếu đã thấy từ 2 mã trở lên, trả về ngay để tăng tốc
+      if (found.length >= 2) break;
+    }
+  }
+  if (!found.length) return null;
+
+  // Khử trùng lặp theo mã, giữ confidence cao nhất
+  const confMap = new Map<string, number>();
+  for (const { code, conf } of found) {
+    const cur = confMap.get(code) ?? -1;
+    if (conf > cur) confMap.set(code, conf);
+  }
+  const codes = Array.from(confMap.keys());
+  const avgConf = codes.length
+    ? Array.from(confMap.values()).reduce((a, b) => a + b, 0) / codes.length
+    : undefined;
+  return { codes, avgConf };
 }
 
 /**
@@ -660,6 +716,21 @@ export async function warmUpOcr(): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+// Add: Minimal OCR wrapper for Tesseract
+async function ocrOne(c: HTMLCanvasElement, psm: number): Promise<OCRCandidate> {
+  const res = await Tesseract.recognize(c, "eng", {
+    tessedit_char_whitelist: "0123456789",
+    psm: String(psm),
+    user_defined_dpi: "150",
+  } as any);
+
+  const raw = res?.data?.text ?? "";
+  const digits = normalizeDigits(raw);
+  const confidence = typeof res?.data?.confidence === "number" ? res.data.confidence : 0;
+
+  return { raw, digits, confidence };
 }
 
 function scoreProjectionSharpness(binary: ImageData): number {
@@ -1078,10 +1149,33 @@ export async function detectCodesFromImage(
   const img = await loadImageFrom(input);
   let baseCanvas = drawImageToCanvas(img);
 
-  // Ensure minimum scale
-  const minHeight = 1000;
+  // Ensure minimum scale (giảm nhẹ để tăng tốc)
+  const minHeight = 900;
   if (baseCanvas.height < minHeight) {
     baseCanvas = scaleCanvas(baseCanvas, minHeight);
+  }
+
+  // NEW: Quét nhanh toàn ảnh trước để bắt trường hợp chữ rõ ràng
+  onProgress?.({ phase: "recognize", current: 0, total: 1, detail: "Quét nhanh toàn ảnh" });
+  {
+    const minConfQuick = clamp(Math.round(options?.minConfidence ?? (turbo ? 55 : 65)), 0, 100);
+    const anglesQuick = [-15, -10, -5, 0, 5, 10, 15];
+    const quick = await quickWholeImageScan(baseCanvas, anglesQuick, minConfQuick);
+    if (quick && quick.codes.length) {
+      const t1 = performance.now();
+      onProgress?.({ phase: "done", current: quick.codes.length, total: 1, detail: "Điền mã (quét nhanh)" });
+      return {
+        codes: Array.from(new Set(quick.codes)),
+        stats: {
+          totalLines: 0,
+          keptLines: quick.codes.length,
+          avgConfidence: quick.avgConf,
+          durationMs: Math.round(t1 - t0),
+          droppedIndices: [],
+          variantsTriedPerLine: 0,
+        },
+      };
+    }
   }
 
   // Deskew
@@ -1180,7 +1274,7 @@ export async function detectCodesFromImage(
     });
   }
 
-  // Bỏ phiếu tổng thể đã làm theo nhóm, không cần ghép thêm
+  // Bỏ phiếu tổng thể đã làm theo nhóm
   onProgress?.({ phase: "vote", current: results.length, total: total, detail: "Ghép kết quả theo từng dòng" });
 
   const t1 = performance.now();
@@ -1194,12 +1288,9 @@ export async function detectCodesFromImage(
     const conf = confidences[i] ?? 0;
     if (code && seqLooksValid(code) && conf >= minConf) {
       keptByThreshold.push({ code, conf, srcIndex: i });
-    } else {
-      // giữ nguyên droppedIndices như trước
     }
   }
 
-  // Khử trùng lặp theo mã, giữ độ tin cậy cao nhất cho mỗi mã
   const confMap = new Map<string, number>();
   for (const { code, conf } of keptByThreshold) {
     const cur = confMap.get(code) ?? -1;
@@ -1214,7 +1305,6 @@ export async function detectCodesFromImage(
 
   const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, clusters.length));
 
-  // Nếu không có kết quả, fallback quét đa góc
   if (uniqueCodes.length === 0) {
     const fb = await fallbackMultiAngle(baseCanvas, options);
     return fb;
