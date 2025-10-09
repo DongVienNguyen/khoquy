@@ -19,7 +19,7 @@ export type OCRPipelineResult = {
   };
 };
 
-// Simple helpers
+// Helpers
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
 function createCanvas(w: number, h: number): HTMLCanvasElement {
@@ -35,11 +35,7 @@ async function loadImageFrom(input: Blob | string): Promise<HTMLImageElement> {
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
     img.onerror = reject;
-    if (typeof input === "string") {
-      img.src = input;
-    } else {
-      img.src = URL.createObjectURL(input);
-    }
+    img.src = typeof input === "string" ? input : URL.createObjectURL(input);
   });
 }
 
@@ -66,7 +62,6 @@ function toGrayscale(imageData: ImageData): ImageData {
   const o = out.data;
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
-    // Luminosity method
     const y = (0.299 * r + 0.587 * g + 0.114 * b) | 0;
     o[i] = o[i + 1] = o[i + 2] = y;
     o[i + 3] = 255;
@@ -89,6 +84,44 @@ function applyGamma(imageData: ImageData, gamma: number): ImageData {
   return out;
 }
 
+function histogram(imageData: ImageData): number[] {
+  const hist = new Array(256).fill(0);
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) hist[d[i]]++;
+  return hist;
+}
+
+function otsuThreshold(imageData: ImageData): number {
+  const hist = histogram(imageData);
+  const total = imageData.width * imageData.height;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+
+  let sumB = 0;
+  let wB = 0;
+  let wF = 0;
+  let mB = 0;
+  let mF = 0;
+  let maxVar = -1;
+  let threshold = 127;
+
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+    wF = total - wB;
+    if (wF === 0) break;
+    sumB += t * hist[t];
+    mB = sumB / wB;
+    mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > maxVar) {
+      maxVar = between;
+      threshold = t;
+    }
+  }
+  return threshold;
+}
+
 function threshold(imageData: ImageData, t: number): ImageData {
   const { data, width, height } = imageData;
   const out = new ImageData(width, height);
@@ -102,15 +135,12 @@ function threshold(imageData: ImageData, t: number): ImageData {
   return out;
 }
 
-// Simple 3x3 box blur for optional smoothing (helps against moire)
 function boxBlur(imageData: ImageData): ImageData {
   const { data, width, height } = imageData;
   const out = new ImageData(width, height);
   const o = out.data;
+  const idx = (x: number, y: number) => (y * width + x) * 4;
 
-  function idx(x: number, y: number) {
-    return (y * width + x) * 4;
-  }
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       let sum = 0;
@@ -143,7 +173,24 @@ function scaleCanvas(src: HTMLCanvasElement, targetHeight: number): HTMLCanvasEl
   return out;
 }
 
-// Horizontal projection for line segmentation on a binary image
+function rotateCanvas(src: HTMLCanvasElement, angleDeg: number): HTMLCanvasElement {
+  const rad = (angleDeg * Math.PI) / 180;
+  const sin = Math.abs(Math.sin(rad));
+  const cos = Math.abs(Math.cos(rad));
+  const w = src.width;
+  const h = src.height;
+  const newW = Math.ceil(w * cos + h * sin);
+  const newH = Math.ceil(h * cos + w * sin);
+  const out = createCanvas(newW, newH);
+  const ctx = out.getContext("2d")!;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, newW, newH);
+  ctx.translate(newW / 2, newH / 2);
+  ctx.rotate(rad);
+  ctx.drawImage(src, -w / 2, -h / 2);
+  return out;
+}
+
 function horizontalProjection(binary: ImageData): number[] {
   const { data, width, height } = binary;
   const proj = new Array<number>(height).fill(0);
@@ -151,11 +198,25 @@ function horizontalProjection(binary: ImageData): number[] {
     let rowSum = 0;
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
-      // black = 0, white = 255
       const isInk = data[i] < 128 ? 1 : 0;
       rowSum += isInk;
     }
     proj[y] = rowSum;
+  }
+  return proj;
+}
+
+function verticalProjection(binary: ImageData): number[] {
+  const { data, width, height } = binary;
+  const proj = new Array<number>(width).fill(0);
+  for (let x = 0; x < width; x++) {
+    let colSum = 0;
+    for (let y = 0; y < height; y++) {
+      const i = (y * width + x) * 4;
+      const isInk = data[i] < 128 ? 1 : 0;
+      colSum += isInk;
+    }
+    proj[x] = colSum;
   }
   return proj;
 }
@@ -165,9 +226,8 @@ type LineBox = { x: number; y: number; w: number; h: number };
 function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
   const { width, height } = binary;
   const proj = horizontalProjection(binary);
-  const inkThreshold = Math.max(2, Math.floor(width * 0.02)); // require at least 2% ink per row
+  const inkThreshold = Math.max(2, Math.floor(width * 0.02));
   const lines: LineBox[] = [];
-
   let inBand = false;
   let startY = 0;
 
@@ -177,7 +237,6 @@ function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
       inBand = true;
       startY = y;
     } else if (!hasInk && inBand) {
-      // end band
       const endY = y - 1;
       if (endY - startY + 1 >= 10) {
         lines.push({ x: 0, y: Math.max(0, startY - 2), w: width, h: Math.min(height - startY + 2, endY - startY + 5) });
@@ -185,7 +244,6 @@ function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
       inBand = false;
     }
   }
-  // tail band
   if (inBand) {
     const endY = height - 1;
     if (endY - startY + 1 >= 10) {
@@ -193,12 +251,10 @@ function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
     }
   }
 
-  // Merge very close bands
   const merged: LineBox[] = [];
   for (const lb of lines) {
     const prev = merged[merged.length - 1];
     if (prev && lb.y - (prev.y + prev.h) <= minGap) {
-      // merge
       const top = Math.min(prev.y, lb.y);
       const bottom = Math.max(prev.y + prev.h, lb.y + lb.h);
       prev.y = top;
@@ -207,10 +263,7 @@ function segmentLines(binary: ImageData, minGap: number = 2): LineBox[] {
       merged.push({ ...lb });
     }
   }
-
-  // filter too small heights
-  const final = merged.filter((l) => l.h >= 12);
-  return final;
+  return merged.filter((l) => l.h >= 12);
 }
 
 function cropToCanvas(src: HTMLCanvasElement, box: LineBox): HTMLCanvasElement {
@@ -225,11 +278,8 @@ function normalizeDigits(text: string): string {
 }
 
 function extractPrefixedSequence(digits: string): string | null {
-  // Ép kiểu rõ ràng và dùng ?? để tránh null
   const matches: string[] = digits.match(/(0423\d{9,14}|0424\d{9,14})/g) ?? [];
   if (matches.length === 0) return null;
-
-  // Non-null assertion để tránh 'undefined' khi noUncheckedIndexedAccess bật
   let best = matches[0]!;
   for (const m of matches) {
     if (m.length > best.length) best = m;
@@ -237,41 +287,42 @@ function extractPrefixedSequence(digits: string): string | null {
   return best;
 }
 
-function chooseByVoting(cands: OCRCandidate[]): OCRCandidate | null {
-  const valid = cands
-    .map((c) => ({ ...c, digits: normalizeDigits(c.raw) }))
-    .map((c) => ({ ...c, digits: extractPrefixedSequence(c.digits) || "" }))
-    .filter((c) => c.digits.length >= 13);
-
-  if (valid.length === 0) return null;
-
-  // Majority voting by full-string frequency
-  const freq = new Map<string, { count: number; maxConf: number }>();
-  for (const v of valid) {
-    const f = freq.get(v.digits) || { count: 0, maxConf: 0 };
-    f.count += 1;
-    f.maxConf = Math.max(f.maxConf, v.confidence);
-    freq.set(v.digits, f);
-  }
-  let bestStr = "";
+function votePerChar(strings: string[]): string | null {
+  if (strings.length === 0) return null;
+  const lengths = new Map<number, number>();
+  for (const s of strings) lengths.set(s.length, (lengths.get(s.length) || 0) + 1);
+  let targetLen = strings[0].length;
   let bestCount = -1;
-  let bestConf = -1;
-  for (const [str, { count, maxConf }] of freq.entries()) {
-    if (count > bestCount || (count === bestCount && (str.length > bestStr.length || (str.length === bestStr.length && maxConf > bestConf)))) {
-      bestStr = str;
-      bestCount = count;
-      bestConf = maxConf;
+  for (const [len, cnt] of lengths.entries()) {
+    if (cnt > bestCount) {
+      bestCount = cnt;
+      targetLen = len;
     }
   }
-  return { raw: bestStr, digits: bestStr, confidence: bestConf };
+  const filtered = strings.filter((s) => s.length === targetLen);
+  if (filtered.length === 0) return null;
+  const outChars: string[] = [];
+  for (let i = 0; i < targetLen; i++) {
+    const freq = new Map<string, number>();
+    for (const s of filtered) {
+      const ch = s[i]!;
+      freq.set(ch, (freq.get(ch) || 0) + 1);
+    }
+    let bestCh = "0";
+    let best = -1;
+    for (const [ch, cnt] of freq.entries()) {
+      if (cnt > best) {
+        best = cnt;
+        bestCh = ch;
+      }
+    }
+    outChars.push(bestCh);
+  }
+  return outChars.join("");
 }
 
-async function ocrOne(
-  canvas: HTMLCanvasElement,
-  psm: number
-): Promise<OCRCandidate> {
+async function ocrOne(canvas: HTMLCanvasElement, psm: number): Promise<OCRCandidate> {
   const { data } = await Tesseract.recognize(canvas, "eng", {
-    // Keep only digits
     tessedit_char_whitelist: "0123456789",
     user_defined_dpi: "300",
     preserve_interword_spaces: "0",
@@ -285,7 +336,6 @@ async function ocrOne(
 
 /**
  * Warm up Tesseract engine to reduce first-call latency.
- * It runs a tiny recognition on a 32x16 blank canvas in the background.
  */
 export async function warmUpOcr(): Promise<void> {
   try {
@@ -293,7 +343,6 @@ export async function warmUpOcr(): Promise<void> {
     const ctx = c.getContext("2d")!;
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, c.width, c.height);
-    // Fire and forget
     await Tesseract.recognize(c, "eng", {
       tessedit_char_whitelist: "0123456789",
       psm: "7",
@@ -304,46 +353,94 @@ export async function warmUpOcr(): Promise<void> {
   }
 }
 
+function scoreProjectionSharpness(binary: ImageData): number {
+  const proj = horizontalProjection(binary);
+  let score = 0;
+  for (let i = 1; i < proj.length; i++) {
+    const d = proj[i] - proj[i - 1];
+    score += d * d;
+  }
+  return score;
+}
+
+function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
+  const grayData = toGrayscale(getImageData(baseCanvas));
+  const blurred = boxBlur(grayData);
+  let bestScore = -1;
+  let bestCanvas = baseCanvas;
+  for (let ang = -3; ang <= 3; ang += 0.5) {
+    const rotated = rotateCanvas(baseCanvas, ang);
+    const rd = toGrayscale(getImageData(rotated));
+    const bin = threshold(rd, 170);
+    const s = scoreProjectionSharpness(bin);
+    if (s > bestScore) {
+      bestScore = s;
+      bestCanvas = rotated;
+    }
+  }
+  return bestCanvas;
+}
+
+function cropColumn(binary: ImageData, srcCanvas: HTMLCanvasElement): HTMLCanvasElement {
+  const width = binary.width;
+  const proj = verticalProjection(binary);
+  let maxX = 0;
+  let maxVal = -1;
+  for (let x = 0; x < width; x++) {
+    if (proj[x] > maxVal) {
+      maxVal = proj[x];
+      maxX = x;
+    }
+  }
+  const roiW = Math.max(32, Math.floor(width * 0.5));
+  const startX = clamp(Math.floor(maxX - roiW / 2), 0, width - roiW);
+  const box: LineBox = { x: startX, y: 0, w: roiW, h: binary.height };
+  return cropToCanvas(srcCanvas, box);
+}
+
 /**
  * Main entry: Detect asset codes from a single image (Blob or URL).
  * Steps:
- * 1) Grayscale -> baseline threshold
- * 2) Line segmentation via horizontal projection on binary
- * 3) For each line ROI:
- *    - Create 2 variants (grayscale, thresholded)
- *    - OCR with PSM 7 and PSM 11 (single line + sparse)
- *    - Voting/selection
- * 4) Business filtering (0423/0424), dedupe, order by line order
- * 5) Room detection by prefix majority
+ * - Deskew (search), crop to most-dense numeric column
+ * - Grayscale + binary for segmentation
+ * - Segment lines
+ * - For each line: build multi variants (gamma, thresholds incl. Otsu), run OCR with PSM 7 & 11 in parallel, per-char voting
+ * - Filter 0423/0424, dedupe, detect room by prefix
  */
 export async function detectCodesFromImage(input: Blob | string): Promise<OCRPipelineResult> {
   const t0 = performance.now();
   const img = await loadImageFrom(input);
-  const baseCanvas = drawImageToCanvas(img);
+  let baseCanvas = drawImageToCanvas(img);
 
-  // Ensure reasonable scale: upscale small images
+  // Ensure minimum scale
   const minHeight = 800;
-  let workCanvas = baseCanvas;
   if (baseCanvas.height < minHeight) {
-    workCanvas = scaleCanvas(baseCanvas, minHeight);
+    baseCanvas = scaleCanvas(baseCanvas, minHeight);
   }
 
-  // Build grayscale and a baseline binary for segmentation
-  const grayData = toGrayscale(getImageData(workCanvas));
-  const grayCanvas = createCanvas(workCanvas.width, workCanvas.height);
-  putImageData(grayCanvas, grayData);
+  // Deskew
+  const deskewed = deskewBySearch(baseCanvas);
 
+  // Base grayscale + binary
+  const grayData0 = toGrayscale(getImageData(deskewed));
+  const blurred0 = boxBlur(grayData0);
+  const tOtsu0 = otsuThreshold(blurred0);
+  const binForProj = threshold(blurred0, tOtsu0);
+
+  // Crop to numeric column (best vertical density)
+  const columnCanvas = cropColumn(binForProj, deskewed);
+
+  // Build grayscale + binary for segmentation
+  const grayData = toGrayscale(getImageData(columnCanvas));
   const blurred = boxBlur(grayData);
-  const binForSeg = threshold(blurred, 170);
-  const binCanvas = createCanvas(workCanvas.width, workCanvas.height);
+  const tOtsu = otsuThreshold(blurred);
+  const binForSeg = threshold(blurred, tOtsu);
+  const binCanvas = createCanvas(columnCanvas.width, columnCanvas.height);
   putImageData(binCanvas, binForSeg);
 
-  // Segment lines on binary image
+  // Segment lines
   const lines = segmentLines(binForSeg);
-  const lineRois = lines.map((box) => cropToCanvas(grayCanvas, box)); // use grayscale as base for OCR variants
-
-  const PSM_SINGLE_LINE = 7;
-  const PSM_SPARSE = 11;
+  const lineRois = lines.map((box) => cropToCanvas(columnCanvas, box));
 
   const results: string[] = [];
   const confidences: number[] = [];
@@ -353,28 +450,103 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
     const targetH = 64;
     const roiScaled = scaleCanvas(roi, targetH);
 
-    // Build 2 variants: grayscale; thresholded@170
-    const roiGrayData = toGrayscale(getImageData(roiScaled));
+    // Variants: grayscale, gamma(0.8/1.2), thresholds (Otsu, 160, 190)
+    const roiGray = toGrayscale(getImageData(roiScaled));
     const roiGrayCanvas = createCanvas(roiScaled.width, roiScaled.height);
-    putImageData(roiGrayCanvas, roiGrayData);
+    putImageData(roiGrayCanvas, roiGray);
 
-    const roiBinData = threshold(roiGrayData, 170);
-    const roiBinCanvas = createCanvas(roiScaled.width, roiScaled.height);
-    putImageData(roiBinCanvas, roiBinData);
+    const roiGamma08 = applyGamma(roiGray, 0.8);
+    const roiGamma12 = applyGamma(roiGray, 1.2);
 
-    // OCR on combinations
-    const cands: OCRCandidate[] = [];
-    // Variant 1: grayscale
-    cands.push(await ocrOne(roiGrayCanvas, PSM_SINGLE_LINE));
-    cands.push(await ocrOne(roiGrayCanvas, PSM_SPARSE));
-    // Variant 2: binary
-    cands.push(await ocrOne(roiBinCanvas, PSM_SINGLE_LINE));
-    cands.push(await ocrOne(roiBinCanvas, PSM_SPARSE));
+    const tOtsuRoi = otsuThreshold(roiGray);
+    const roiBinOtsu = threshold(roiGray, tOtsuRoi);
+    const roiBin160 = threshold(roiGray, 160);
+    const roiBin190 = threshold(roiGray, 190);
 
-    const chosen = chooseByVoting(cands);
-    if (chosen?.digits) {
-      results.push(chosen.digits);
-      confidences.push(chosen.confidence);
+    const canvases: HTMLCanvasElement[] = [];
+    const pushDataCanvas = (d: ImageData) => {
+      const c = createCanvas(roiScaled.width, roiScaled.height);
+      putImageData(c, d);
+      canvases.push(c);
+    };
+
+    pushDataCanvas(roiGray);
+    pushDataCanvas(roiGamma08);
+    pushDataCanvas(roiGamma12);
+    pushDataCanvas(roiBinOtsu);
+    pushDataCanvas(roiBin160);
+    pushDataCanvas(roiBin190);
+
+    const PSM7 = 7;
+    const PSM11 = 11;
+
+    // Run OCR in parallel for each variant × 2 PSM
+    const jobs: Promise<OCRCandidate>[] = [];
+    for (const c of canvases) {
+      jobs.push(ocrOne(c, PSM7));
+      jobs.push(ocrOne(c, PSM11));
+    }
+    const candsRaw = await Promise.all(jobs);
+
+    // Normalize and filter candidates
+    const normalizedStrings = candsRaw
+      .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
+      .filter((s): s is string => !!s && s.length >= 13);
+
+    let chosenStr: string | null = null;
+    let chosenConf = 0;
+
+    if (normalizedStrings.length > 0) {
+      // Per-char voting
+      const voted = votePerChar(normalizedStrings);
+      if (voted) {
+        chosenStr = voted;
+      } else {
+        // fallback: majority full-string
+        const freq = new Map<string, { count: number; maxConf: number }>();
+        for (const c of candsRaw) {
+          const s = extractPrefixedSequence(normalizeDigits(c.raw));
+          if (!s) continue;
+          const f = freq.get(s) || { count: 0, maxConf: 0 };
+          f.count += 1;
+          f.maxConf = Math.max(f.maxConf, c.confidence);
+          freq.set(s, f);
+        }
+        let bestStr = "";
+        let bestCount = -1;
+        let bestConf = -1;
+        for (const [str, { count, maxConf }] of freq.entries()) {
+          if (count > bestCount || (count === bestCount && (str.length > bestStr.length || (str.length === bestStr.length && maxConf > bestConf)))) {
+            bestStr = str;
+            bestCount = count;
+            bestConf = maxConf;
+          }
+        }
+        chosenStr = bestStr || null;
+      }
+      // Confidence estimate: average of candidates matching chosenStr
+      const matches = candsRaw.filter((c) => extractPrefixedSequence(normalizeDigits(c.raw)) === chosenStr);
+      chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
+    }
+
+    // Fallback pass if low confidence
+    if (!chosenStr || chosenConf < 60) {
+      const roiBlurred = boxBlur(roiGray);
+      const roiBinAlt = threshold(roiBlurred, Math.max(100, tOtsuRoi - 10));
+      const altCanvas = createCanvas(roiScaled.width, roiScaled.height);
+      putImageData(altCanvas, roiBinAlt);
+      const altCands = await Promise.all([ocrOne(altCanvas, PSM7), ocrOne(altCanvas, PSM11)]);
+      const altStrings = altCands.map((c) => extractPrefixedSequence(normalizeDigits(c.raw))).filter((s): s is string => !!s && s.length >= 13);
+      const altVoted = votePerChar(altStrings);
+      if (altVoted) {
+        chosenStr = altVoted;
+        chosenConf = Math.max(...altCands.map((c) => c.confidence || 0));
+      }
+    }
+
+    if (chosenStr) {
+      results.push(chosenStr);
+      confidences.push(chosenConf);
     }
   }
 
@@ -386,15 +558,12 @@ export async function detectCodesFromImage(input: Blob | string): Promise<OCRPip
     return true;
   });
 
-  // Detect room from prefixes
+  // Detect room by prefixes
   let detectedRoom = "";
   const roomVotes = new Map<string, number>();
-  function vote(room: string) {
-    if (!room) return;
-    roomVotes.set(room, (roomVotes.get(room) || 0) + 1);
-  }
+  const vote = (room: string) => roomVotes.set(room, (roomVotes.get(room) || 0) + 1);
+
   for (const code of orderedUnique) {
-    // Map room by prefix
     const p7 = code.slice(0, 7);
     const p6 = code.slice(0, 6);
     if (p7 === "0424201") vote("CMT8");
