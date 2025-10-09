@@ -811,8 +811,8 @@ function groupLineRois(rois: LineROI[], tolerance: number = 4): LineROI[][] {
 // Add a typed result for per-ROI processing
 type ROIProcessResult = { chosenStr: string | null; chosenConf: number; variantsTried: number };
 
-// Lightweight per-ROI OCR that tries grayscale and closed-binary, then votes to pick a valid '042...' sequence
-const processOne = async (roi: HTMLCanvasElement): Promise<ROIProcessResult> => {
+// Lightweight per-ROI OCR with micro-rotation fallback for skewed lines
+const processOne = async (roi: HTMLCanvasElement, turbo: boolean): Promise<ROIProcessResult> => {
   let variantsTried = 0;
 
   const targetH = Math.max(64, Math.min(256, roi.height));
@@ -830,11 +830,10 @@ const processOne = async (roi: HTMLCanvasElement): Promise<ROIProcessResult> => 
   variantsTried += 1;
   const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
   if (quickSeq && seqLooksValid(quickSeq) && (quickCand.confidence || 0) >= 75) {
-    // Nếu rất tự tin thì trả về luôn
     return { chosenStr: quickSeq, chosenConf: Math.round(quickCand.confidence || 75), variantsTried };
   }
-  // Nếu không đủ tự tin, tiếp tục chạy đầy đủ các biến thể
 
+  // Biến thể cơ bản
   const c1 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c1, gray);
   const c2 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c2, binClosed);
 
@@ -869,8 +868,193 @@ const processOne = async (roi: HTMLCanvasElement): Promise<ROIProcessResult> => 
     }
   }
 
+  // Micro-rotation fallback: thử các góc nhỏ quanh ROI khi kết quả yếu
+  if (!turbo && (!chosenStr || chosenConf < 70)) {
+    const angles = [-5, -3, -1.5, 0, 1.5, 3, 5];
+    const microStrings: string[] = [];
+    const microWeights: number[] = [];
+    for (const ang of angles) {
+      const rCanvas = rotateCanvas(roiScaled, ang);
+      const g2 = toGrayscale(getImageData(rCanvas));
+      const t2 = otsuThreshold(g2);
+      const b2 = closing(threshold(g2, t2));
+      const m1 = createCanvas(rCanvas.width, rCanvas.height); putImageData(m1, g2);
+      const m2 = createCanvas(rCanvas.width, rCanvas.height); putImageData(m2, b2);
+      const rs = await Promise.all([ocrOne(m1, 7), ocrOne(m1, 11), ocrOne(m2, 7), ocrOne(m2, 11)]);
+      variantsTried += rs.length;
+      for (const r of rs) {
+        const seq = extractPrefixedSequence(normalizeDigits(r.raw));
+        if (seq) {
+          microStrings.push(seq);
+          microWeights.push(r.confidence || 0);
+        }
+      }
+      // Nếu đã có vài ứng viên tốt, có thể dừng sớm để tiết kiệm thời gian
+      if (microStrings.length >= 4 && Math.max(...microWeights) >= 80) break;
+    }
+    if (microStrings.length) {
+      const microVoted = votePerCharWeighted(microStrings, microWeights) || votePerChar(microStrings);
+      if (microVoted && seqLooksValid(microVoted)) {
+        const maxW = Math.max(...microWeights);
+        if (!chosenStr || maxW >= chosenConf) {
+          chosenStr = microVoted;
+          chosenConf = Math.round(maxW);
+        }
+      }
+    }
+  }
+
   return { chosenStr, chosenConf, variantsTried };
 };
+
+// Fallback: quét đa góc toàn ảnh nếu lượt chính không ra kết quả
+async function fallbackMultiAngle(baseCanvas: HTMLCanvasElement, options?: DetectOptions): Promise<OCRPipelineResult> {
+  const onProgress = options?.onProgress;
+  const batchSize = Math.max(1, options?.batchSize ?? 4);
+  const turbo = options?.turbo ?? false;
+  const maxLines = options?.maxLines ?? 40;
+  const minConf = clamp(Math.round(options?.minConfidence ?? (options?.turbo ? 55 : 65)), 0, 100);
+
+  const tStart = performance.now();
+  const angles = [-20, -16, -12, -8, -4, 0, 4, 8, 12, 16, 20];
+
+  for (let ai = 0; ai < angles.length; ai++) {
+    const ang = angles[ai]!;
+    onProgress?.({ phase: "recognize", current: ai, total: angles.length, detail: `Fallback quét góc ${ang}°` });
+
+    const rotated = rotateCanvas(baseCanvas, ang);
+
+    const grayData0 = toGrayscale(getImageData(rotated));
+    const blurred0 = boxBlur(grayData0);
+    const tOtsu0 = otsuThreshold(blurred0);
+    const binForProj = threshold(blurred0, tOtsu0);
+
+    const columnCanvases = cropTopColumns(binForProj, rotated, 3);
+
+    const lineRois: { canvas: HTMLCanvasElement; y: number; h: number }[] = [];
+    for (const columnCanvas of columnCanvases) {
+      const grayData = toGrayscale(getImageData(columnCanvas));
+      const blurred = boxBlur(grayData);
+      const tOtsu = otsuThreshold(blurred);
+      const binForSeg = threshold(blurred, tOtsu);
+      const lines = segmentLines(binForSeg, 1);
+      for (const box of lines) {
+        let c = cropToCanvas(columnCanvas, box);
+        c = trimLineCanvas(c);
+        lineRois.push({ canvas: c, y: box.y, h: box.h });
+        if (lineRois.length >= maxLines) break;
+      }
+      if (lineRois.length >= maxLines) break;
+    }
+
+    const clusters = groupLineRois(lineRois, 4);
+    const total = clusters.length;
+
+    const results: string[] = [];
+    const confidences: number[] = [];
+    const droppedIndices: number[] = [];
+    let totalVariantsTried = 0;
+    let done = 0;
+
+    for (let gi = 0; gi < clusters.length; gi += batchSize) {
+      const batch = clusters.slice(gi, gi + batchSize);
+      const batchGroupResults: ROIProcessResult[][] = await Promise.all(
+        batch.map(async (group) => {
+          const perRoi = await Promise.all(group.map((roi) => processOne(roi.canvas, turbo)));
+          return perRoi;
+        })
+      );
+
+      batchGroupResults.forEach((perGroup: ROIProcessResult[], idx: number) => {
+        const groupIndex = gi + idx;
+
+        const candStrings = perGroup
+          .map((r: ROIProcessResult) => r.chosenStr)
+          .filter((s: string | null): s is string => !!s && s.length >= 13 && s.startsWith("042"));
+        const candWeights = perGroup
+          .map((r: ROIProcessResult) => r.chosenConf || 0);
+
+        const voted = candStrings.length
+          ? (votePerCharWeighted(candStrings, candWeights) || votePerChar(candStrings))
+          : null;
+
+        const chosen = voted && seqLooksValid(voted) ? voted : (candStrings.find((s: string) => seqLooksValid(s)) ?? null);
+
+        const chosenConf = chosen
+          ? Math.round(
+              perGroup
+                .filter((r: ROIProcessResult) => r.chosenStr === chosen)
+                .reduce((a: number, b: ROIProcessResult) => a + (b.chosenConf || 0), 0) /
+              Math.max(1, perGroup.filter((r: ROIProcessResult) => r.chosenStr === chosen).length)
+            )
+          : 0;
+
+        const groupVariants = perGroup.reduce((a: number, b: ROIProcessResult) => a + (b.variantsTried || 0), 0);
+        totalVariantsTried += groupVariants;
+
+        if (chosen) {
+          results.push(chosen);
+          confidences.push(chosenConf);
+        } else {
+          droppedIndices.push(groupIndex);
+        }
+
+        done += 1;
+        onProgress?.({ phase: "recognize", current: done, total, detail: `Fallback nhận dạng dòng ${done}/${total}` });
+      });
+    }
+
+    // Lọc và khử trùng lặp
+    const keptByThreshold: { code: string; conf: number }[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const code = results[i];
+      const conf = confidences[i] ?? 0;
+      if (code && seqLooksValid(code) && conf >= minConf) {
+        keptByThreshold.push({ code, conf });
+      }
+    }
+    const confMap = new Map<string, number>();
+    for (const { code, conf } of keptByThreshold) {
+      const cur = confMap.get(code) ?? -1;
+      if (conf > cur) confMap.set(code, conf);
+    }
+    const uniqueCodes = Array.from(confMap.keys());
+    const uniqueConfs = Array.from(confMap.values());
+
+    if (uniqueCodes.length > 0) {
+      const tEnd = performance.now();
+      const avgConfidence = uniqueConfs.length
+        ? uniqueConfs.reduce((a, b) => a + b, 0) / uniqueConfs.length
+        : undefined;
+      const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, clusters.length));
+      onProgress?.({ phase: "done", current: uniqueCodes.length, total, detail: `Fallback tìm thấy mã ở góc ${ang}°` });
+      return {
+        codes: uniqueCodes,
+        stats: {
+          totalLines: clusters.length,
+          keptLines: uniqueCodes.length,
+          avgConfidence,
+          durationMs: Math.round(tEnd - tStart),
+          droppedIndices,
+          variantsTriedPerLine: avgVariantsPerLine,
+        },
+      };
+    }
+  }
+
+  // Không tìm được sau mọi góc
+  const tEnd = performance.now();
+  return {
+    codes: [],
+    stats: {
+      totalLines: 0,
+      keptLines: 0,
+      durationMs: Math.round(tEnd - tStart),
+      droppedIndices: [],
+      variantsTriedPerLine: 0,
+    },
+  };
+}
 
 /**
  * Main entry: Detect asset codes from a single image (Blob or URL).
@@ -951,7 +1135,7 @@ export async function detectCodesFromImage(
     // OCR tất cả ROI trong từng nhóm
     const batchGroupResults: ROIProcessResult[][] = await Promise.all(
       batch.map(async (group) => {
-        const perRoi = await Promise.all(group.map((roi) => processOne(roi.canvas)));
+        const perRoi = await Promise.all(group.map((roi) => processOne(roi.canvas, turbo)));
         return perRoi;
       })
     );
@@ -1011,10 +1195,7 @@ export async function detectCodesFromImage(
     if (code && seqLooksValid(code) && conf >= minConf) {
       keptByThreshold.push({ code, conf, srcIndex: i });
     } else {
-      // đánh dấu dropped nếu dưới ngưỡng
-      if (typeof droppedIndices.find((d) => d === i) === "undefined") {
-        // i ở đây là thứ tự kết quả, không phải groupIndex; để an toàn không ghi đè groupIndex đã tồn tại
-      }
+      // giữ nguyên droppedIndices như trước
     }
   }
 
@@ -1032,6 +1213,12 @@ export async function detectCodesFromImage(
     : undefined;
 
   const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, clusters.length));
+
+  // Nếu không có kết quả, fallback quét đa góc
+  if (uniqueCodes.length === 0) {
+    const fb = await fallbackMultiAngle(baseCanvas, options);
+    return fb;
+  }
 
   onProgress?.({ phase: "done", current: uniqueCodes.length, total: total, detail: "Điền mã" });
 
