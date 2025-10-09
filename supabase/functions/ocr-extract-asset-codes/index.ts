@@ -127,6 +127,26 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     }
   }
 
+  // Strategy 1c: các chuỗi bắt đầu bằng 042 (có thể ngắt bởi khoảng trắng/gạch)
+  // Bắt một đoạn bắt đầu bằng 042, theo sau là số và dấu phân cách, sau đó gom thành chuỗi số sạch.
+  const prefix042Matches = normalized.match(/(?:^|[^0-9])(042[0-9\s\-\_]{9,})(?:[^0-9]|$)/g) || [];
+  for (const raw of prefix042Matches) {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits.startsWith("042")) continue;
+    if (digits.length < 12) continue; // cần đủ dài để lấy 10th-from-right và 4 cuối
+    const yearStr = digits.slice(-10, -8);
+    const codeStr = digits.slice(-4);
+    const codeNum = parseInt(codeStr, 10);
+    const yearNum = parseInt(yearStr, 10);
+    if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
+    if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
+    const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
+    if (!codes.has(v)) {
+      codes.add(v);
+      candidates_count++;
+    }
+  }
+
   // Strategy 2: chuỗi số dài (>=12) theo quy tắc đặc tả
   const longSeqs = normalized.match(/\d{12,}/g) || [];
   for (const s of longSeqs) {
