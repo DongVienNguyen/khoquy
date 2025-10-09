@@ -141,7 +141,10 @@ serve(async (req: Request) => {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = Deno.env.toObject();
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) as any;
 
+  const tStart = Date.now();
   let uploadedPaths: string[] = [];
+  const imageSizes: number[] = [];
+  const aiDurations: number[] = [];
 
   try {
     const body = await req.json().catch(() => null) as { images?: string[] };
@@ -168,6 +171,7 @@ serve(async (req: Request) => {
     for (let i = 0; i < body.images.length; i++) {
       const item = body.images[i];
       const { mime, bytes } = parseDataUrl(item);
+      imageSizes.push(bytes.length);
       if (bytes.length > MAX_IMAGE_BYTES) {
         return new Response(JSON.stringify({ error: `Image ${i + 1} exceeds ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))}MB` }), { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -185,6 +189,7 @@ serve(async (req: Request) => {
         uploadedPaths.push(key);
       }
     }
+    const tAfterUpload = Date.now();
 
     // Lấy signed URL ngắn hạn cho từng file
     const signedUrls: string[] = [];
@@ -193,6 +198,7 @@ serve(async (req: Request) => {
       if (error || !data?.signedUrl) throw new Error("Cannot create signed URL");
       signedUrls.push(data.signedUrl);
     }
+    const tAfterSign = Date.now();
 
     // Đọc AI settings
     let settings: AISettings = DEFAULTS;
@@ -251,8 +257,11 @@ serve(async (req: Request) => {
         max_tokens: 512,
         response_format: { type: "json_object" }
       };
-
+      const tAiStart = Date.now();
       const resp = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(payload) });
+      const tAiEnd = Date.now();
+      aiDurations.push(tAiEnd - tAiStart);
+
       if (!resp.ok) {
         const txt = await resp.text();
         // Không dừng toàn bộ; tiếp tục ảnh khác, nhưng vẫn ghi nhận lỗi ảnh này
@@ -298,24 +307,47 @@ serve(async (req: Request) => {
     // Bổ sung fallback từ raw signed URLs string (hầu như không có text)
     const normalized = normalizeCodes(allCodes);
 
+    const avgBytes = imageSizes.length ? Math.round(imageSizes.reduce((a, b) => a + b, 0) / imageSizes.length) : 0;
+    const metrics = {
+      event: "ai_extract_asset_codes_metrics",
+      provider,
+      model,
+      images_count: imageSizes.length,
+      avg_image_bytes: avgBytes,
+      sign_ttl_seconds: SIGN_TTL_SECONDS,
+      upload_ms: tAfterUpload - tStart,
+      sign_ms: tAfterSign - tAfterUpload,
+      ai_ms_total: aiDurations.reduce((a, b) => a + b, 0),
+      ai_ms_per_image: aiDurations,
+      codes_count: normalized.length
+    };
+    try { console.log(JSON.stringify(metrics)); } catch {}
+
     return new Response(JSON.stringify({ data: { codes: normalized, images: perImageResults } }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e: any) {
-    // Thử dọn dẹp nếu có paths đính kèm trong error (không có ở đây)
     return new Response(JSON.stringify({ error: String(e?.message || e) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } finally {
-    // Dọn dẹp tuyệt đối: xóa mọi file đã upload, kể cả khi return sớm hoặc lỗi
     if (uploadedPaths.length) {
+      const toRemove = [...uploadedPaths];
+      let cleanupOk = true;
       try {
-        await supabase.storage.from(BUCKET).remove(uploadedPaths);
+        await supabase.storage.from(BUCKET).remove(toRemove);
       } catch {
-        // ignore cleanup errors
+        cleanupOk = false;
       }
+      try {
+        console.log(JSON.stringify({
+          event: "ai_extract_asset_codes_cleanup",
+          removed_count: toRemove.length,
+          ok: cleanupOk
+        }));
+      } catch {}
       uploadedPaths = [];
     }
   }
