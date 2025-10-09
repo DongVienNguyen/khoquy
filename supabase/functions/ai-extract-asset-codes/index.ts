@@ -359,11 +359,14 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: "Missing API key for selected provider" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // A/B model selection
-    const variant = chooseVariant(rateKey);
-    const modelA = provider === "openrouter" ? (settings.default_openrouter_model || "openrouter/auto") : (settings.custom_model || "gpt-4o-mini");
-    const modelB = provider === "openrouter" ? "openai/gpt-4o" : "gpt-4o";
-    const model = (variant === "A" ? modelA : modelB);
+    // Model selection: always respect custom_model; A/B only for OpenRouter
+    const variant = provider === "openrouter" ? chooseVariant(rateKey) : "A";
+    const model =
+      provider === "openrouter"
+        ? (variant === "A"
+            ? (settings.default_openrouter_model || "openrouter/auto")
+            : "openai/gpt-4o")
+        : (settings.custom_model || "gpt-4o-mini");
 
     const endpoint = provider === "openrouter" ? `${baseUrl}/chat/completions` : `${baseUrl}/v1/chat/completions`;
     const systemPrompt = buildSystemPrompt();
@@ -504,7 +507,7 @@ serve(async (req: Request) => {
       codes: normalizedFinal,
       images: perImageResults,
       needs_confirmation: voteResult.needsConfirm,
-      meta: { ab_variant: variant, provider, model, temperature: 0, prompt_version: "v2" }
+      meta: { ab_variant: provider === "openrouter" ? variant : "fixed", provider, model, temperature: 0, prompt_version: "v2" }
     };
 
     return new Response(JSON.stringify({ data }), {
