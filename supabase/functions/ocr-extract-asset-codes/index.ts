@@ -45,6 +45,25 @@ function dataUrlToBase64(content: string) {
   return { mime: m[1].toLowerCase(), base64: m[3] };
 }
 
+// Verify file signature by magic bytes for JPEG/PNG
+function isValidMagicBytes(base64: string, mime: string): boolean {
+  const bin = atob(base64);
+  if (mime.includes("jpeg")) {
+    // JPEG starts with 0xFF 0xD8
+    return bin.length >= 2 && bin.charCodeAt(0) === 0xff && bin.charCodeAt(1) === 0xd8;
+  }
+  if (mime.includes("png")) {
+    // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+    const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    if (bin.length < sig.length) return false;
+    for (let i = 0; i < sig.length; i++) {
+      if (bin.charCodeAt(i) !== sig[i]) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 function base64Size(base64: string): number {
   // Approximate byte length from base64 length
   // 4 chars => 3 bytes; remove padding "="
@@ -142,6 +161,15 @@ serve(async (req: Request) => {
   const t0 = nowMs();
   const correlationId = uuid();
 
+  // Origin allow-list (optional via ALLOWED_ORIGINS comma-separated)
+  const origin = req.headers.get("Origin") || "";
+  const { ALLOWED_ORIGINS } = Deno.env.toObject();
+  const allowedOrigins = (ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
+  const isOriginAllowed = !allowedOrigins.length || (origin && allowedOrigins.includes(origin));
+  if (origin && !isOriginAllowed) {
+    return new Response(JSON.stringify({ error: "Origin not allowed" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   // Basic auth: require Authorization header to match anon key
   const authHeader = req.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -149,6 +177,12 @@ serve(async (req: Request) => {
   }
   const bearer = authHeader.replace("Bearer ", "").trim();
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY, GOOGLE_VISION_API_KEY } = Deno.env.toObject();
+
+  // Optional apikey header check (if present, must match anon key)
+  const apiKeyHeader = req.headers.get("apikey");
+  if (apiKeyHeader && SUPABASE_ANON_KEY && apiKeyHeader !== SUPABASE_ANON_KEY) {
+    return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return new Response(JSON.stringify({ error: "Server misconfigured: Supabase env missing" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -185,6 +219,11 @@ serve(async (req: Request) => {
     if (!/image\/(jpeg|png)/i.test(parsed.mime)) {
       return new Response(JSON.stringify({ error: `Image ${i} mime must be image/jpeg or image/png` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    // Magic-bytes verification
+    if (!isValidMagicBytes(parsed.base64, parsed.mime)) {
+      return new Response(JSON.stringify({ error: `Image ${i} content does not match declared MIME` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const size = base64Size(parsed.base64);
     totalBytes += size;
     parsedImages.push({ base64: parsed.base64, mime: parsed.mime });
