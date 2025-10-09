@@ -469,7 +469,7 @@ export default function AssetEntryPage() {
       }
 
       setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang phân tích bằng AI..." });
-      const { data, error } = await supabase.functions.invoke("ai-extract-asset-codes", {
+      const { data, error } = await supabase.functions.invoke("ocr-extract-asset-codes", {
         body: { images },
         headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
       });
