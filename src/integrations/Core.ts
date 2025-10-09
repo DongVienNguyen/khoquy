@@ -21,6 +21,29 @@ type ExtractResult =
 // Lưu trữ tạm thời mapping giữa object URL và File để OCR chính xác từ blob.
 const uploadedFilesMap = new Map<string, File>();
 
+// Helper chuyển chuỗi tiền tố nội bộ (0423/0424...) thành "mã.năm" (ví dụ 259.24)
+function formatFromSequence(seq: string): string | null {
+  const s = (seq || "").trim();
+  if (!s || s.length < 10) return null;
+  const year = s.slice(-10, -8);
+  const code = parseInt(s.slice(-4), 10);
+  if (Number.isNaN(code) || year.length !== 2) return null;
+  const formatted = `${code}.${year}`;
+  return /^\d{1,4}\.\d{2}$/.test(formatted) ? formatted : null;
+}
+
+function detectRoomFromPrefix(seq: string): string | "" {
+  const p7 = seq.slice(0, 7);
+  const p6 = seq.slice(0, 6);
+  if (p7 === "0424201") return "CMT8";
+  if (p7 === "0424202") return "NS";
+  if (p7 === "0424203") return "ĐS";
+  if (p7 === "0424204") return "LĐH";
+  if (p6 === "042300") return "DVKH";
+  if (p6 === "042410") return "QLN";
+  return "";
+}
+
 export async function UploadFile({ file }: UploadFileParams): Promise<UploadFileResult> {
   const url = URL.createObjectURL(file);
   uploadedFilesMap.set(url, file);
@@ -37,7 +60,7 @@ export async function ExtractDataFromUploadedFile(
   const blob = uploadedFilesMap.get(file_url);
 
   try {
-    // Prefer our pipeline (handles preprocessing, line segmentation, ensemble OCR, voting, business parsing)
+    // Prefer our pipeline (handles preprocessing, line segmentation, ensemble OCR, voting)
     const result = await detectCodesFromImage(blob ?? file_url, {
       onProgress: options?.onProgress,
       turbo: options?.turbo,
@@ -45,19 +68,36 @@ export async function ExtractDataFromUploadedFile(
       maxLines: options?.maxLines,
     });
 
-    // Keep backward compatibility: return newline-joined codes as text_content
-    const text_content = (result.codes || []).join("\n");
+    // result.codes là chuỗi tiền tố nội bộ (0423/0424...); chuẩn hóa sang "code.year"
+    const formattedCodes = (result.codes || [])
+      .map((seq) => formatFromSequence(seq))
+      .filter((v): v is string => !!v);
+
+    // Chọn room: ưu tiên room từ pipeline, fallback vote theo codes
+    let room = result.detectedRoom || "";
+    if (!room && result.codes && result.codes.length > 0) {
+      const votes = new Map<string, number>();
+      for (const seq of result.codes) {
+        const r = detectRoomFromPrefix(seq);
+        if (r) votes.set(r, (votes.get(r) || 0) + 1);
+      }
+      for (const [r, cnt] of votes.entries()) {
+        if (!room || cnt > (votes.get(room) || 0)) room = r;
+      }
+    }
+
+    const text_content = formattedCodes.join("\n");
 
     return {
       status: "success",
       output: {
         text_content,
-        codes: result.codes,
-        detected_room: result.detectedRoom,
+        codes: formattedCodes,
+        detected_room: room || undefined,
       },
     };
   } catch (e: any) {
-    // Fallback to a plain Tesseract call as a safety net
+    // Fallback: plain Tesseract OCR + regex
     try {
       const ocrOptions = {
         tessedit_char_whitelist: "0123456789",
@@ -67,8 +107,33 @@ export async function ExtractDataFromUploadedFile(
         psm: "11",
       } as any;
       const { data } = await Tesseract.recognize(blob ?? file_url, "eng", ocrOptions);
-      const text_content = (data?.text || "").toString();
-      return { status: "success", output: { text_content } };
+      const text = (data?.text || "").toString();
+      const rawMatches = text.match(/(0424\d+|0423\d+)/g) || [];
+
+      const formattedCodes = rawMatches
+        .map((seq) => formatFromSequence(seq))
+        .filter((v): v is string => !!v);
+
+      let room = "";
+      if (rawMatches.length > 0) {
+        const votes = new Map<string, number>();
+        for (const seq of rawMatches) {
+          const r = detectRoomFromPrefix(seq);
+          if (r) votes.set(r, (votes.get(r) || 0) + 1);
+        }
+        for (const [r, cnt] of votes.entries()) {
+          if (!room || cnt > (votes.get(room) || 0)) room = r;
+        }
+      }
+
+      return {
+        status: "success",
+        output: {
+          text_content: formattedCodes.join("\n") || text,
+          codes: formattedCodes.length ? formattedCodes : undefined,
+          detected_room: room || undefined,
+        },
+      };
     } catch (inner: any) {
       return { status: "error", error: inner?.message || e?.message || "OCR failed" };
     }
