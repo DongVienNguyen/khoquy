@@ -215,7 +215,8 @@ async function callVisionOCR(
   base64: string,
   featureType: "TEXT_DETECTION" | "DOCUMENT_TEXT_DETECTION",
   timeoutMs = 12000,
-  retries = 1
+  retries = 1,
+  referer?: string
 ): Promise<{ ok: boolean; status: number; json: any | null }> {
   const payload = {
     requests: [
@@ -234,7 +235,11 @@ async function callVisionOCR(
     try {
       const resp = await fetch(`${endpointBase}?key=${apiKey}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          // Truyền Referer để phù hợp với API key bị hạn chế theo referrer
+          ...(referer ? { "Referer": referer } : {})
+        },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
@@ -395,7 +400,7 @@ serve(async (req: Request) => {
   async function processOne(index: number) {
     const img = parsedImages[index];
 
-    const first = await callVisionOCR(GOOGLE_VISION_API_KEY, img.base64, "TEXT_DETECTION", 12000, 1);
+    const first = await callVisionOCR(GOOGLE_VISION_API_KEY, img.base64, "TEXT_DETECTION", 12000, 1, origin);
     if (!first.ok) {
       const msg = first.json?.error?.message || "network/timeout";
       warnings.push(`Vision error for image ${index}: ${first.status || "unknown"} - ${msg}`);
@@ -410,7 +415,7 @@ serve(async (req: Request) => {
       "";
 
     if (!fullText || typeof fullText !== "string" || fullText.trim().length === 0) {
-      const second = await callVisionOCR(GOOGLE_VISION_API_KEY, img.base64, "DOCUMENT_TEXT_DETECTION", 12000, 0);
+      const second = await callVisionOCR(GOOGLE_VISION_API_KEY, img.base64, "DOCUMENT_TEXT_DETECTION", 12000, 0, origin);
       if (second.ok) {
         annotation = second.json?.responses?.[0];
         fullText =
