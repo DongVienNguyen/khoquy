@@ -153,6 +153,14 @@ async function uploadDebugImage(supabase: any, bucket: string, base64: string, m
   return !error;
 }
 
+function getClientIp(req: Request): string {
+  const xf = req.headers.get("x-forwarded-for") || "";
+  const realIp = req.headers.get("x-real-ip") || "";
+  const cfIp = req.headers.get("cf-connecting-ip") || "";
+  const fromXf = xf.split(",")[0]?.trim();
+  return (fromXf || realIp || cfIp || "").trim() || "unknown";
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -195,7 +203,50 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) as any;
+
+  // Rate limit IP/giờ
+  const MAX_REQ_PER_HOUR = 20;
+  const ip = getClientIp(req);
+  const now = new Date();
+  const hourStart = new Date(now);
+  hourStart.setUTCMinutes(0, 0, 0);
+  const windowIso = hourStart.toISOString();
+  {
+    const { data: existing, error: selErr } = await supabase
+      .from("ocr_rate_limit")
+      .select("count")
+      .eq("key", ip)
+      .eq("window_start", windowIso)
+      .maybeSingle();
+
+    if (selErr) {
+      // If rate store fails, we can continue but optionally warn (do not expose details)
+    } else if (!existing) {
+      const { error: insErr } = await supabase
+        .from("ocr_rate_limit")
+        .insert([{ key: ip, window_start: windowIso, count: 1 }]);
+      if (insErr) {
+        // ignore
+      }
+    } else {
+      const current = Number(existing.count || 0);
+      if (current >= MAX_REQ_PER_HOUR) {
+        return new Response(JSON.stringify({ error: "Too Many Requests" }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "3600" },
+        });
+      }
+      const { error: updErr } = await supabase
+        .from("ocr_rate_limit")
+        .update({ count: current + 1 })
+        .eq("key", ip)
+        .eq("window_start", windowIso);
+      if (updErr) {
+        // ignore
+      }
+    }
+  }
 
   // Parse body
   const body = await req.json().catch(() => null) as { images?: string[] };
