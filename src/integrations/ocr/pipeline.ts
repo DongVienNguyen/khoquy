@@ -394,6 +394,14 @@ function extractPrefixedSequence(digits: string): string | null {
   return best;
 }
 
+// Thẩm định nhanh tính hợp lệ theo quy tắc map sang code.year (năm 20-99, mã cuối 4 số)
+function seqLooksValid(seq: string): boolean {
+  if (!seq || seq.length < 13) return false;
+  const year = parseInt(seq.slice(-10, -8), 10);
+  const code = parseInt(seq.slice(-4), 10);
+  return !Number.isNaN(year) && !Number.isNaN(code) && year >= 20 && year <= 99;
+}
+
 function votePerChar(strings: string[]): string | null {
   if (strings.length === 0) return null;
   const lengths = new Map<number, number>();
@@ -585,7 +593,6 @@ export async function detectCodesFromImage(
     const targetH = 96;
     const roiScaled = scaleCanvas(roi, targetH);
 
-    // Variants: grayscale, gamma(0.8/1.2), thresholds (Otsu, 160, 190)
     const roiGray = toGrayscale(getImageData(roiScaled));
     const roiGrayCanvas = createCanvas(roiScaled.width, roiScaled.height);
     putImageData(roiGrayCanvas, roiGray);
@@ -593,26 +600,26 @@ export async function detectCodesFromImage(
     const tOtsuRoi = otsuThreshold(roiGray);
     const roiBinOtsu = threshold(roiGray, tOtsuRoi);
 
-    // 1) Khảo sát nhanh: chỉ chạy 1 OCR nhẹ để kiểm tra có '042' hay không
+    // 1) Khảo sát nhanh (PSM13) để kiểm tra có '042'
     const quickCanvas = createCanvas(roiScaled.width, roiScaled.height);
     putImageData(quickCanvas, roiBinOtsu);
-    const quickCand = await ocrOne(quickCanvas, 13); // PSM13: raw line
+    const quickCand = await ocrOne(quickCanvas, 13);
     variantsTried += 1;
     const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
+
     if (!quickSeq) {
-      // Không có '042' -> bỏ qua sớm, tăng tốc đáng kể
+      // Không có '042' -> bỏ qua sớm
       return { chosenStr: null as string | null, chosenConf: 0, variantsTried };
     }
-    // Nếu turbo và độ tin cậy khá tốt, dùng luôn kết quả khảo sát để thắng tốc độ
-    if (options?.turbo && (quickCand.confidence || 0) >= 60) {
-      return { chosenStr: quickSeq, chosenConf: quickCand.confidence || 60, variantsTried };
+    // Nếu chuỗi trông hợp lệ và độ tin cậy tốt: chấp nhận luôn (cả turbo và non-turbo)
+    if (seqLooksValid(quickSeq) && (quickCand.confidence || 0) >= (options?.turbo ? 60 : 75)) {
+      return { chosenStr: quickSeq, chosenConf: quickCand.confidence || (options?.turbo ? 60 : 75), variantsTried };
     }
 
-    // 2) Nhận dạng chi tiết khi đã biết chắc có '042'
+    // 2) Nhận dạng chi tiết khi đã biết có '042'
     const roiGamma08 = applyGamma(roiGray, 0.8);
-    const roiGamma12 = applyGamma(roiGray, 1.2);
     const roiBin160 = threshold(roiGray, 160);
-    const roiBin190 = threshold(roiGray, 190);
+    const roiGamma12 = applyGamma(roiGray, 1.2); // giữ tối thiểu 1 gamma tăng
 
     const canvases: HTMLCanvasElement[] = [];
     const pushDataCanvas = (d: ImageData) => {
@@ -621,35 +628,28 @@ export async function detectCodesFromImage(
       canvases.push(c);
     };
 
-    // Turbo: ít biến thể hơn để nhanh
     if (options?.turbo) {
+      // Turbo: ít biến thể để nhanh
       pushDataCanvas(roiGray);
       pushDataCanvas(roiBinOtsu);
       pushDataCanvas(roiBin160);
     } else {
+      // Non-turbo: 4 biến thể đủ mạnh, giảm bớt để tăng tốc
       pushDataCanvas(roiGray);
       pushDataCanvas(roiGamma08);
       pushDataCanvas(roiGamma12);
       pushDataCanvas(roiBinOtsu);
-      pushDataCanvas(roiBin160);
-      pushDataCanvas(roiBin190);
     }
 
     const PSM7 = 7;
     const PSM11 = 11;
-    const PSM6 = 6;   // single block of text
-    const PSM13 = 13; // raw line
 
     const jobs: Promise<OCRCandidate>[] = [];
     for (const c of canvases) {
       jobs.push(ocrOne(c, PSM7));
       jobs.push(ocrOne(c, PSM11));
-      if (!options?.turbo) {
-        jobs.push(ocrOne(c, PSM6));
-        jobs.push(ocrOne(c, PSM13));
-      }
     }
-    const limit = options?.turbo ? 4 : 8;
+    const limit = options?.turbo ? 4 : 6;
     const candsRaw: OCRCandidate[] = [];
     for (let i = 0; i < jobs.length; i += limit) {
       const partial = await Promise.all(jobs.slice(i, i + limit));
@@ -657,7 +657,6 @@ export async function detectCodesFromImage(
       variantsTried += partial.length;
     }
 
-    // Normalize và lọc theo '042'
     const normalizedStrings = candsRaw
       .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
       .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
@@ -667,9 +666,9 @@ export async function detectCodesFromImage(
 
     if (normalizedStrings.length > 0) {
       const voted = votePerChar(normalizedStrings);
-      if (voted) {
-        chosenStr = voted;
-      } else {
+      chosenStr = voted || null;
+
+      if (!chosenStr) {
         const freq = new Map<string, { count: number; maxConf: number }>();
         for (const c of candsRaw) {
           const s = extractPrefixedSequence(normalizeDigits(c.raw));
@@ -691,6 +690,7 @@ export async function detectCodesFromImage(
         }
         chosenStr = bestStr || null;
       }
+
       const matches = candsRaw.filter((c) => {
         const s = extractPrefixedSequence(normalizeDigits(c.raw));
         return s && s === chosenStr;
@@ -698,7 +698,7 @@ export async function detectCodesFromImage(
       chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
     }
 
-    // Fallback nhẹ chỉ khi chưa đạt độ tin cậy
+    // Fallback nhẹ khi chưa đủ tin cậy: thử một biến thể blur+threshold
     if (!chosenStr || chosenConf < 60) {
       const roiBlurred = boxBlur(roiGray);
       const roiBinAlt = threshold(roiBlurred, Math.max(100, tOtsuRoi - 10));
@@ -710,7 +710,7 @@ export async function detectCodesFromImage(
         .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
         .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
       const altVoted = votePerChar(altStrings);
-      if (altVoted) {
+      if (altVoted && seqLooksValid(altVoted)) {
         chosenStr = altVoted;
         chosenConf = Math.max(...altCands.map((c) => c.confidence || 0));
       }
