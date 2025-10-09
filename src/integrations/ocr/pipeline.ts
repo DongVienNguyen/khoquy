@@ -784,6 +784,80 @@ async function ocrDigitBest(c: HTMLCanvasElement, turbo: boolean): Promise<{ ch:
   return { ch: bestCh, conf: Math.max(0, bestConf), tried: res.length };
 }
 
+// Group line ROIs by y-position
+type LineROI = { canvas: HTMLCanvasElement; y: number; h: number };
+
+function groupLineRois(rois: LineROI[], tolerance: number = 4): LineROI[][] {
+  if (rois.length === 0) return [];
+  const sorted = [...rois].sort((a, b) => a.y - b.y);
+  const groups: LineROI[][] = [];
+  let current: LineROI[] = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = current[current.length - 1];
+    const cur = sorted[i];
+    if (Math.abs(cur.y - prev.y) <= tolerance) {
+      current.push(cur);
+    } else {
+      groups.push(current);
+      current = [cur];
+    }
+  }
+  groups.push(current);
+  return groups;
+}
+
+// Add a typed result for per-ROI processing
+type ROIProcessResult = { chosenStr: string | null; chosenConf: number; variantsTried: number };
+
+// Lightweight per-ROI OCR that tries grayscale and closed-binary, then votes to pick a valid '042...' sequence
+const processOne = async (roi: HTMLCanvasElement): Promise<ROIProcessResult> => {
+  let variantsTried = 0;
+
+  const targetH = Math.max(64, Math.min(256, roi.height));
+  const roiScaled = scaleCanvas(roi, targetH);
+
+  const gray = toGrayscale(getImageData(roiScaled));
+  const tOtsu = otsuThreshold(gray);
+  const binOtsu = threshold(gray, tOtsu);
+  const binClosed = closing(binOtsu);
+
+  const c1 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c1, gray);
+  const c2 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c2, binClosed);
+
+  const jobs: Promise<OCRCandidate>[] = [ocrOne(c1, 7), ocrOne(c1, 11), ocrOne(c2, 7), ocrOne(c2, 11)];
+  const results = await Promise.all(jobs);
+  variantsTried += results.length;
+
+  const candStrings: string[] = [];
+  const candWeights: number[] = [];
+  for (const r of results) {
+    const seq = extractPrefixedSequence(normalizeDigits(r.raw));
+    if (seq) {
+      candStrings.push(seq);
+      candWeights.push(r.confidence || 0);
+    }
+  }
+
+  let chosenStr: string | null = null;
+  let chosenConf = 0;
+
+  if (candStrings.length) {
+    const voted = votePerCharWeighted(candStrings, candWeights) || votePerChar(candStrings);
+    if (voted && seqLooksValid(voted)) {
+      chosenStr = voted;
+      const matches = results.filter((cr) => extractPrefixedSequence(normalizeDigits(cr.raw)) === chosenStr);
+      chosenConf = matches.length ? Math.round(matches.reduce((a: number, b: OCRCandidate) => a + (b.confidence || 0), 0) / matches.length) : 0;
+    } else {
+      const tuples = candStrings.map((s, i) => ({ s, w: candWeights[i] || 0 }));
+      tuples.sort((a, b) => (b.w - a.w) || (b.s.length - a.s.length));
+      chosenStr = tuples[0]?.s ?? null;
+      chosenConf = tuples[0]?.w ?? 0;
+    }
+  }
+
+  return { chosenStr, chosenConf, variantsTried };
+};
+
 /**
  * Main entry: Detect asset codes from a single image (Blob or URL).
  * Steps:
@@ -821,224 +895,107 @@ export async function detectCodesFromImage(
   const blurred0 = boxBlur(grayData0);
   const tOtsu0 = otsuThreshold(blurred0);
   const binForProj = threshold(blurred0, tOtsu0);
-  // Báo cáo bước normalize để người dùng thấy tiến trình
   onProgress?.({ phase: "normalize", current: 1, total: 1, detail: "Chuẩn hóa ảnh cho phân đoạn" });
 
   // Cắt theo 3 cột có mật độ số cao + toàn khung
   const columnCanvases = cropTopColumns(binForProj, deskewed, 3);
 
-  // Xây dựng binary cho từng cột và tách dòng
-  const lineRois: HTMLCanvasElement[] = [];
+  // Xây dựng binary cho từng cột và tách dòng (giữ y/h để nhóm theo dòng)
+  const lineRois: LineROI[] = [];
   for (const columnCanvas of columnCanvases) {
     const grayData = toGrayscale(getImageData(columnCanvas));
     const blurred = boxBlur(grayData);
     const tOtsu = otsuThreshold(blurred);
     const binForSeg = threshold(blurred, tOtsu);
     const lines = segmentLines(binForSeg, 1);
-    let rois = lines.map((box) => cropToCanvas(columnCanvas, box));
-    // Trim left/right whitespace to focus on numeric region per line
-    rois = rois.map((c) => trimLineCanvas(c));
-    if (typeof maxLines === "number" && maxLines > 0) {
-      rois = rois.slice(0, Math.max(1, maxLines - lineRois.length));
+    for (const box of lines) {
+      let c = cropToCanvas(columnCanvas, box);
+      c = trimLineCanvas(c);
+      lineRois.push({ canvas: c, y: box.y, h: box.h });
+      if (typeof maxLines === "number" && maxLines > 0 && lineRois.length >= maxLines) break;
     }
-    lineRois.push(...rois);
+    if (typeof maxLines === "number" && maxLines > 0 && lineRois.length >= maxLines) break;
   }
 
-  onProgress?.({ phase: "segment", current: lineRois.length, total: lineRois.length, detail: `Tách ${lineRois.length} dòng` });
+  // Nhóm theo vị trí y gần nhau để đại diện cho các cột của cùng một dòng
+  const clusters = groupLineRois(lineRois, 4);
+  onProgress?.({ phase: "segment", current: clusters.length, total: clusters.length, detail: `Tách ${clusters.length} dòng` });
 
   const results: string[] = [];
   const confidences: number[] = [];
   const droppedIndices: number[] = [];
-  let totalVariantsTried = 0; // tổng số biến thể OCR đã chạy để tính trung bình
+  let totalVariantsTried = 0;
 
-  const total = lineRois.length;
+  const total = clusters.length;
   let done = 0;
 
-  // helper xử lý 1 dòng
-  const processOne = async (roi: HTMLCanvasElement) => {
-    let variantsTried = 0;
-    const targetH = 128;
-    const roiScaled = scaleCanvas(roi, targetH);
-
-    const roiGray = toGrayscale(getImageData(roiScaled));
-    const roiGrayEnhanced = enhanceContrast(roiGray, 0.03, 0.97);
-
-    const tOtsuRoiE = otsuThreshold(roiGrayEnhanced);
-    const roiBinOtsu = threshold(roiGrayEnhanced, tOtsuRoiE);
-    const roiBinClosed = closing(roiBinOtsu);
-
-    // Adaptive threshold (cục bộ)
-    const win = Math.max(15, Math.floor(roiScaled.height * 0.04));
-    const roiBinAdaptive = adaptiveThreshold(roiGrayEnhanced, win, 10);
-    const roiBinAdaptiveClosed = closing(roiBinAdaptive);
-
-    // 1) Khảo sát nhanh (PSM13) để kiểm tra có '042'
-    const quickCanvas = createCanvas(roiScaled.width, roiScaled.height);
-    putImageData(quickCanvas, roiBinClosed);
-    const quickCand = await ocrOne(quickCanvas, 13);
-    variantsTried += 1;
-    const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
-    if (!quickSeq) {
-      return { chosenStr: null as string | null, chosenConf: 0, variantsTried };
-    }
-    if (seqLooksValid(quickSeq) && (quickCand.confidence || 0) >= (options?.turbo ? 60 : 75)) {
-      return { chosenStr: quickSeq, chosenConf: quickCand.confidence || (options?.turbo ? 60 : 75), variantsTried };
-    }
-
-    // 2) Nhận dạng chi tiết theo dòng với thêm biến thể adaptive
-    const roiGamma08 = applyGamma(roiGrayEnhanced, 0.8);
-    const roiGamma12 = applyGamma(roiGrayEnhanced, 1.2);
-    const roiBin160 = threshold(roiGrayEnhanced, 160);
-
-    const canvases: HTMLCanvasElement[] = [];
-    const pushDataCanvas = (d: ImageData) => {
-      const c = createCanvas(roiScaled.width, roiScaled.height);
-      putImageData(c, d);
-      canvases.push(c);
-    };
-
-    if (options?.turbo) {
-      pushDataCanvas(roiGrayEnhanced);
-      pushDataCanvas(roiBinOtsu);
-      pushDataCanvas(roiBinAdaptiveClosed);
-    } else {
-      pushDataCanvas(roiGrayEnhanced);
-      pushDataCanvas(roiGamma08);
-      pushDataCanvas(roiGamma12);
-      pushDataCanvas(roiBinOtsu);
-      pushDataCanvas(roiBinAdaptiveClosed);
-      pushDataCanvas(roiBin160);
-    }
-
-    const PSM7 = 7;
-    const PSM8 = 8;  // single word
-    const PSM11 = 11;
-
-    const jobs: Promise<OCRCandidate>[] = [];
-    for (const c of canvases) {
-      jobs.push(ocrOne(c, PSM7));
-      if (!options?.turbo) jobs.push(ocrOne(c, PSM8));
-      jobs.push(ocrOne(c, PSM11));
-    }
-    const limit = options?.turbo ? 4 : 6;
-    const candsRaw: OCRCandidate[] = [];
-    for (let i = 0; i < jobs.length; i += limit) {
-      const partial = await Promise.all(jobs.slice(i, i + limit));
-      candsRaw.push(...partial);
-      variantsTried += partial.length;
-    }
-
-    const candStrings: string[] = [];
-    const candWeights: number[] = [];
-    for (const c of candsRaw) {
-      const s = extractPrefixedSequence(normalizeDigits(c.raw));
-      if (s && s.length >= 13 && s.startsWith("042")) {
-        candStrings.push(s);
-        candWeights.push(c.confidence || 0);
-      }
-    }
-
-    let chosenStr: string | null = null;
-    let chosenConf = 0;
-
-    if (candStrings.length > 0) {
-      const votedW = votePerCharWeighted(candStrings, candWeights);
-      chosenStr = votedW || votePerChar(candStrings);
-      const matches = candsRaw.filter((c) => {
-        const s = extractPrefixedSequence(normalizeDigits(c.raw));
-        return s && s === chosenStr;
-      });
-      chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
-    }
-
-    // 3) Nếu chưa đủ tin cậy, thử nhận dạng từng ký tự, chọn binary tốt hơn (Otsu vs Adaptive)
-    if (!chosenStr || chosenConf < (options?.turbo ? 65 : 75)) {
-      const boxesOtsu = segmentDigitBoxes(roiBinClosed);
-      const boxesAdp = segmentDigitBoxes(roiBinAdaptiveClosed);
-      let digitBoxes = boxesOtsu;
-      if (
-        (boxesAdp.length >= 12 && boxesAdp.length <= 20) ||
-        boxesAdp.length > boxesOtsu.length
-      ) {
-        digitBoxes = boxesAdp;
-      }
-      if (digitBoxes.length >= 12 && digitBoxes.length <= 20) {
-        const digitCanvases = cropDigitCanvases(roiScaled, digitBoxes);
-        const digits: string[] = [];
-        let sumConf = 0;
-        for (const dc of digitCanvases) {
-          const { ch, conf, tried } = await ocrDigitBest(dc, !!options?.turbo);
-          variantsTried += tried;
-          digits.push(ch ?? "");
-          sumConf += conf || 0;
-        }
-        const joined = digits.join("");
-        const improvedSeq = extractPrefixedSequence(normalizeDigits(joined));
-        if (improvedSeq && seqLooksValid(improvedSeq)) {
-          chosenStr = improvedSeq;
-          chosenConf = Math.round(sumConf / Math.max(1, digitCanvases.length));
-        }
-      }
-    }
-
-    // 4) Fallback nhẹ khi vẫn chưa đủ tin cậy: blur + adaptive/otsu close
-    if (!chosenStr || chosenConf < 60) {
-      const roiBlurred = boxBlur(roiGrayEnhanced);
-      const altBinOtsu = closing(threshold(roiBlurred, Math.max(100, tOtsuRoiE - 10)));
-      const altBinAdp = closing(adaptiveThreshold(roiBlurred, win, 12));
-      const altCanvas1 = createCanvas(roiScaled.width, roiScaled.height);
-      const altCanvas2 = createCanvas(roiScaled.width, roiScaled.height);
-      putImageData(altCanvas1, altBinOtsu);
-      putImageData(altCanvas2, altBinAdp);
-      const altCands = await Promise.all([ocrOne(altCanvas1, PSM7), ocrOne(altCanvas2, PSM7), ocrOne(altCanvas1, PSM11), ocrOne(altCanvas2, PSM11)]);
-      variantsTried += altCands.length;
-      const altStrings = altCands
-        .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
-        .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
-      const altVoted = votePerCharWeighted(altStrings, altCands.map((c) => c.confidence || 0)) || votePerChar(altStrings);
-      if (altVoted && seqLooksValid(altVoted)) {
-        chosenStr = altVoted;
-        chosenConf = Math.max(...altCands.map((c) => c.confidence || 0));
-      }
-    }
-
-    return { chosenStr, chosenConf, variantsTried };
-  };
-
   onProgress?.({ phase: "recognize", current: 0, total, detail: "Nhận dạng các dòng" });
-  for (let i = 0; i < total; i += batchSize) {
-    const batch = lineRois.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map((roi) => processOne(roi)));
-    batchResults.forEach((br, idx) => {
-      const lineIndex = i + idx;
-      totalVariantsTried += br.variantsTried;
-      if (br.chosenStr) {
-        results.push(br.chosenStr);
-        confidences.push(br.chosenConf || 0);
+
+  // Nhận dạng theo nhóm dòng (mỗi nhóm gồm nhiều ROI từ các cột khác nhau)
+  for (let gi = 0; gi < clusters.length; gi += batchSize) {
+    const batch = clusters.slice(gi, gi + batchSize);
+    // OCR tất cả ROI trong từng nhóm
+    const batchGroupResults: ROIProcessResult[][] = await Promise.all(
+      batch.map(async (group) => {
+        const perRoi = await Promise.all(group.map((roi) => processOne(roi.canvas)));
+        return perRoi;
+      })
+    );
+
+    batchGroupResults.forEach((perGroup: ROIProcessResult[], idx: number) => {
+      const groupIndex = gi + idx;
+
+      // Bỏ phiếu chéo theo từng ký tự giữa các ROI của cùng một dòng
+      const candStrings = perGroup
+        .map((r: ROIProcessResult) => r.chosenStr)
+        .filter((s: string | null): s is string => !!s && s.length >= 13 && s.startsWith("042"));
+      const candWeights = perGroup
+        .map((r: ROIProcessResult) => r.chosenConf || 0);
+
+      const voted = candStrings.length
+        ? (votePerCharWeighted(candStrings, candWeights) || votePerChar(candStrings))
+        : null;
+
+      const chosen = voted && seqLooksValid(voted) ? voted : (candStrings.find((s: string) => seqLooksValid(s)) ?? null);
+
+      const chosenConf = chosen
+        ? Math.round(
+            perGroup
+              .filter((r: ROIProcessResult) => r.chosenStr === chosen)
+              .reduce((a: number, b: ROIProcessResult) => a + (b.chosenConf || 0), 0) /
+            Math.max(1, perGroup.filter((r: ROIProcessResult) => r.chosenStr === chosen).length)
+          )
+        : 0;
+
+      const groupVariants = perGroup.reduce((a: number, b: ROIProcessResult) => a + (b.variantsTried || 0), 0);
+      totalVariantsTried += groupVariants;
+
+      if (chosen) {
+        results.push(chosen);
+        confidences.push(chosenConf);
       } else {
-        droppedIndices.push(lineIndex);
+        droppedIndices.push(groupIndex);
       }
+
       done += 1;
       onProgress?.({ phase: "recognize", current: done, total, detail: `Nhận dạng dòng ${done}/${total}` });
     });
   }
 
-  // Dedupe while preserving order
-  // Không lọc trùng: giữ nguyên theo từng dòng để đúng tổng số dòng
-  const orderedAll = results.slice();
-  onProgress?.({ phase: "vote", current: orderedAll.length, total: total, detail: "Ghép kết quả theo từng dòng" });
+  // Bỏ phiếu tổng thể đã làm theo nhóm, không cần ghép thêm
+  onProgress?.({ phase: "vote", current: results.length, total: total, detail: "Ghép kết quả theo từng dòng" });
 
   const t1 = performance.now();
   const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
-  const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, lineRois.length));
+  const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, clusters.length));
 
-  onProgress?.({ phase: "done", current: orderedAll.length, total: total, detail: "Điền mã" });
+  onProgress?.({ phase: "done", current: results.length, total: total, detail: "Điền mã" });
 
   return {
-    codes: orderedAll,
+    codes: results,
     stats: {
-      totalLines: lineRois.length,
-      keptLines: orderedAll.length,
+      totalLines: clusters.length,
+      keptLines: results.length,
       avgConfidence,
       durationMs: Math.round(t1 - t0),
       droppedIndices,
