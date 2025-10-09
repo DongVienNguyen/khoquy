@@ -306,11 +306,28 @@ export default function ManagementPage() {
       return;
     }
     setCurrentStaff(staff);
-    // load settings
-    try {
-      const saved = localStorage.getItem(SETTINGS_KEY);
-      if (saved) setAutoDeleteSettings(JSON.parse(saved));
-    } catch {}
+    // Load settings (server-first, then fallback localStorage)
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("system_settings")
+          .select("setting_value")
+          .eq("setting_key", SETTINGS_KEY)
+          .limit(1)
+          .maybeSingle();
+        if (data?.setting_value) {
+          const parsed = JSON.parse(data.setting_value);
+          if (parsed && typeof parsed === "object") {
+            setAutoDeleteSettings(parsed);
+            return;
+          }
+        }
+      } catch {}
+      try {
+        const saved = localStorage.getItem(SETTINGS_KEY);
+        if (saved) setAutoDeleteSettings(JSON.parse(saved));
+      } catch {}
+    })();
   }, [router]);
 
   // Visible columns persistence
@@ -990,12 +1007,31 @@ export default function ManagementPage() {
     }
     setOverviewCounts(counts);
   }, []);
-  const saveAutoDeleteSettings = useCallback(() => {
+  const saveAutoDeleteSettings = useCallback(async () => {
     try {
+      // Save to Supabase system_settings via upsert
+      const now = new Date().toISOString();
+      const payload = {
+        setting_key: SETTINGS_KEY,
+        setting_value: JSON.stringify(autoDeleteSettings),
+        setting_type: "auto_delete",
+        updated_date: now,
+        updated_by: currentStaff?.username || null,
+        created_date: now,
+        created_by: currentStaff?.email || currentStaff?.username || null,
+      };
+      const { error } = await supabase
+        .from("system_settings")
+        .upsert(payload, { onConflict: "setting_key" });
+      if (error) throw error;
+
+      // Also keep a local copy for immediate UX/fallback
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(autoDeleteSettings));
-      setMessage({ type: "success", text: "Đã lưu cài đặt tự động xóa vào thiết bị." });
-    } catch { setMessage({ type: "error", text: "Không thể lưu cài đặt." }); }
-  }, [autoDeleteSettings]);
+      setMessage({ type: "success", text: "Đã lưu cài đặt tự động xóa vào hệ thống." });
+    } catch {
+      setMessage({ type: "error", text: "Không thể lưu cài đặt lên hệ thống. Vui lòng thử lại." });
+    }
+  }, [autoDeleteSettings, currentStaff]);
 
   // Render helpers
   const renderFormField = useCallback((field: EntityField) => {
