@@ -31,6 +31,8 @@ const DEFAULTS: AISettings = {
 
 const BUCKET = "ai-inputs";
 const SIGN_TTL_SECONDS = 300; // 5 phút
+const MAX_IMAGES = 10;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 
 function parseDataUrl(input: string): { mime: string; bytes: Uint8Array } {
   // Hỗ trợ cả data URL lẫn base64 thuần (fallback image/jpeg)
@@ -137,12 +139,17 @@ serve(async (req: Request) => {
   }
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = Deno.env.toObject();
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) as any;
+
+  let uploadedPaths: string[] = [];
 
   try {
     const body = await req.json().catch(() => null) as { images?: string[] };
     if (!body || !Array.isArray(body.images) || body.images.length === 0) {
       return new Response(JSON.stringify({ error: "No images provided" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.images.length > MAX_IMAGES) {
+      return new Response(JSON.stringify({ error: `Too many images: max ${MAX_IMAGES}` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Đảm bảo bucket tồn tại (private). Nếu đã có thì bỏ qua lỗi tạo.
@@ -158,10 +165,12 @@ serve(async (req: Request) => {
     // Upload ảnh vào Storage (private) theo path ngày/uuid
     const now = new Date();
     const basePath = ymdPath(now);
-    const uploadedPaths: string[] = [];
     for (let i = 0; i < body.images.length; i++) {
       const item = body.images[i];
       const { mime, bytes } = parseDataUrl(item);
+      if (bytes.length > MAX_IMAGE_BYTES) {
+        return new Response(JSON.stringify({ error: `Image ${i + 1} exceeds ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))}MB` }), { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const safeMime = /^image\/(png|jpeg|jpg|webp)$/i.test(mime) ? mime : "image/jpeg";
       const ext = safeMime.includes("png") ? "png" : (safeMime.includes("webp") ? "webp" : "jpg");
       const key = `${basePath}/${uuid()}_${i}.${ext}`;
@@ -210,8 +219,6 @@ serve(async (req: Request) => {
     const apiKey = provider === "openrouter" ? (settings.openrouter_api_key || "") : (settings.custom_api_key || "");
     const baseUrl = provider === "openrouter" ? (settings.openrouter_base_url || "https://openrouter.ai/api/v1") : ((settings.custom_base_url || "https://v98store.com").replace(/\/+$/, ""));
     if (!apiKey) {
-      // Dọn dẹp trước khi trả lỗi
-      await supabase.storage.from(BUCKET).remove(uploadedPaths);
       return new Response(JSON.stringify({ error: "Missing API key for selected provider" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const endpoint = provider === "openrouter" ? `${baseUrl}/chat/completions` : `${baseUrl}/v1/chat/completions`;
@@ -290,8 +297,6 @@ serve(async (req: Request) => {
     // Hợp nhất + chuẩn hóa + sắp xếp
     // Bổ sung fallback từ raw signed URLs string (hầu như không có text)
     const normalized = normalizeCodes(allCodes);
-    // Dọn dẹp Storage
-    await supabase.storage.from(BUCKET).remove(uploadedPaths);
 
     return new Response(JSON.stringify({ data: { codes: normalized, images: perImageResults } }), {
       status: 200,
@@ -303,5 +308,15 @@ serve(async (req: Request) => {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  } finally {
+    // Dọn dẹp tuyệt đối: xóa mọi file đã upload, kể cả khi return sớm hoặc lỗi
+    if (uploadedPaths.length) {
+      try {
+        await supabase.storage.from(BUCKET).remove(uploadedPaths);
+      } catch {
+        // ignore cleanup errors
+      }
+      uploadedPaths = [];
+    }
   }
 });
