@@ -471,21 +471,42 @@ export default function AssetEntryPage() {
       setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang OCR & phân tích..." });
       const { data, error } = await supabase.functions.invoke("ocr-extract-asset-codes", {
         body: { images },
-        headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+        headers: { 
+          Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
+          apikey: SUPABASE_PUBLIC_ANON_KEY,
+          "X-Debug": "true"
+        },
       });
 
       if (error) {
-        setAiStatus({ stage: "error", progress: 0, total: files.length, detail: "AI lỗi khi phân tích hình ảnh." });
-        setMessage({ type: "error", text: error.message || "AI lỗi khi phân tích hình ảnh." });
+        const errMsg = error.message || "AI lỗi khi phân tích hình ảnh.";
+        setAiStatus({ stage: "error", progress: 0, total: files.length, detail: errMsg });
+        setMessage({ type: "error", text: errMsg });
         return;
       }
 
       const payload: any = data?.data ?? data;
+      const serverError = (data as any)?.error || payload?.error;
+      const diagnostics = payload?.diagnostics;
+      const imagesInfo = payload?.images;
+
+      if (serverError) {
+        const firstWarn = Array.isArray(diagnostics?.warnings) ? diagnostics.warnings[0] : undefined;
+        const firstImgErr = Array.isArray(imagesInfo) ? imagesInfo.find((x: any) => x?.error)?.error : undefined;
+        const errMsg = firstWarn || firstImgErr || serverError;
+        setAiStatus({ stage: "error", progress: 0, total: files.length, detail: errMsg });
+        setMessage({ type: "error", text: errMsg });
+        return;
+      }
+
       const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
 
       if (!aiCodes.length) {
-        setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: "Không tìm thấy mã tài sản hợp lệ." });
-        setMessage({ type: "error", text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh." });
+        const firstWarn = Array.isArray(diagnostics?.warnings) ? diagnostics.warnings[0] : undefined;
+        const firstImgErr = Array.isArray(imagesInfo) ? imagesInfo.find((x: any) => x?.error)?.error : undefined;
+        const msg = firstWarn || firstImgErr || "Không tìm thấy mã tài sản hợp lệ trong hình ảnh.";
+        setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: msg });
+        setMessage({ type: "error", text: msg });
         return;
       }
 
