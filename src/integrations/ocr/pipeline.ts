@@ -572,12 +572,15 @@ export async function detectCodesFromImage(
   const results: string[] = [];
   const confidences: number[] = [];
   const droppedIndices: number[] = [];
+  let totalVariantsTried = 0; // tổng số biến thể OCR đã chạy để tính trung bình
 
   const total = lineRois.length;
   let done = 0;
 
   // helper xử lý 1 dòng
   const processOne = async (roi: HTMLCanvasElement) => {
+    let variantsTried = 0;
+
     // Normalize height for OCR
     const targetH = 96;
     const roiScaled = scaleCanvas(roi, targetH);
@@ -587,11 +590,27 @@ export async function detectCodesFromImage(
     const roiGrayCanvas = createCanvas(roiScaled.width, roiScaled.height);
     putImageData(roiGrayCanvas, roiGray);
 
-    const roiGamma08 = applyGamma(roiGray, 0.8);
-    const roiGamma12 = applyGamma(roiGray, 1.2);
-
     const tOtsuRoi = otsuThreshold(roiGray);
     const roiBinOtsu = threshold(roiGray, tOtsuRoi);
+
+    // 1) Khảo sát nhanh: chỉ chạy 1 OCR nhẹ để kiểm tra có '042' hay không
+    const quickCanvas = createCanvas(roiScaled.width, roiScaled.height);
+    putImageData(quickCanvas, roiBinOtsu);
+    const quickCand = await ocrOne(quickCanvas, 13); // PSM13: raw line
+    variantsTried += 1;
+    const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
+    if (!quickSeq) {
+      // Không có '042' -> bỏ qua sớm, tăng tốc đáng kể
+      return { chosenStr: null as string | null, chosenConf: 0, variantsTried };
+    }
+    // Nếu turbo và độ tin cậy khá tốt, dùng luôn kết quả khảo sát để thắng tốc độ
+    if (options?.turbo && (quickCand.confidence || 0) >= 60) {
+      return { chosenStr: quickSeq, chosenConf: quickCand.confidence || 60, variantsTried };
+    }
+
+    // 2) Nhận dạng chi tiết khi đã biết chắc có '042'
+    const roiGamma08 = applyGamma(roiGray, 0.8);
+    const roiGamma12 = applyGamma(roiGray, 1.2);
     const roiBin160 = threshold(roiGray, 160);
     const roiBin190 = threshold(roiGray, 190);
 
@@ -603,7 +622,7 @@ export async function detectCodesFromImage(
     };
 
     // Turbo: ít biến thể hơn để nhanh
-    if (turbo) {
+    if (options?.turbo) {
       pushDataCanvas(roiGray);
       pushDataCanvas(roiBinOtsu);
       pushDataCanvas(roiBin160);
@@ -621,24 +640,24 @@ export async function detectCodesFromImage(
     const PSM6 = 6;   // single block of text
     const PSM13 = 13; // raw line
 
-    // Run OCR with controlled concurrency: prevents CPU/memory spikes
     const jobs: Promise<OCRCandidate>[] = [];
     for (const c of canvases) {
       jobs.push(ocrOne(c, PSM7));
       jobs.push(ocrOne(c, PSM11));
-      if (!turbo) {
+      if (!options?.turbo) {
         jobs.push(ocrOne(c, PSM6));
         jobs.push(ocrOne(c, PSM13));
       }
     }
-    const limit = turbo ? 4 : 8; // fewer parallel jobs on Turbo; more on precise mode
+    const limit = options?.turbo ? 4 : 8;
     const candsRaw: OCRCandidate[] = [];
     for (let i = 0; i < jobs.length; i += limit) {
       const partial = await Promise.all(jobs.slice(i, i + limit));
       candsRaw.push(...partial);
+      variantsTried += partial.length;
     }
 
-    // Normalize and filter candidates
+    // Normalize và lọc theo '042'
     const normalizedStrings = candsRaw
       .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
       .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
@@ -647,12 +666,10 @@ export async function detectCodesFromImage(
     let chosenConf = 0;
 
     if (normalizedStrings.length > 0) {
-      // Per-char voting
       const voted = votePerChar(normalizedStrings);
       if (voted) {
         chosenStr = voted;
       } else {
-        // fallback: majority full-string
         const freq = new Map<string, { count: number; maxConf: number }>();
         for (const c of candsRaw) {
           const s = extractPrefixedSequence(normalizeDigits(c.raw));
@@ -674,7 +691,6 @@ export async function detectCodesFromImage(
         }
         chosenStr = bestStr || null;
       }
-      // Confidence estimate: average of candidates matching chosenStr
       const matches = candsRaw.filter((c) => {
         const s = extractPrefixedSequence(normalizeDigits(c.raw));
         return s && s === chosenStr;
@@ -682,13 +698,14 @@ export async function detectCodesFromImage(
       chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
     }
 
-    // Early exit: if we already have a good 042 sequence, skip extra fallback to speed up
+    // Fallback nhẹ chỉ khi chưa đạt độ tin cậy
     if (!chosenStr || chosenConf < 60) {
       const roiBlurred = boxBlur(roiGray);
       const roiBinAlt = threshold(roiBlurred, Math.max(100, tOtsuRoi - 10));
       const altCanvas = createCanvas(roiScaled.width, roiScaled.height);
       putImageData(altCanvas, roiBinAlt);
       const altCands = await Promise.all([ocrOne(altCanvas, PSM7), ocrOne(altCanvas, PSM11)]);
+      variantsTried += altCands.length;
       const altStrings = altCands
         .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
         .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
@@ -699,7 +716,7 @@ export async function detectCodesFromImage(
       }
     }
 
-    return { chosenStr, chosenConf };
+    return { chosenStr, chosenConf, variantsTried };
   };
 
   onProgress?.({ phase: "recognize", current: 0, total, detail: "Nhận dạng các dòng" });
@@ -708,6 +725,7 @@ export async function detectCodesFromImage(
     const batchResults = await Promise.all(batch.map((roi) => processOne(roi)));
     batchResults.forEach((br, idx) => {
       const lineIndex = i + idx;
+      totalVariantsTried += br.variantsTried;
       if (br.chosenStr) {
         results.push(br.chosenStr);
         confidences.push(br.chosenConf || 0);
@@ -726,7 +744,7 @@ export async function detectCodesFromImage(
 
   const t1 = performance.now();
   const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
-  const variantsTriedPerLine = (turbo ? 3 : 6) * (turbo ? 2 : 4);
+  const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, lineRois.length));
 
   onProgress?.({ phase: "done", current: orderedAll.length, total: total, detail: "Điền mã" });
 
@@ -738,7 +756,7 @@ export async function detectCodesFromImage(
       avgConfidence,
       durationMs: Math.round(t1 - t0),
       droppedIndices,
-      variantsTriedPerLine,
+      variantsTriedPerLine: avgVariantsPerLine,
     },
   };
 }
