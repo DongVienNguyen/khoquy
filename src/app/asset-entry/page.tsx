@@ -468,122 +468,24 @@ export default function AssetEntryPage() {
         setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã nạp ${index}/${files.length} ảnh` });
       }
 
-      setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang OCR & phân tích..." });
-      const { data, error } = await supabase.functions.invoke("ocr-extract-asset-codes", {
+      setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang phân tích bằng AI..." });
+      const { data, error } = await supabase.functions.invoke("ai-extract-asset-codes", {
         body: { images },
-        headers: { 
-          Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
-          apikey: SUPABASE_PUBLIC_ANON_KEY,
-          "X-Debug": "true"
-        },
+        headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
       });
 
-      // helper: AI fallback
-      const tryAiFallback = async (): Promise<string[] | null> => {
-        setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang dùng AI fallback..." });
-        const aiRes = await supabase.functions.invoke("ai-extract-asset-codes", {
-          body: { images },
-          headers: { 
-            Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
-            apikey: SUPABASE_PUBLIC_ANON_KEY
-          },
-        });
-        if (aiRes.error) {
-          const aiMsg = aiRes.error.message || "AI fallback error";
-          setAiStatus({ stage: "error", progress: 0, total: files.length, detail: aiMsg });
-          setMessage({ type: "error", text: aiMsg });
-          return null;
-        }
-        const aiPayload: any = aiRes.data?.data ?? aiRes.data;
-        const aiCodes: string[] = Array.isArray(aiPayload?.codes) ? aiPayload.codes : [];
-        if (!aiCodes.length) return null;
-        return Array.from(new Set(aiCodes));
-      };
-
       if (error) {
-        const errMsg = error.message || "AI lỗi khi phân tích hình ảnh.";
-        // Nếu là lỗi bị block, thử fallback
-        if (/blocked/i.test(errMsg) || /403/.test(errMsg)) {
-          const codes = await tryAiFallback();
-          if (codes && codes.length) {
-            const uniqueCodes = Array.from(new Set(codes)).filter((formatted) => isAssetValid(formatted));
-            if (uniqueCodes.length) {
-              setMultipleAssets((prev) => {
-                const existing = prev.filter((a) => a.trim());
-                const merged = Array.from(new Set([...existing, ...uniqueCodes]));
-                return merged.length > 0 ? merged : [""];
-              });
-              setIsImageDialogOpen(false);
-              setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
-              setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
-              return;
-            }
-          }
-        }
-        setAiStatus({ stage: "error", progress: 0, total: files.length, detail: errMsg });
-        setMessage({ type: "error", text: errMsg });
+        setAiStatus({ stage: "error", progress: 0, total: files.length, detail: "AI lỗi khi phân tích hình ảnh." });
+        setMessage({ type: "error", text: error.message || "AI lỗi khi phân tích hình ảnh." });
         return;
       }
 
       const payload: any = data?.data ?? data;
-      const serverError = (data as any)?.error || payload?.error;
-      const diagnostics = payload?.diagnostics;
-      const imagesInfo = payload?.images;
-
-      if (serverError) {
-        const firstWarn = Array.isArray(diagnostics?.warnings) ? diagnostics.warnings[0] : undefined;
-        const firstImgErr = Array.isArray(imagesInfo) ? imagesInfo.find((x: any) => x?.error)?.error : undefined;
-        const errMsg = firstWarn || firstImgErr || serverError;
-
-        // Nếu bị chặn Vision thì fallback AI
-        if (/blocked/i.test(String(errMsg))) {
-          const codes = await tryAiFallback();
-          if (codes && codes.length) {
-            const uniqueCodes = Array.from(new Set(codes)).filter((formatted) => isAssetValid(formatted));
-            if (uniqueCodes.length) {
-              setMultipleAssets((prev) => {
-                const existing = prev.filter((a) => a.trim());
-                const merged = Array.from(new Set([...existing, ...uniqueCodes]));
-                return merged.length > 0 ? merged : [""];
-              });
-              setIsImageDialogOpen(false);
-              setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
-              setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
-              return;
-            }
-          }
-        }
-
-        setAiStatus({ stage: "error", progress: 0, total: files.length, detail: errMsg });
-        setMessage({ type: "error", text: errMsg });
-        return;
-      }
-
       const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
 
       if (!aiCodes.length) {
-        // Không ra mã từ Vision -> thử AI fallback
-        const codes = await tryAiFallback();
-        if (codes && codes.length) {
-          const uniqueCodes = Array.from(new Set(codes)).filter((formatted) => isAssetValid(formatted));
-          if (uniqueCodes.length) {
-            setMultipleAssets((prev) => {
-              const existing = prev.filter((a) => a.trim());
-              const merged = Array.from(new Set([...existing, ...uniqueCodes]));
-              return merged.length > 0 ? merged : [""];
-            });
-            setIsImageDialogOpen(false);
-            setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
-            setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã (AI fallback).` });
-            return;
-          }
-        }
-
-        const firstWarn = Array.isArray(diagnostics?.warnings) ? diagnostics.warnings[0] : undefined;
-        const firstImgErr = Array.isArray(imagesInfo) ? imagesInfo.find((x: any) => x?.error)?.error : undefined;
-        const msg = firstWarn || firstImgErr || "Không tìm thấy mã tài sản hợp lệ trong hình ảnh.";
-        setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: msg });
-        setMessage({ type: "error", text: msg });
+        setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: "Không tìm thấy mã tài sản hợp lệ." });
+        setMessage({ type: "error", text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh." });
         return;
       }
 
