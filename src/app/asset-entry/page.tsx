@@ -23,6 +23,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import MyTodaySubmissions from "@/components/asset-entry/MyTodaySubmissions";
 import { UploadFile, ExtractDataFromUploadedFile } from "@/integrations/Core";
+import { Switch } from "@/components/ui/switch";
 
 type SafeStaff = {
   id: string;
@@ -129,6 +130,8 @@ export default function AssetEntryPage() {
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ stage: string; progress: number; total: number; detail: string }>({ stage: "", progress: 0, total: 0, detail: "" });
+  const [aiTurbo, setAiTurbo] = useState<boolean>(false);
+  const [aiMaxLines, setAiMaxLines] = useState<"auto" | "20" | "50">("auto");
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
 
@@ -448,6 +451,8 @@ export default function AssetEntryPage() {
         }, {
           // Tối ưu an toàn: dùng batch 4, không bật turbo để chính xác hơn
           batchSize: 4,
+          turbo: aiTurbo,
+          maxLines: aiMaxLines === "auto" ? undefined : parseInt(aiMaxLines, 10),
           onProgress: (p) => {
             // Map phase -> label
             const phaseLabel =
@@ -526,7 +531,7 @@ export default function AssetEntryPage() {
       setIsProcessingImage(false);
       setTimeout(() => setAiStatus({ stage: "", progress: 0, total: 0, detail: "" }), 1200);
     }
-  }, [isAssetValid, handleRoomChange]);
+  }, [isAssetValid, handleRoomChange, aiTurbo, aiMaxLines]);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -713,6 +718,26 @@ export default function AssetEntryPage() {
                     <DialogContent className="max-w-md">
                       <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
                       <div className="space-y-4">
+                        <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                          <div>
+                            <div className="text-sm font-medium">Chế độ nhanh</div>
+                            <div className="text-xs text-muted-foreground">Ưu tiên tốc độ, có thể giảm nhẹ độ chính xác</div>
+                          </div>
+                          <Switch checked={aiTurbo} onCheckedChange={setAiTurbo} className="data-[state=checked]:bg-green-600" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-2">
+                            <Label>Giới hạn số dòng OCR</Label>
+                            <Select value={aiMaxLines} onValueChange={(v) => setAiMaxLines(v as any)}>
+                              <SelectTrigger className="h-10"><SelectValue placeholder="Chọn giới hạn" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="auto">Auto</SelectItem>
+                                <SelectItem value="20">20 dòng</SelectItem>
+                                <SelectItem value="50">50 dòng</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
                         <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
                           <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
                         </Button>
