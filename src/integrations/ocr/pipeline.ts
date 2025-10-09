@@ -917,6 +917,17 @@ function openingHorizontal(binary: ImageData): ImageData {
   return horizontalDilate(horizontalErode(binary));
 }
 
+// Helper: lọc ROI trùng kích thước (gần như giống nhau) để tránh xử lý lặp
+function uniqueRoisBySize(rois: HTMLCanvasElement[], tolerance: number = 8): HTMLCanvasElement[] {
+  const uniq: HTMLCanvasElement[] = [];
+  for (const r of rois) {
+    const w = r.width, h = r.height;
+    const isDup = uniq.some((u) => Math.abs(u.width - w) <= tolerance && Math.abs(u.height - h) <= tolerance);
+    if (!isDup) uniq.push(r);
+  }
+  return uniq;
+}
+
 /**
  * Main entry: Detect asset codes from a single image (Blob or URL).
  * Steps:
@@ -984,12 +995,32 @@ export async function detectCodesFromImage(
   const blurred0 = boxBlur(grayData0);
   const win0 = Math.max(15, Math.floor(masked.height * 0.05));
   const binForProj0 = adaptiveThreshold(blurred0, win0, 10);
-  const binForProj = openingHorizontal(binForProj0); // soften underlines
+  const binForProj = openingHorizontal(binForProj0);
   onProgress?.({ phase: "normalize", current: 1, total: 1, detail: "normalize • mask xanh + adaptive threshold" });
 
-  // 4) Segment lines
+  // 4) Segment lines trên toàn ảnh
   const lines = segmentLines(binForProj, 1);
-  const rois0 = lines.map((box) => cropToCanvas(deskewed, box)).map((c) => trimLineCanvas(c));
+  const roisWhole = lines.map((box) => cropToCanvas(deskewed, box)).map((c) => trimLineCanvas(c));
+
+  // 4b) Multi-column ROI segmentation: thử k cột có mật độ số cao để bắt các dòng lệch cột
+  const colCanvases = cropTopColumns(binForProj, deskewed, 3);
+  const roisCols: HTMLCanvasElement[] = [];
+  for (let ci = 0; ci < colCanvases.length; ci++) {
+    const col = colCanvases[ci]!;
+    if (debug) onProgress?.({ phase: "segment", current: ci + 1, total: colCanvases.length, detail: `columns • ROI column ${ci + 1}/${colCanvases.length}` });
+    // Chuẩn hóa và binary cho cột
+    const g = toGrayscale(getImageData(col));
+    const b = boxBlur(g);
+    const winCol = Math.max(15, Math.floor(col.height * 0.05));
+    const binCol = adaptiveThreshold(b, winCol, 10);
+    const binColOpened = openingHorizontal(binCol);
+    const colLines = segmentLines(binColOpened, 1);
+    const colRois = colLines.map((box) => cropToCanvas(col, box)).map((c) => trimLineCanvas(c));
+    roisCols.push(...colRois);
+  }
+
+  // Hợp nhất ROI và lọc trùng kích thước
+  const roisMerged = uniqueRoisBySize([...roisWhole, ...roisCols], 8);
 
   // Limit lines dynamically when Auto (increase if quick scan miss and large image)
   const quickMiss = !(quick.codes && quick.codes.length);
@@ -1001,9 +1032,9 @@ export async function detectCodesFromImage(
   if (quickMiss && baseCanvas.height >= 1400) {
     maxLines = Math.max(baseMaxLines, turbo ? 36 : 50);
   }
-  const lineRois = rois0.slice(0, Math.max(1, maxLines));
+  const lineRois = roisMerged.slice(0, Math.max(1, maxLines));
 
-  onProgress?.({ phase: "segment", current: lineRois.length, total: lineRois.length, detail: `segmentation • totalLines=${lines.length}, using=${lineRois.length}` });
+  onProgress?.({ phase: "segment", current: lineRois.length, total: lineRois.length, detail: `segmentation • totalLines=${lines.length}+cols(${roisCols.length}), using=${lineRois.length}` });
 
   const results: string[] = [];
   const confidences: number[] = [];
