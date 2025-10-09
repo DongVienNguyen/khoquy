@@ -439,36 +439,23 @@ export default function AssetEntryPage() {
           json_schema: { type: "object", properties: { text_content: { type: "string" } } },
         });
 
-        if (result.status === "success" && result.output?.text_content) {
-          const rawText = result.output.text_content || "";
-          const compactText = rawText.replace(/\s+/g, "");
-          const matchesRaw = rawText.match(/(0424\d+|0423\d+)/g) || [];
-          const matchesCompact = compactText.match(/(0424\d+|0423\d+)/g) || [];
-          const matches = Array.from(new Set([...matchesRaw, ...matchesCompact]));
-          for (const match of matches) {
-            if (match.length >= 10) {
-              const prefix7 = match.substring(0, 7);
-              const prefix6 = match.substring(0, 6);
-              let room = "";
-              if (prefix7 === "0424201") room = "CMT8";
-              else if (prefix7 === "0424202") room = "NS";
-              else if (prefix7 === "0424203") room = "ĐS";
-              else if (prefix7 === "0424204") room = "LĐH";
-              else if (prefix6 === "042300") room = "DVKH";
-              else if (prefix6 === "042410") room = "QLN";
-
-              if (room && (!detectedRoom || detectedRoom === room)) {
-                detectedRoom = room;
-                const year = match.slice(-10, -8);
-                const code = parseInt(match.slice(-4), 10);
-                const formatted = `${code}.${year}`;
-                if (isAssetValid(formatted)) {
-                  allCodes.push(formatted);
-                }
+        // Ưu tiên dùng kết quả từ pipeline: codes và detected_room
+        if (result.status === "success") {
+          const codesFromPipeline = result.output?.codes || [];
+          if (codesFromPipeline.length > 0) {
+            for (const formatted of codesFromPipeline) {
+              // Giữ lại kiểm tra hợp lệ cuối cùng theo form
+              if (isAssetValid(formatted)) {
+                allCodes.push(formatted);
               }
             }
           }
+          const roomFromPipeline = result.output?.detected_room || "";
+          if (roomFromPipeline && (!detectedRoom || detectedRoom === roomFromPipeline)) {
+            detectedRoom = roomFromPipeline;
+          }
         }
+
         setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã xử lý ${index}/${files.length} ảnh` });
       }
 
