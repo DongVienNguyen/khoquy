@@ -22,7 +22,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import MyTodaySubmissions from "@/components/asset-entry/MyTodaySubmissions";
-import { UploadFile, ExtractDataFromUploadedFile } from "@/integrations/Core";
 
 type SafeStaff = {
   id: string;
