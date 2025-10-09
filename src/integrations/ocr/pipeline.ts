@@ -943,6 +943,7 @@ export async function detectCodesFromImage(
   // 1) Quick whole-image scan first
   onProgress?.({ phase: "recognize", current: 0, total: 1, detail: "quick_scan • bắt đầu" });
   const quick = await quickWholeImageScan(baseCanvas, onProgress, { turbo, maxExpect: 10 });
+  const quickConfByCode = quick.confByCode;
   if (quick.codes.length > 0) {
     // Early return if quick scan succeeded
     onProgress?.({ phase: "done", current: 1, total: 1, detail: `early_exit_reason: quick_scan_hit` });
@@ -990,6 +991,16 @@ export async function detectCodesFromImage(
   const confidences: number[] = [];
   const droppedIndices: number[] = [];
   let totalVariantsTried = 0;
+
+  // Consensus tracking across ROIs
+  const codeOccurrence = new Map<string, number>();
+  const minConfBase = turbo ? 55 : 65;
+  const passesDynamicThreshold = (code: string, conf: number): boolean => {
+    const repeatReduce = (codeOccurrence.get(code) || 0) >= 1 ? 10 : 0;
+    const quickReduce = quickConfByCode && quickConfByCode[code] ? 5 : 0;
+    const need = Math.max(0, minConfBase - repeatReduce - quickReduce);
+    return (conf || 0) >= need;
+  };
 
   // Helper: process one ROI with micro-rotation gating
   const processOne = async (roi: HTMLCanvasElement): Promise<{ chosenStr: string | null; chosenConf: number; variantsTried: number }> => {
@@ -1185,10 +1196,11 @@ export async function detectCodesFromImage(
     batchResults.forEach((br, idx) => {
       const lineIndex = i + idx;
       totalVariantsTried += br.variantsTried;
-      if (br.chosenStr) {
+      if (br.chosenStr && passesDynamicThreshold(br.chosenStr, br.chosenConf)) {
         results.push(br.chosenStr);
         confidences.push(br.chosenConf || 0);
         uniqueSet.add(br.chosenStr);
+        codeOccurrence.set(br.chosenStr, (codeOccurrence.get(br.chosenStr) || 0) + 1);
       } else {
         droppedIndices.push(lineIndex);
       }
@@ -1206,8 +1218,13 @@ export async function detectCodesFromImage(
   // 5) Fallback multi-angle if still empty
   if (uniqueSet.size === 0) {
     onProgress?.({ phase: "recognize", current: 0, total: 1, detail: "fallback_multi_angle • start" });
-    const { codes: fbCodes, reason } = await fallbackMultiAngle(baseCanvas, async (roi) => processOne(roi), onProgress, { turbo, maxLines });
-    for (const c of fbCodes) uniqueSet.add(c);
+    const { codes: fbCodes, reason } = await fallbackMultiAngle(baseCanvas, async (roi) => processOne(roi), onProgress, { turbo, maxLines, quickConfByCode });
+    for (const c of fbCodes) {
+      uniqueSet.add(c);
+      codeOccurrence.set(c, (codeOccurrence.get(c) || 0) + 1);
+      results.push(c);
+      confidences.push(minConfBase); // fallback: approximate baseline
+    }
     if (uniqueSet.size > 0) {
       onProgress?.({ phase: "done", current: 1, total: 1, detail: `early_exit_reason: ${reason || 'multi_angle_hit'}` });
     }
@@ -1215,7 +1232,7 @@ export async function detectCodesFromImage(
 
   // Prepare outputs
   const orderedAll = results.slice();
-  onProgress?.({ phase: "vote", current: orderedAll.length, total: total, detail: "vote • per-char weighted" });
+  onProgress?.({ phase: "vote", current: orderedAll.length, total: total, detail: `vote • codes=${orderedAll.length} • repeats=${Array.from(codeOccurrence.values()).reduce((a,b)=>a+(b>1?1:0),0)}` });
 
   const t1 = performance.now();
   const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
@@ -1241,7 +1258,7 @@ async function quickWholeImageScan(
   baseCanvas: HTMLCanvasElement,
   onProgress?: (p: OCRProgress) => void,
   opts?: { turbo?: boolean; maxExpect?: number }
-): Promise<{ codes: string[]; unique: string[]; anglesTried: number; earlyExit: string | null }> {
+): Promise<{ codes: string[]; unique: string[]; anglesTried: number; earlyExit: string | null; confByCode: Record<string, number> }> {
   const t0 = performance.now();
   const targetH = 760;
   const canvas = baseCanvas.height > targetH ? scaleCanvas(baseCanvas, targetH) : baseCanvas;
@@ -1250,6 +1267,7 @@ async function quickWholeImageScan(
   const seen = new Map<string, number>(); // code -> bestConf
   const angleSeen = new Map<string, number>(); // code -> count of angles
   const maxExpect = Math.max(1, opts?.maxExpect ?? 10);
+  const minConfQuick = opts?.turbo ? 60 : 65;
   let earlyExit: string | null = null;
 
   for (let i = 0; i < angles.length; i++) {
@@ -1269,12 +1287,21 @@ async function quickWholeImageScan(
     const cand = await ocrOne(c, 6);
     const text = cand.raw || "";
     const matches = (text.match(/042\d{9,14}/g) || []) as string[];
+
+    // Accept only if confidence passes dynamic threshold (lower if repeated across angles)
+    const accepted: string[] = [];
     for (const m of matches) {
       if (!seqLooksValid(m)) continue;
-      const prev = seen.get(m) || 0;
-      if ((cand.confidence || 0) > prev) seen.set(m, cand.confidence || 0);
-      angleSeen.set(m, (angleSeen.get(m) || 0) + 1);
+      const prevCount = angleSeen.get(m) || 0;
+      const reduce = prevCount >= 1 ? 8 : 0;
+      if ((cand.confidence || 0) >= (minConfQuick - reduce)) {
+        accepted.push(m);
+        const prevConf = seen.get(m) || 0;
+        if ((cand.confidence || 0) > prevConf) seen.set(m, cand.confidence || 0);
+        angleSeen.set(m, prevCount + 1);
+      }
     }
+
     const uniqueNow = Array.from(seen.keys());
 
     // Early exits:
@@ -1298,7 +1325,8 @@ async function quickWholeImageScan(
   onProgress?.({ phase: "done", current: 1, total: 1, detail: `quick_scan • góc thử: ${angles.length}, hit: ${seen.size > 0}, ${Math.round(t1 - t0)}ms` });
 
   const codes = Array.from(seen.entries()).sort((a,b)=>b[1]-a[1]).map(([k])=>k);
-  return { codes, unique: codes, anglesTried: angles.length, earlyExit };
+  const confByCode = Object.fromEntries(seen.entries());
+  return { codes, unique: codes, anglesTried: angles.length, earlyExit, confByCode };
 }
 
 // New: Fallback multi-angle robust scan using segmentation on masked green
@@ -1306,11 +1334,13 @@ async function fallbackMultiAngle(
   baseCanvas: HTMLCanvasElement,
   processFn: (roi: HTMLCanvasElement) => Promise<{ chosenStr: string | null; chosenConf: number; variantsTried: number }>,
   onProgress?: (p: OCRProgress) => void,
-  opts?: { turbo?: boolean; maxLines?: number }
+  opts?: { turbo?: boolean; maxLines?: number; quickConfByCode?: Record<string, number> }
 ): Promise<{ codes: string[]; reason: string | null }> {
   const angles = [-28, -22, -16, -10, -6, -3, 0, 3, 6, 10, 16, 22, 28];
   const codes = new Set<string>();
   let reason: string | null = null;
+  const minConfBase = opts?.turbo ? 55 : 65;
+
   for (let i = 0; i < angles.length; i++) {
     const ang = angles[i]!;
     onProgress?.({ phase: "recognize", current: i, total: angles.length, detail: `fallback_multi_angle • góc ${ang}°` });
@@ -1328,8 +1358,10 @@ async function fallbackMultiAngle(
     }
     for (const roi of rois) {
       const r = await processFn(roi);
-      if (r.chosenStr && seqLooksValid(r.chosenStr)) {
-        codes.add(r.chosenStr);
+      const reduce = opts?.quickConfByCode && r.chosenStr && opts.quickConfByCode[r.chosenStr] ? 5 : 0;
+      const accept = r.chosenStr && (r.chosenConf || 0) >= (minConfBase - reduce) && seqLooksValid(r.chosenStr);
+      if (accept) {
+        codes.add(r.chosenStr!);
         if (codes.size >= 2) {
           reason = "multi_angle_hit";
           return { codes: Array.from(codes), reason };
