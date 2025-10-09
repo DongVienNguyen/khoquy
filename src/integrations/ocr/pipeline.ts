@@ -621,6 +621,81 @@ function cropColumn(binary: ImageData, srcCanvas: HTMLCanvasElement): HTMLCanvas
   return cropToCanvas(srcCanvas, box);
 }
 
+function segmentDigitBoxes(binary: ImageData): { x: number; w: number }[] {
+  // Tách các "cột" chứa mực số dựa vào chiếu dọc
+  const width = binary.width;
+  const proj = verticalProjection(binary);
+  const inkThresh = Math.max(1, Math.floor(binary.height * 0.01));
+  const boxes: { x: number; w: number }[] = [];
+  let inBand = false;
+  let startX = 0;
+
+  for (let x = 0; x < width; x++) {
+    const hasInk = proj[x] > inkThresh;
+    if (hasInk && !inBand) {
+      inBand = true;
+      startX = x;
+    } else if (!hasInk && inBand) {
+      const endX = x - 1;
+      const w = endX - startX + 1;
+      if (w >= 6) { // độ rộng tối thiểu cho 1 ký tự
+        boxes.push({ x: startX, w });
+      }
+      inBand = false;
+    }
+  }
+  if (inBand) {
+    const endX = width - 1;
+    const w = endX - startX + 1;
+    if (w >= 6) boxes.push({ x: startX, w });
+  }
+
+  // Hợp lý hóa: loại các "cột" quá rộng (khả năng là khoảng trắng nhiễu)
+  const maxW = Math.max(10, Math.floor(width * 0.08));
+  return boxes.filter((b) => b.w <= maxW);
+}
+
+function cropDigitCanvases(srcCanvas: HTMLCanvasElement, digitBoxes: { x: number; w: number }[]): HTMLCanvasElement[] {
+  const outs: HTMLCanvasElement[] = [];
+  for (const b of digitBoxes) {
+    const box = { x: b.x, y: 0, w: b.w, h: srcCanvas.height };
+    outs.push(cropToCanvas(srcCanvas, box));
+  }
+  return outs;
+}
+
+async function ocrDigitBest(c: HTMLCanvasElement, turbo: boolean): Promise<{ ch: string | null; conf: number; tried: number }> {
+  // Nhận dạng ký tự đơn với numeric-only
+  const jobs: Promise<OCRCandidate>[] = [];
+  // Chuẩn bị biến thể nhẹ nhàng
+  const gray = toGrayscale(getImageData(c));
+  const tOtsu = otsuThreshold(gray);
+  const binOtsu = threshold(gray, tOtsu);
+  const binClosed = closing(binOtsu);
+
+  const cv1 = createCanvas(c.width, c.height); putImageData(cv1, gray);
+  const cv2 = createCanvas(c.width, c.height); putImageData(cv2, binOtsu);
+  const cv3 = createCanvas(c.width, c.height); putImageData(cv3, binClosed);
+
+  const PSM10 = 10; // single character
+  const variants = turbo ? [cv2, cv3] : [cv1, cv2, cv3];
+  for (const v of variants) {
+    jobs.push(ocrOne(v, PSM10));
+  }
+  const res = await Promise.all(jobs);
+  let bestCh: string | null = null;
+  let bestConf = -1;
+  for (const r of res) {
+    const d = normalizeDigits(r.raw);
+    const ch = d.length ? d[0]! : null;
+    if (ch && r.confidence > bestConf) {
+      bestConf = r.confidence;
+      bestCh = ch;
+    }
+  }
+  return { ch: bestCh, conf: Math.max(0, bestConf), tried: res.length };
+}
+
 /**
  * Main entry: Detect asset codes from a single image (Blob or URL).
  * Steps:
@@ -723,7 +798,7 @@ export async function detectCodesFromImage(
       return { chosenStr: quickSeq, chosenConf: quickCand.confidence || (options?.turbo ? 60 : 75), variantsTried };
     }
 
-    // 2) Nhận dạng chi tiết khi đã biết có '042'
+    // 2) Nhận dạng chi tiết theo dòng
     const roiGamma08 = applyGamma(roiGray, 0.8);
     const roiGamma12 = applyGamma(roiGray, 1.2);
     const roiBin160 = threshold(roiGray, 160);
@@ -814,7 +889,30 @@ export async function detectCodesFromImage(
       chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
     }
 
-    // Fallback nhẹ khi chưa đủ tin cậy: thử biến thể đóng khác
+    // 3) Nếu độ tin cậy chưa đủ, thử nhận dạng theo từng ký tự số (PSM10)
+    if (!chosenStr || chosenConf < (options?.turbo ? 65 : 75)) {
+      const digitBoxes = segmentDigitBoxes(roiBinClosed);
+      // Yêu cầu tối thiểu 12 ký tự (042 + 9 số) và tối đa 20 để hợp lý
+      if (digitBoxes.length >= 12 && digitBoxes.length <= 20) {
+        const digitCanvases = cropDigitCanvases(roiScaled, digitBoxes);
+        const digits: string[] = [];
+        let sumConf = 0;
+        for (const dc of digitCanvases) {
+          const { ch, conf, tried } = await ocrDigitBest(dc, !!options?.turbo);
+          variantsTried += tried;
+          digits.push(ch ?? "");
+          sumConf += conf || 0;
+        }
+        const joined = digits.join("");
+        const improvedSeq = extractPrefixedSequence(normalizeDigits(joined));
+        if (improvedSeq && seqLooksValid(improvedSeq)) {
+          chosenStr = improvedSeq;
+          chosenConf = Math.round(sumConf / Math.max(1, digitCanvases.length));
+        }
+      }
+    }
+
+    // 4) Fallback nhẹ khi vẫn chưa đủ tin cậy: thử biến thể blur+threshold
     if (!chosenStr || chosenConf < 60) {
       const roiBlurred = boxBlur(roiGray);
       const roiBinAlt = closing(threshold(roiBlurred, Math.max(100, tOtsuRoi - 10)));
