@@ -134,6 +134,10 @@ export default function AssetEntryPage() {
   const [myRows, setMyRows] = useState<AssetTx[]>([]);
   const [listOpen, setListOpen] = useState<boolean>(false);
 
+  // Xác nhận mã mơ hồ từ AI
+  const [isAiConfirmOpen, setIsAiConfirmOpen] = useState(false);
+  const [aiNeedsConfirm, setAiNeedsConfirm] = useState<{ options: Record<string, string[]>; selections: Record<string, string> } | null>(null);
+  
   // Khai báo refs cho các ô nhập mã và hàm format ngày ngắn
   const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const formatDateShort = React.useCallback((date: Date | null) => {
@@ -503,9 +507,19 @@ export default function AssetEntryPage() {
       });
 
       // Inform about ambiguous codes if any
-      const needsCount = Number(payload?.needs_confirmation?.codes?.length || 0);
+      const needsCodes: string[] = Array.isArray(payload?.needs_confirmation?.codes) ? payload.needs_confirmation.codes : [];
+      const needsOptions: Record<string, string[]> = payload?.needs_confirmation?.options || {};
+      const needsCount = needsCodes.length;
       if (needsCount > 0) {
-        setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${payload?.needs_confirmation?.codes.join(", ")}).` });
+        // Khởi tạo lựa chọn mặc định là phương án đầu tiên cho mỗi code
+        const initialSelections: Record<string, string> = {};
+        needsCodes.forEach((c) => {
+          const opts = needsOptions[c] || [];
+          if (opts.length > 0) initialSelections[c] = opts[0];
+        });
+        setAiNeedsConfirm({ options: needsOptions, selections: initialSelections });
+        setIsAiConfirmOpen(true);
+        setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${needsCodes.join(", ")}).` });
       } else {
         setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
       }
@@ -882,6 +896,69 @@ export default function AssetEntryPage() {
           </form>
         </div>
 
+        {/* Dialog xác nhận mã cần làm rõ từ AI */}
+        <Dialog open={isAiConfirmOpen} onOpenChange={setIsAiConfirmOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Xác nhận mã cần làm rõ</DialogTitle>
+            </DialogHeader>
+            {aiNeedsConfirm && Object.keys(aiNeedsConfirm.options).length > 0 ? (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Một số mã có nhiều cách diễn giải năm. Vui lòng chọn chính xác cho từng mã:
+                </p>
+                <div className="space-y-2">
+                  {Object.entries(aiNeedsConfirm.options).map(([code, opts]) => (
+                    <div key={code} className="grid grid-cols-3 items-center gap-2">
+                      <Label className="col-span-1 text-sm">Mã {code}</Label>
+                      <div className="col-span-2">
+                        <Select
+                          value={aiNeedsConfirm.selections[code] || ""}
+                          onValueChange={(v) =>
+                            setAiNeedsConfirm((prev) =>
+                              prev ? { options: prev.options, selections: { ...prev.selections, [code]: v } } : prev
+                            )
+                          }
+                        >
+                          <SelectTrigger className="h-10"><SelectValue placeholder="Chọn mã đúng" /></SelectTrigger>
+                          <SelectContent>
+                            {opts.map((o) => (
+                              <SelectItem key={o} value={o}>{o}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setIsAiConfirmOpen(false)}>Để sau</Button>
+                  <Button
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      if (!aiNeedsConfirm) return;
+                      const chosen = Object.values(aiNeedsConfirm.selections || {}).filter(Boolean);
+                      if (chosen.length > 0) {
+                        setMultipleAssets((prev) => {
+                          const existing = prev.filter((a) => a.trim());
+                          const merged = Array.from(new Set([...existing, ...chosen]));
+                          return merged.length > 0 ? merged : [""];
+                        });
+                        toast.success(`Đã thêm xác nhận cho ${chosen.length} mã.`);
+                      }
+                      setIsAiConfirmOpen(false);
+                    }}
+                  >
+                    Xác nhận & Thêm
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">Không có mã cần xác nhận.</div>
+            )}
+          </DialogContent>
+        </Dialog>
+        
         <input id="file-input" type="file" accept="image/*" multiple onChange={handleFileUpload} className="hidden" />
         <input id="camera-input" type="file" accept="image/*" multiple capture="environment" onChange={handleFileUpload} className="hidden" />
 
