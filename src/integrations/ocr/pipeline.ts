@@ -32,25 +32,10 @@ type DetectOptions = {
   batchSize?: number; // số dòng xử lý song song
   turbo?: boolean; // true: ít biến thể hơn để nhanh hơn
   maxLines?: number; // giới hạn số dòng tối đa
-  minConfidence?: number; // NGƯỠNG TIN CẬY TỐI THIỂU (0-100)
 };
 
 // Helpers
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-
-// THÊM: tiện ích percentile và điểm xanh để tạo mặt nạ xanh lá thích nghi
-function percentile(arr: number[], p: number): number {
-  if (!arr.length) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const idx = clamp(Math.floor((p / 100) * (sorted.length - 1)), 0, sorted.length - 1);
-  return sorted[idx]!;
-}
-function greenScore(r: number, g: number, b: number): number {
-  // điểm xanh tương đối theo sáng: nhấn mạnh G, trừ ảnh hưởng R/B
-  const lum = Math.max(1, 0.2126 * r + 0.7152 * g + 0.0722 * b);
-  const rel = (g - 0.5 * r - 0.5 * b) / lum;
-  return rel * 255;
-}
 
 function createCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
@@ -202,61 +187,6 @@ function threshold(imageData: ImageData, t: number): ImageData {
   return out;
 }
 
-// Add: Adaptive threshold using integral image for speed
-function adaptiveThreshold(imageData: ImageData, blockSize: number, C: number): ImageData {
-  const { data, width, height } = imageData;
-  const out = new ImageData(width, height);
-  const o = out.data;
-
-  const W = width + 1;
-  const H = height + 1;
-  const integral = new Float64Array(W * H);
-
-  // Build integral image (use grayscale value in red channel)
-  for (let y = 0; y < height; y++) {
-    let rowSum = 0;
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const val = data[idx];
-      rowSum += val;
-      const ii = (y + 1) * W + (x + 1);
-      integral[ii] = integral[y * W + (x + 1)] + rowSum;
-    }
-  }
-
-  const bs = Math.max(3, Math.floor(blockSize) | 0);
-  const r = Math.floor(bs / 2);
-
-  const rectSum = (x0: number, y0: number, x1: number, y1: number): number => {
-    x0 = Math.max(0, Math.min(width - 1, x0));
-    y0 = Math.max(0, Math.min(height - 1, y0));
-    x1 = Math.max(0, Math.min(width - 1, x1));
-    y1 = Math.max(0, Math.min(height - 1, y1));
-    const A = integral[y0 * W + x0];
-    const B = integral[y0 * W + (x1 + 1)];
-    const C2 = integral[(y1 + 1) * W + x0];
-    const D = integral[(y1 + 1) * W + (x1 + 1)];
-    return D - B - C2 + A;
-  };
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const x0 = x - r, y0 = y - r, x1 = x + r, y1 = y + r;
-      const count = (Math.min(width - 1, x1) - Math.max(0, x0) + 1) * (Math.min(height - 1, y1) - Math.max(0, y0) + 1);
-      const sum = rectSum(x0, y0, x1, y1);
-      const mean = sum / Math.max(1, count);
-      const idx = (y * width + x) * 4;
-      const v = data[idx];
-      const thr = mean - C;
-      const bin = v > thr ? 255 : 0;
-      o[idx] = o[idx + 1] = o[idx + 2] = bin;
-      o[idx + 3] = 255;
-    }
-  }
-
-  return out;
-}
-
 // Thao tác hình thái: dilation (nở) cho vùng mực đen (0), erosion (co) và closing (dilation rồi erosion)
 function dilate(binary: ImageData): ImageData {
   const { width, height, data } = binary;
@@ -316,66 +246,6 @@ function erode(binary: ImageData): ImageData {
 
 function closing(binary: ImageData): ImageData {
   return erode(dilate(binary));
-}
-
-// Horizontal morphology: erosion, dilation, and opening (erosion then dilation) along X-axis.
-// Treat black (<128) as ink; white (>=128) as background.
-function erodeHorizontal(binary: ImageData, radius: number): ImageData {
-  const { data, width, height } = binary;
-  const out = new ImageData(width, height);
-  const o = out.data;
-  const idx = (x: number, y: number) => (y * width + x) * 4;
-
-  const r = Math.max(1, Math.floor(radius));
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let allBlack = true;
-      for (let k = -r; k <= r; k++) {
-        const xx = clamp(x + k, 0, width - 1);
-        const i = idx(xx, y);
-        if (data[i] >= 128) { // encountered white → not fully black
-          allBlack = false;
-          break;
-        }
-      }
-      const ii = idx(x, y);
-      const v = allBlack ? 0 : 255;
-      o[ii] = o[ii + 1] = o[ii + 2] = v;
-      o[ii + 3] = 255;
-    }
-  }
-  return out;
-}
-
-function dilateHorizontal(binary: ImageData, radius: number): ImageData {
-  const { data, width, height } = binary;
-  const out = new ImageData(width, height);
-  const o = out.data;
-  const idx = (x: number, y: number) => (y * width + x) * 4;
-
-  const r = Math.max(1, Math.floor(radius));
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let setBlack = false;
-      for (let k = -r; k <= r; k++) {
-        const xx = clamp(x + k, 0, width - 1);
-        const i = idx(xx, y);
-        if (data[i] < 128) { // found black neighbor
-          setBlack = true;
-          break;
-        }
-      }
-      const ii = idx(x, y);
-      const v = setBlack ? 0 : 255;
-      o[ii] = o[ii + 1] = o[ii + 2] = v;
-      o[ii + 3] = 255;
-    }
-  }
-  return out;
-}
-
-function openHorizontal(binary: ImageData, radius: number): ImageData {
-  return dilateHorizontal(erodeHorizontal(binary, radius), radius);
 }
 
 function boxBlur(imageData: ImageData): ImageData {
@@ -599,11 +469,10 @@ function trimLineCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
   while (right >= 0 && proj[right] <= inkThresh) right--;
   // If nothing detected, keep original
   if (right <= left) return src;
-  // Add padding 12% để tránh cắt mất ký tự
-  const contentW = right - left + 1;
-  const pad = Math.floor(contentW * 0.12);
+  // Add a small padding to avoid cutting off digits
+  const pad = Math.floor((right - left + 1) * 0.05);
   const x = clamp(left - pad, 0, src.width - 1);
-  const w = clamp(contentW + 2 * pad, 1, src.width - x);
+  const w = clamp(right - left + 1 + 2 * pad, 1, src.width - x);
   const box: LineBox = { x, y: 0, w, h: src.height };
   return cropToCanvas(src, box);
 }
@@ -704,96 +573,73 @@ function votePerCharWeighted(strings: string[], weights: number[]): string | nul
   return outChars.join("");
 }
 
-// Lấy toàn bộ chuỗi "042..." trong văn bản số
-function extractAllPrefixedSequences(digits: string): string[] {
-  return digits.match(/042\d{9,14}/g) ?? [];
-}
-
-// Tạo mặt nạ xanh lá để giữ lại vùng chữ số màu xanh (link)
-function maskNonGreenToWhite(src: HTMLCanvasElement): HTMLCanvasElement {
-  // Xây mask xanh lá thích nghi theo percentile để bền với thay đổi độ sáng/camera
-  const ctxSrc = src.getContext("2d")!;
-  const img = ctxSrc.getImageData(0, 0, src.width, src.height);
-  const data = img.data;
-  // Lấy mẫu thưa để ước lượng phân bố điểm xanh
-  const scores: number[] = [];
-  const step = Math.max(1, Math.floor((src.width * src.height) / 20000)); // ~<=20k mẫu
-  for (let i = 0; i < data.length; i += 4 * step) {
-    const r = data[i], g = data[i + 1], b = data[i + 2];
-    scores.push(greenScore(r, g, b));
-  }
-  // Ngưỡng thích nghi: 85-90th percentile
-  let thr = percentile(scores, 88);
-  if (!Number.isFinite(thr)) thr = 40;
-  // Fallback an toàn nếu điểm xanh quá thấp
-  const out = createCanvas(src.width, src.height);
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i + 1], b = data[i + 2];
-    const s = greenScore(r, g, b);
-    const isGreen = s > thr || (g > 80 && g > 1.15 * r && g > 1.15 * b);
-    if (!isGreen) {
-      data[i] = 255; data[i + 1] = 255; data[i + 2] = 255;
-    } else {
-      // làm đậm vùng xanh để nổi bật chữ số
-      data[i] = 20; data[i + 1] = 200; data[i + 2] = 20;
+function buildIntegral(gray: ImageData): { ii: Float64Array; width: number; height: number } {
+  const { width, height, data } = gray;
+  const ii = new Float64Array(width * height);
+  const idx = (x: number, y: number) => y * width + x;
+  for (let y = 0; y < height; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < width; x++) {
+      const iData = (y * width + x) * 4;
+      const val = data[iData]; // grayscale in R
+      rowSum += val;
+      ii[idx(x, y)] = rowSum + (y > 0 ? ii[idx(x, y - 1)] : 0);
     }
   }
-  const ctxOut = out.getContext("2d")!;
-  ctxOut.putImageData(img, 0, 0);
+  return { ii, width, height };
+}
+
+function sumRect(ii: Float64Array, width: number, x0: number, y0: number, x1: number, y1: number): number {
+  const idx = (x: number, y: number) => y * width + x;
+  const A = x0 > 0 && y0 > 0 ? ii[idx(x0 - 1, y0 - 1)] : 0;
+  const B = y0 > 0 ? ii[idx(x1, y0 - 1)] : 0;
+  const C = x0 > 0 ? ii[idx(x0 - 1, y1)] : 0;
+  const D = ii[idx(x1, y1)];
+  return D - B - C + A;
+}
+
+function adaptiveThreshold(gray: ImageData, win: number, C: number): ImageData {
+  const { width, height } = gray;
+  const out = new ImageData(width, height);
+  const o = out.data;
+  const { ii } = buildIntegral(gray);
+  const half = Math.max(1, Math.floor(win / 2));
+  for (let y = 0; y < height; y++) {
+    const y0 = clamp(y - half, 0, height - 1);
+    const y1 = clamp(y + half, 0, height - 1);
+    for (let x = 0; x < width; x++) {
+      const x0 = clamp(x - half, 0, width - 1);
+      const x1 = clamp(x + half, 0, width - 1);
+      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const sum = sumRect(ii, width, x0, y0, x1, y1);
+      const mean = sum / area;
+      const iData = (y * width + x) * 4;
+      const val = gray.data[iData];
+      const bin = val > mean - C ? 255 : 0;
+      o[iData] = o[iData + 1] = o[iData + 2] = bin;
+      o[iData + 3] = 255;
+    }
+  }
   return out;
 }
 
-// NEW: Quét nhanh toàn ảnh theo nhiều góc, áp mặt nạ xanh, OCR PSM=6, trả về sớm nếu thấy mã
-async function quickWholeImageScan(
-  baseCanvas: HTMLCanvasElement,
-  angles: number[],
-  minConf: number
-): Promise<{ codes: string[]; avgConf?: number } | null> {
-  const found: { code: string; conf: number }[] = [];
-  const appearCount = new Map<string, number>();
-
-  for (const ang of angles) {
-    const rotated = rotateCanvas(baseCanvas, ang);
-    const masked = maskNonGreenToWhite(rotated);
-
-    // Làm dịu moiré nhẹ trước threshold
-    const gray = toGrayscale(getImageData(masked));
-    const blurred = boxBlur(gray);
-    const enhanced = enhanceContrast(blurred, 0.04, 0.96);
-    const block = Math.max(11, Math.floor(masked.height * 0.05));
-    const bin = adaptiveThreshold(enhanced, block, 10);
-    const cv = createCanvas(masked.width, masked.height);
-    putImageData(cv, closing(bin));
-
-    const cand = await ocrOne(cv, 6);
-    const digits = normalizeDigits(cand.raw);
-    const seqs = extractAllPrefixedSequences(digits).filter(seqLooksValid);
-    const conf = typeof cand.confidence === "number" ? Math.round(cand.confidence) : 0;
-
-    if (seqs.length && conf >= minConf) {
-      for (const s of seqs) {
-        found.push({ code: s, conf });
-        appearCount.set(s, (appearCount.get(s) || 0) + 1);
-      }
-      // Early exit: đủ tốt
-      const unique = new Set(found.map(f => f.code));
-      const hasRepeat = Array.from(appearCount.values()).some(v => v >= 2);
-      if (unique.size >= 2 || hasRepeat || unique.size >= 10) break;
-    }
-  }
-  if (!found.length) return null;
-
-  // Khử trùng lặp theo mã, giữ confidence cao nhất
-  const confMap = new Map<string, number>();
-  for (const { code, conf } of found) {
-    const cur = confMap.get(code) ?? -1;
-    if (conf > cur) confMap.set(code, conf);
-  }
-  const codes = Array.from(confMap.keys());
-  const avgConf = codes.length
-    ? Array.from(confMap.values()).reduce((a, b) => a + b, 0) / codes.length
-    : undefined;
-  return { codes, avgConf };
+async function ocrOne(canvas: HTMLCanvasElement, psm: number): Promise<OCRCandidate> {
+  const { data } = await Tesseract.recognize(canvas, "eng", {
+    tessedit_char_whitelist: "0123456789",
+    tessedit_char_blacklist: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    user_defined_dpi: "300",
+    preserve_interword_spaces: "0",
+    tessedit_pageseg_mode: String(psm),
+    psm: String(psm),
+    oem: "1", // LSTM-only for better digit accuracy
+    classify_bln_numeric_mode: "1",
+    load_system_dawg: "F",
+    load_freq_dawg: "F",
+    language_model_penalty_non_dict_word: "1",
+  } as any);
+  const raw = (data?.text || "").toString();
+  const conf = typeof data?.confidence === "number" ? data.confidence : 0;
+  return { raw, digits: normalizeDigits(raw), confidence: conf };
 }
 
 /**
@@ -815,21 +661,6 @@ export async function warmUpOcr(): Promise<void> {
   }
 }
 
-// Add: Minimal OCR wrapper for Tesseract
-async function ocrOne(c: HTMLCanvasElement, psm: number): Promise<OCRCandidate> {
-  const res = await Tesseract.recognize(c, "eng", {
-    tessedit_char_whitelist: "0123456789",
-    psm: String(psm),
-    user_defined_dpi: "150",
-  } as any);
-
-  const raw = res?.data?.text ?? "";
-  const digits = normalizeDigits(raw);
-  const confidence = typeof res?.data?.confidence === "number" ? res.data.confidence : 0;
-
-  return { raw, digits, confidence };
-}
-
 function scoreProjectionSharpness(binary: ImageData): number {
   const proj = horizontalProjection(binary);
   let score = 0;
@@ -841,18 +672,12 @@ function scoreProjectionSharpness(binary: ImageData): number {
 }
 
 function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
-  // Coarse-to-fine: quét rộng trên ảnh downscale rồi tinh chỉnh hẹp trên ảnh gốc
-  const downH = 600;
-  const coarseCanvas = baseCanvas.height > downH ? scaleCanvas(baseCanvas, downH) : baseCanvas;
-
-  let bestAngle = 0;
+  const grayData = toGrayscale(getImageData(baseCanvas));
+  const blurred = boxBlur(grayData);
   let bestScore = -1;
-
-  const coarseAngles: number[] = [];
-  for (let a = -22; a <= 22; a += 2) coarseAngles.push(a);
-
-  for (const ang of coarseAngles) {
-    const rotated = rotateCanvas(coarseCanvas, ang);
+  let bestCanvas = baseCanvas;
+  for (let ang = -6; ang <= 6; ang += 0.5) {
+    const rotated = rotateCanvas(baseCanvas, ang);
     const rd = toGrayscale(getImageData(rotated));
     const rb = boxBlur(rd);
     const t = otsuThreshold(rb);
@@ -860,26 +685,10 @@ function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
     const s = scoreProjectionSharpness(bin);
     if (s > bestScore) {
       bestScore = s;
-      bestAngle = ang;
+      bestCanvas = rotated;
     }
   }
-
-  // Fine search quanh bestAngle trên ảnh gốc
-  let bestFineScore = -1;
-  let bestFineCanvas = baseCanvas;
-  for (let ang = bestAngle - 5; ang <= bestAngle + 5; ang += 0.5) {
-    const rotated = rotateCanvas(baseCanvas, ang);
-    const rd = toGrayscale(getImageData(rotated));
-    const rb = boxBlur(rd);
-    const t = otsuThreshold(rb);
-    const bin = threshold(rb, t);
-    const s = scoreProjectionSharpness(bin);
-    if (s > bestFineScore) {
-      bestFineScore = s;
-      bestFineCanvas = rotated;
-    }
-  }
-  return bestFineCanvas;
+  return bestCanvas;
 }
 
 function cropColumn(binary: ImageData, srcCanvas: HTMLCanvasElement): HTMLCanvasElement {
@@ -975,282 +784,6 @@ async function ocrDigitBest(c: HTMLCanvasElement, turbo: boolean): Promise<{ ch:
   return { ch: bestCh, conf: Math.max(0, bestConf), tried: res.length };
 }
 
-// Group line ROIs by y-position
-type LineROI = { canvas: HTMLCanvasElement; y: number; h: number };
-
-function groupLineRois(rois: LineROI[], tolerance: number = 4): LineROI[][] {
-  if (rois.length === 0) return [];
-  const sorted = [...rois].sort((a, b) => a.y - b.y);
-  const groups: LineROI[][] = [];
-  let current: LineROI[] = [sorted[0]];
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = current[current.length - 1];
-    const cur = sorted[i];
-    if (Math.abs(cur.y - prev.y) <= tolerance) {
-      current.push(cur);
-    } else {
-      groups.push(current);
-      current = [cur];
-    }
-  }
-  groups.push(current);
-  return groups;
-}
-
-// Add a typed result for per-ROI processing
-type ROIProcessResult = { chosenStr: string | null; chosenConf: number; variantsTried: number };
-
-// Lightweight per-ROI OCR with micro-rotation fallback for skewed lines
-const processOne = async (roi: HTMLCanvasElement, turbo: boolean): Promise<ROIProcessResult> => {
-  let variantsTried = 0;
-
-  const targetH = Math.max(64, Math.min(256, roi.height));
-  const roiScaled = scaleCanvas(roi, targetH);
-
-  const gray = toGrayscale(getImageData(roiScaled));
-  const tOtsu = otsuThreshold(gray);
-  const binOtsu = threshold(gray, tOtsu);
-  const binClosed = closing(binOtsu);
-
-  // Quick scan PSM13 chỉ là tín hiệu sớm, KHÔNG thoát sớm nếu không thấy chuỗi
-  const cQuick = createCanvas(roiScaled.width, roiScaled.height);
-  putImageData(cQuick, binClosed);
-  const quickCand = await ocrOne(cQuick, 13);
-  variantsTried += 1;
-  const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
-  if (quickSeq && seqLooksValid(quickSeq) && (quickCand.confidence || 0) >= 75) {
-    return { chosenStr: quickSeq, chosenConf: Math.round(quickCand.confidence || 75), variantsTried };
-  }
-
-  // Biến thể cơ bản
-  const c1 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c1, gray);
-  const c2 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c2, binClosed);
-
-  const jobs: Promise<OCRCandidate>[] = [ocrOne(c1, 7), ocrOne(c1, 11), ocrOne(c2, 7), ocrOne(c2, 11)];
-  const results = await Promise.all(jobs);
-  variantsTried += results.length;
-
-  const candStrings: string[] = [];
-  const candWeights: number[] = [];
-  for (const r of results) {
-    const seq = extractPrefixedSequence(normalizeDigits(r.raw));
-    if (seq) {
-      candStrings.push(seq);
-      candWeights.push(r.confidence || 0);
-    }
-  }
-
-  let chosenStr: string | null = null;
-  let chosenConf = 0;
-
-  if (candStrings.length) {
-    const voted = votePerCharWeighted(candStrings, candWeights) || votePerChar(candStrings);
-    if (voted && seqLooksValid(voted)) {
-      chosenStr = voted;
-      const matches = results.filter((cr) => extractPrefixedSequence(normalizeDigits(cr.raw)) === chosenStr);
-      chosenConf = matches.length ? Math.round(matches.reduce((a: number, b: OCRCandidate) => a + (b.confidence || 0), 0) / matches.length) : 0;
-    } else {
-      const tuples = candStrings.map((s, i) => ({ s, w: candWeights[i] || 0 }));
-      tuples.sort((a, b) => (b.w - a.w) || (b.s.length - a.s.length));
-      chosenStr = tuples[0]?.s ?? null;
-      chosenConf = tuples[0]?.w ?? 0;
-    }
-  }
-
-  // Micro-rotation fallback có điều kiện
-  const needMicro = !turbo && (!chosenStr || chosenConf < 75 || (chosenStr && chosenStr.length < 13));
-  if (needMicro) {
-    const angles = [-7, -5, -3, -1.5, 0, 1.5, 3, 5, 7];
-    const microStrings: string[] = [];
-    const microWeights: number[] = [];
-    for (const ang of angles) {
-      const rCanvas = rotateCanvas(roiScaled, ang);
-      const g2 = toGrayscale(getImageData(rCanvas));
-      const t2 = otsuThreshold(g2);
-      const b2 = closing(threshold(g2, t2));
-      const m1 = createCanvas(rCanvas.width, rCanvas.height); putImageData(m1, g2);
-      const m2 = createCanvas(rCanvas.width, rCanvas.height); putImageData(m2, b2);
-      const rs = await Promise.all([ocrOne(m1, 7), ocrOne(m1, 11), ocrOne(m2, 7), ocrOne(m2, 11)]);
-      variantsTried += rs.length;
-      for (const r of rs) {
-        const seq = extractPrefixedSequence(normalizeDigits(r.raw));
-        if (seq) {
-          microStrings.push(seq);
-          microWeights.push(r.confidence || 0);
-        }
-      }
-      // Nếu đã có vài ứng viên tốt, có thể dừng sớm để tiết kiệm thời gian
-      if (microStrings.length >= 4 && Math.max(...microWeights) >= 80) break;
-    }
-    if (microStrings.length) {
-      const microVoted = votePerCharWeighted(microStrings, microWeights) || votePerChar(microStrings);
-      if (microVoted && seqLooksValid(microVoted)) {
-        const maxW = Math.max(...microWeights);
-        if (!chosenStr || maxW >= chosenConf) {
-          chosenStr = microVoted;
-          chosenConf = Math.round(maxW);
-        }
-      }
-    }
-  }
-
-  return { chosenStr, chosenConf, variantsTried };
-};
-
-// Fallback: quét đa góc toàn ảnh nếu lượt chính không ra kết quả
-async function fallbackMultiAngle(baseCanvas: HTMLCanvasElement, options?: DetectOptions): Promise<OCRPipelineResult> {
-  const onProgress = options?.onProgress;
-  const batchSize = Math.max(1, options?.batchSize ?? 6);
-  const turbo = options?.turbo ?? false;
-  const maxLines = options?.maxLines ?? 40;
-  const minConf = clamp(Math.round(options?.minConfidence ?? (options?.turbo ? 55 : 65)), 0, 100);
-
-  const tStart = performance.now();
-  const angles = [-28, -22, -16, -10, -6, -3, 0, 3, 6, 10, 16, 22, 28];
-
-  for (let ai = 0; ai < angles.length; ai++) {
-    const ang = angles[ai]!;
-    onProgress?.({ phase: "recognize", current: ai, total: angles.length, detail: `Fallback quét góc ${ang}°` });
-
-    const rotated = rotateCanvas(baseCanvas, ang);
-
-    const grayData0 = toGrayscale(getImageData(rotated));
-    const blurred0 = boxBlur(grayData0);
-    const tOtsu0 = otsuThreshold(blurred0);
-    // Mở ngang nhẹ để giảm gạch chân trước khi phân đoạn
-    const binForProj0 = threshold(blurred0, tOtsu0);
-    const binForProj = openHorizontal(binForProj0, 2);
-
-    const columnCanvases = cropTopColumns(binForProj, rotated, 3);
-
-    const lineRois: { canvas: HTMLCanvasElement; y: number; h: number }[] = [];
-    for (const columnCanvas of columnCanvases) {
-      // Áp mặt nạ xanh trước phân đoạn
-      const maskedCol = maskNonGreenToWhite(columnCanvas);
-      const grayData = toGrayscale(getImageData(maskedCol));
-      const blurred = boxBlur(grayData);
-      const tOtsu = otsuThreshold(blurred);
-      const bin0 = threshold(blurred, tOtsu);
-      const binForSeg = openHorizontal(bin0, 2);
-      const lines = segmentLines(binForSeg, 1);
-      for (const box of lines) {
-        let c = cropToCanvas(maskedCol, box);
-        c = trimLineCanvas(c);
-        lineRois.push({ canvas: c, y: box.y, h: box.h });
-        if (lineRois.length >= maxLines) break;
-      }
-      if (lineRois.length >= maxLines) break;
-    }
-
-    const clusters = groupLineRois(lineRois, 4);
-    const total = clusters.length;
-
-    const results: string[] = [];
-    const confidences: number[] = [];
-    const droppedIndices: number[] = [];
-    let totalVariantsTried = 0;
-    let done = 0;
-
-    for (let gi = 0; gi < clusters.length; gi += batchSize) {
-      const batch = clusters.slice(gi, gi + batchSize);
-      const batchGroupResults: ROIProcessResult[][] = await Promise.all(
-        batch.map(async (group) => {
-          const perRoi = await Promise.all(group.map((roi) => processOne(roi.canvas, turbo)));
-          return perRoi;
-        })
-      );
-
-      batchGroupResults.forEach((perGroup: ROIProcessResult[], idx: number) => {
-        const groupIndex = gi + idx;
-
-        const candStrings = perGroup
-          .map((r: ROIProcessResult) => r.chosenStr)
-          .filter((s: string | null): s is string => !!s && s.length >= 13 && s.startsWith("042"));
-        const candWeights = perGroup
-          .map((r: ROIProcessResult) => r.chosenConf || 0);
-
-        const voted = candStrings.length
-          ? (votePerCharWeighted(candStrings, candWeights) || votePerChar(candStrings))
-          : null;
-
-        const chosen = voted && seqLooksValid(voted) ? voted : (candStrings.find((s: string) => seqLooksValid(s)) ?? null);
-
-        const chosenConf = chosen
-          ? Math.round(
-              perGroup
-                .filter((r: ROIProcessResult) => r.chosenStr === chosen)
-                .reduce((a: number, b: ROIProcessResult) => a + (b.chosenConf || 0), 0) /
-              Math.max(1, perGroup.filter((r: ROIProcessResult) => r.chosenStr === chosen).length)
-            )
-          : 0;
-
-        const groupVariants = perGroup.reduce((a: number, b: ROIProcessResult) => a + (b.variantsTried || 0), 0);
-        totalVariantsTried += groupVariants;
-
-        if (chosen) {
-          results.push(chosen);
-          confidences.push(chosenConf);
-        } else {
-          droppedIndices.push(groupIndex);
-        }
-
-        done += 1;
-        onProgress?.({ phase: "recognize", current: done, total, detail: `Fallback nhận dạng dòng ${done}/${total}` });
-      });
-    }
-
-    // Lọc và khử trùng lặp
-    const keptByThreshold: { code: string; conf: number }[] = [];
-    for (let i = 0; i < results.length; i++) {
-      const code = results[i];
-      const conf = confidences[i] ?? 0;
-      if (code && seqLooksValid(code) && conf >= minConf) {
-        keptByThreshold.push({ code, conf });
-      }
-    }
-    const confMap = new Map<string, number>();
-    for (const { code, conf } of keptByThreshold) {
-      const cur = confMap.get(code) ?? -1;
-      if (conf > cur) confMap.set(code, conf);
-    }
-    const uniqueCodes = Array.from(confMap.keys());
-    const uniqueConfs = Array.from(confMap.values());
-
-    if (uniqueCodes.length > 0) {
-      const tEnd = performance.now();
-      const avgConfidence = uniqueConfs.length
-        ? uniqueConfs.reduce((a, b) => a + b, 0) / uniqueConfs.length
-        : undefined;
-      const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, clusters.length));
-      onProgress?.({ phase: "done", current: uniqueCodes.length, total, detail: `Fallback tìm thấy mã ở góc ${ang}°` });
-      return {
-        codes: uniqueCodes,
-        stats: {
-          totalLines: clusters.length,
-          keptLines: uniqueCodes.length,
-          avgConfidence,
-          durationMs: Math.round(tEnd - tStart),
-          droppedIndices,
-          variantsTriedPerLine: avgVariantsPerLine,
-        },
-      };
-    }
-  }
-
-  // Không tìm được sau mọi góc
-  const tEnd = performance.now();
-  return {
-    codes: [],
-    stats: {
-      totalLines: 0,
-      keptLines: 0,
-      durationMs: Math.round(tEnd - tStart),
-      droppedIndices: [],
-      variantsTriedPerLine: 0,
-    },
-  };
-}
-
 /**
  * Main entry: Detect asset codes from a single image (Blob or URL).
  * Steps:
@@ -1265,7 +798,7 @@ export async function detectCodesFromImage(
   options?: DetectOptions
 ): Promise<OCRPipelineResult> {
   const onProgress = options?.onProgress;
-  const batchSize = Math.max(1, options?.batchSize ?? 6);
+  const batchSize = Math.max(1, options?.batchSize ?? 4);
   const turbo = options?.turbo ?? false;
   const maxLines = options?.maxLines;
 
@@ -1273,190 +806,239 @@ export async function detectCodesFromImage(
   const img = await loadImageFrom(input);
   let baseCanvas = drawImageToCanvas(img);
 
-  // Ensure minimum scale (giảm nhẹ để tăng tốc)
-  const minHeight = 900;
+  // Ensure minimum scale
+  const minHeight = 1000;
   if (baseCanvas.height < minHeight) {
     baseCanvas = scaleCanvas(baseCanvas, minHeight);
   }
 
-  // NEW: Quick scan toàn ảnh trên bản downscale để tăng tốc
-  const quickH = 760;
-  const quickCanvas = baseCanvas.height > quickH ? scaleCanvas(baseCanvas, quickH) : baseCanvas;
-  const anglesQuick: number[] = [];
-  for (let a = -25; a <= 25; a += 3) anglesQuick.push(a);
-
-  onProgress?.({ phase: "recognize", current: 0, total: anglesQuick.length, detail: `Quét nhanh toàn ảnh (${anglesQuick.length} góc)` });
-  {
-    const minConfQuick = clamp(Math.round(options?.minConfidence ?? (turbo ? 60 : 65)), 0, 100);
-    const quick = await quickWholeImageScan(quickCanvas, anglesQuick, minConfQuick);
-    if (quick && quick.codes.length) {
-      const t1 = performance.now();
-      onProgress?.({ phase: "done", current: quick.codes.length, total: anglesQuick.length, detail: "Điền mã (quét nhanh)" });
-      return {
-        codes: Array.from(new Set(quick.codes)),
-        stats: {
-          totalLines: 0,
-          keptLines: quick.codes.length,
-          avgConfidence: quick.avgConf,
-          durationMs: Math.round(t1 - t0),
-          droppedIndices: [],
-          variantsTriedPerLine: 0,
-        },
-      };
-    }
-  }
-
-  // Deskew coarse-to-fine
+  // Deskew
   const deskewed = deskewBySearch(baseCanvas);
-  onProgress?.({ phase: "deskew_crop", current: 0, total: 1, detail: "Căn thẳng (coarse-to-fine) & cắt cột số" });
+  onProgress?.({ phase: "deskew_crop", current: 0, total: 1, detail: "Căn thẳng & cắt cột số" });
 
-  // Base grayscale + binary (kèm mở ngang nhẹ để giảm gạch chân)
+  // Base grayscale + binary
   const grayData0 = toGrayscale(getImageData(deskewed));
   const blurred0 = boxBlur(grayData0);
   const tOtsu0 = otsuThreshold(blurred0);
-  const binForProj0 = threshold(blurred0, tOtsu0);
-  const binForProj = openHorizontal(binForProj0, 2);
+  const binForProj = threshold(blurred0, tOtsu0);
+  // Báo cáo bước normalize để người dùng thấy tiến trình
   onProgress?.({ phase: "normalize", current: 1, total: 1, detail: "Chuẩn hóa ảnh cho phân đoạn" });
 
   // Cắt theo 3 cột có mật độ số cao + toàn khung
   const columnCanvases = cropTopColumns(binForProj, deskewed, 3);
 
-  // Xây dựng binary cho từng cột và tách dòng (giữ y/h để nhóm theo dòng) - áp mask xanh + mở ngang
-  const lineRois: LineROI[] = [];
+  // Xây dựng binary cho từng cột và tách dòng
+  const lineRois: HTMLCanvasElement[] = [];
   for (const columnCanvas of columnCanvases) {
-    const maskedCol = maskNonGreenToWhite(columnCanvas);
-    const grayData = toGrayscale(getImageData(maskedCol));
+    const grayData = toGrayscale(getImageData(columnCanvas));
     const blurred = boxBlur(grayData);
     const tOtsu = otsuThreshold(blurred);
-    const bin0 = threshold(blurred, tOtsu);
-    const binForSeg = openHorizontal(bin0, 2);
+    const binForSeg = threshold(blurred, tOtsu);
     const lines = segmentLines(binForSeg, 1);
-    for (const box of lines) {
-      let c = cropToCanvas(maskedCol, box);
-      c = trimLineCanvas(c);
-      lineRois.push({ canvas: c, y: box.y, h: box.h });
-      if (typeof maxLines === "number" && maxLines > 0 && lineRois.length >= maxLines) break;
+    let rois = lines.map((box) => cropToCanvas(columnCanvas, box));
+    // Trim left/right whitespace to focus on numeric region per line
+    rois = rois.map((c) => trimLineCanvas(c));
+    if (typeof maxLines === "number" && maxLines > 0) {
+      rois = rois.slice(0, Math.max(1, maxLines - lineRois.length));
     }
-    if (typeof maxLines === "number" && maxLines > 0 && lineRois.length >= maxLines) break;
+    lineRois.push(...rois);
   }
 
-  // Nhóm theo vị trí y gần nhau để đại diện cho các cột của cùng một dòng
-  const clusters = groupLineRois(lineRois, 4);
-  onProgress?.({ phase: "segment", current: clusters.length, total: clusters.length, detail: `Tách ${clusters.length} dòng` });
+  onProgress?.({ phase: "segment", current: lineRois.length, total: lineRois.length, detail: `Tách ${lineRois.length} dòng` });
 
   const results: string[] = [];
   const confidences: number[] = [];
   const droppedIndices: number[] = [];
-  let totalVariantsTried = 0;
+  let totalVariantsTried = 0; // tổng số biến thể OCR đã chạy để tính trung bình
 
-  const total = clusters.length;
+  const total = lineRois.length;
   let done = 0;
-  const EARLY_EXIT_TARGET = 15; // dừng sớm nếu đã đủ nhiều mã duy nhất
+
+  // helper xử lý 1 dòng
+  const processOne = async (roi: HTMLCanvasElement) => {
+    let variantsTried = 0;
+    const targetH = 128;
+    const roiScaled = scaleCanvas(roi, targetH);
+
+    const roiGray = toGrayscale(getImageData(roiScaled));
+    const roiGrayEnhanced = enhanceContrast(roiGray, 0.03, 0.97);
+
+    const tOtsuRoiE = otsuThreshold(roiGrayEnhanced);
+    const roiBinOtsu = threshold(roiGrayEnhanced, tOtsuRoiE);
+    const roiBinClosed = closing(roiBinOtsu);
+
+    // Adaptive threshold (cục bộ)
+    const win = Math.max(15, Math.floor(roiScaled.height * 0.04));
+    const roiBinAdaptive = adaptiveThreshold(roiGrayEnhanced, win, 10);
+    const roiBinAdaptiveClosed = closing(roiBinAdaptive);
+
+    // 1) Khảo sát nhanh (PSM13) để kiểm tra có '042'
+    const quickCanvas = createCanvas(roiScaled.width, roiScaled.height);
+    putImageData(quickCanvas, roiBinClosed);
+    const quickCand = await ocrOne(quickCanvas, 13);
+    variantsTried += 1;
+    const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
+    if (!quickSeq) {
+      return { chosenStr: null as string | null, chosenConf: 0, variantsTried };
+    }
+    if (seqLooksValid(quickSeq) && (quickCand.confidence || 0) >= (options?.turbo ? 60 : 75)) {
+      return { chosenStr: quickSeq, chosenConf: quickCand.confidence || (options?.turbo ? 60 : 75), variantsTried };
+    }
+
+    // 2) Nhận dạng chi tiết theo dòng với thêm biến thể adaptive
+    const roiGamma08 = applyGamma(roiGrayEnhanced, 0.8);
+    const roiGamma12 = applyGamma(roiGrayEnhanced, 1.2);
+    const roiBin160 = threshold(roiGrayEnhanced, 160);
+
+    const canvases: HTMLCanvasElement[] = [];
+    const pushDataCanvas = (d: ImageData) => {
+      const c = createCanvas(roiScaled.width, roiScaled.height);
+      putImageData(c, d);
+      canvases.push(c);
+    };
+
+    if (options?.turbo) {
+      pushDataCanvas(roiGrayEnhanced);
+      pushDataCanvas(roiBinOtsu);
+      pushDataCanvas(roiBinAdaptiveClosed);
+    } else {
+      pushDataCanvas(roiGrayEnhanced);
+      pushDataCanvas(roiGamma08);
+      pushDataCanvas(roiGamma12);
+      pushDataCanvas(roiBinOtsu);
+      pushDataCanvas(roiBinAdaptiveClosed);
+      pushDataCanvas(roiBin160);
+    }
+
+    const PSM7 = 7;
+    const PSM8 = 8;  // single word
+    const PSM11 = 11;
+
+    const jobs: Promise<OCRCandidate>[] = [];
+    for (const c of canvases) {
+      jobs.push(ocrOne(c, PSM7));
+      if (!options?.turbo) jobs.push(ocrOne(c, PSM8));
+      jobs.push(ocrOne(c, PSM11));
+    }
+    const limit = options?.turbo ? 4 : 6;
+    const candsRaw: OCRCandidate[] = [];
+    for (let i = 0; i < jobs.length; i += limit) {
+      const partial = await Promise.all(jobs.slice(i, i + limit));
+      candsRaw.push(...partial);
+      variantsTried += partial.length;
+    }
+
+    const candStrings: string[] = [];
+    const candWeights: number[] = [];
+    for (const c of candsRaw) {
+      const s = extractPrefixedSequence(normalizeDigits(c.raw));
+      if (s && s.length >= 13 && s.startsWith("042")) {
+        candStrings.push(s);
+        candWeights.push(c.confidence || 0);
+      }
+    }
+
+    let chosenStr: string | null = null;
+    let chosenConf = 0;
+
+    if (candStrings.length > 0) {
+      const votedW = votePerCharWeighted(candStrings, candWeights);
+      chosenStr = votedW || votePerChar(candStrings);
+      const matches = candsRaw.filter((c) => {
+        const s = extractPrefixedSequence(normalizeDigits(c.raw));
+        return s && s === chosenStr;
+      });
+      chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
+    }
+
+    // 3) Nếu chưa đủ tin cậy, thử nhận dạng từng ký tự, chọn binary tốt hơn (Otsu vs Adaptive)
+    if (!chosenStr || chosenConf < (options?.turbo ? 65 : 75)) {
+      const boxesOtsu = segmentDigitBoxes(roiBinClosed);
+      const boxesAdp = segmentDigitBoxes(roiBinAdaptiveClosed);
+      let digitBoxes = boxesOtsu;
+      if (
+        (boxesAdp.length >= 12 && boxesAdp.length <= 20) ||
+        boxesAdp.length > boxesOtsu.length
+      ) {
+        digitBoxes = boxesAdp;
+      }
+      if (digitBoxes.length >= 12 && digitBoxes.length <= 20) {
+        const digitCanvases = cropDigitCanvases(roiScaled, digitBoxes);
+        const digits: string[] = [];
+        let sumConf = 0;
+        for (const dc of digitCanvases) {
+          const { ch, conf, tried } = await ocrDigitBest(dc, !!options?.turbo);
+          variantsTried += tried;
+          digits.push(ch ?? "");
+          sumConf += conf || 0;
+        }
+        const joined = digits.join("");
+        const improvedSeq = extractPrefixedSequence(normalizeDigits(joined));
+        if (improvedSeq && seqLooksValid(improvedSeq)) {
+          chosenStr = improvedSeq;
+          chosenConf = Math.round(sumConf / Math.max(1, digitCanvases.length));
+        }
+      }
+    }
+
+    // 4) Fallback nhẹ khi vẫn chưa đủ tin cậy: blur + adaptive/otsu close
+    if (!chosenStr || chosenConf < 60) {
+      const roiBlurred = boxBlur(roiGrayEnhanced);
+      const altBinOtsu = closing(threshold(roiBlurred, Math.max(100, tOtsuRoiE - 10)));
+      const altBinAdp = closing(adaptiveThreshold(roiBlurred, win, 12));
+      const altCanvas1 = createCanvas(roiScaled.width, roiScaled.height);
+      const altCanvas2 = createCanvas(roiScaled.width, roiScaled.height);
+      putImageData(altCanvas1, altBinOtsu);
+      putImageData(altCanvas2, altBinAdp);
+      const altCands = await Promise.all([ocrOne(altCanvas1, PSM7), ocrOne(altCanvas2, PSM7), ocrOne(altCanvas1, PSM11), ocrOne(altCanvas2, PSM11)]);
+      variantsTried += altCands.length;
+      const altStrings = altCands
+        .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
+        .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
+      const altVoted = votePerCharWeighted(altStrings, altCands.map((c) => c.confidence || 0)) || votePerChar(altStrings);
+      if (altVoted && seqLooksValid(altVoted)) {
+        chosenStr = altVoted;
+        chosenConf = Math.max(...altCands.map((c) => c.confidence || 0));
+      }
+    }
+
+    return { chosenStr, chosenConf, variantsTried };
+  };
 
   onProgress?.({ phase: "recognize", current: 0, total, detail: "Nhận dạng các dòng" });
-
-  // Nhận dạng theo nhóm dòng (mỗi nhóm gồm nhiều ROI từ các cột khác nhau)
-  const uniqueSoFar = new Set<string>();
-  outerLoop:
-  for (let gi = 0; gi < clusters.length; gi += batchSize) {
-    const batch = clusters.slice(gi, gi + batchSize);
-    // OCR tất cả ROI trong từng nhóm
-    const batchGroupResults: ROIProcessResult[][] = await Promise.all(
-      batch.map(async (group) => {
-        const perRoi = await Promise.all(group.map((roi) => processOne(roi.canvas, turbo)));
-        return perRoi;
-      })
-    );
-
-    batchGroupResults.forEach((perGroup: ROIProcessResult[], idx: number) => {
-      const groupIndex = gi + idx;
-
-      // Bỏ phiếu chéo theo từng ký tự giữa các ROI của cùng một dòng
-      const candStrings = perGroup
-        .map((r: ROIProcessResult) => r.chosenStr)
-        .filter((s: string | null): s is string => !!s && s.length >= 13 && s.startsWith("042"));
-      const candWeights = perGroup
-        .map((r: ROIProcessResult) => r.chosenConf || 0);
-
-      const voted = candStrings.length
-        ? (votePerCharWeighted(candStrings, candWeights) || votePerChar(candStrings))
-        : null;
-
-      const chosen = voted && seqLooksValid(voted) ? voted : (candStrings.find((s: string) => seqLooksValid(s)) ?? null);
-
-      const chosenConf = chosen
-        ? Math.round(
-            perGroup
-              .filter((r: ROIProcessResult) => r.chosenStr === chosen)
-              .reduce((a: number, b: ROIProcessResult) => a + (b.chosenConf || 0), 0) /
-            Math.max(1, perGroup.filter((r: ROIProcessResult) => r.chosenStr === chosen).length)
-          )
-        : 0;
-
-      const groupVariants = perGroup.reduce((a: number, b: ROIProcessResult) => a + (b.variantsTried || 0), 0);
-      totalVariantsTried += groupVariants;
-
-      if (chosen) {
-        results.push(chosen);
-        confidences.push(chosenConf);
-        uniqueSoFar.add(chosen);
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = lineRois.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map((roi) => processOne(roi)));
+    batchResults.forEach((br, idx) => {
+      const lineIndex = i + idx;
+      totalVariantsTried += br.variantsTried;
+      if (br.chosenStr) {
+        results.push(br.chosenStr);
+        confidences.push(br.chosenConf || 0);
       } else {
-        droppedIndices.push(groupIndex);
+        droppedIndices.push(lineIndex);
       }
-
       done += 1;
       onProgress?.({ phase: "recognize", current: done, total, detail: `Nhận dạng dòng ${done}/${total}` });
     });
-
-    if (uniqueSoFar.size >= EARLY_EXIT_TARGET) {
-      onProgress?.({ phase: "recognize", current: done, total, detail: "Dừng sớm: đủ mã" });
-      break outerLoop;
-    }
   }
 
-  // Bỏ phiếu tổng thể đã làm theo nhóm
-  onProgress?.({ phase: "vote", current: results.length, total: total, detail: "Ghép kết quả theo từng dòng" });
+  // Dedupe while preserving order
+  // Không lọc trùng: giữ nguyên theo từng dòng để đúng tổng số dòng
+  const orderedAll = results.slice();
+  onProgress?.({ phase: "vote", current: orderedAll.length, total: total, detail: "Ghép kết quả theo từng dòng" });
 
   const t1 = performance.now();
+  const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
+  const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, lineRois.length));
 
-  // Lọc theo ngưỡng tin cậy và khử trùng lặp kết quả
-  const minConf = clamp(Math.round(options?.minConfidence ?? (options?.turbo ? 55 : 65)), 0, 100);
-
-  const keptByThreshold: { code: string; conf: number; srcIndex: number }[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const code = results[i];
-    const conf = confidences[i] ?? 0;
-    if (code && seqLooksValid(code) && conf >= minConf) {
-      keptByThreshold.push({ code, conf, srcIndex: i });
-    }
-  }
-
-  const confMap = new Map<string, number>();
-  for (const { code, conf } of keptByThreshold) {
-    const cur = confMap.get(code) ?? -1;
-    if (conf > cur) confMap.set(code, conf);
-  }
-  const uniqueCodes = Array.from(confMap.keys());
-  const uniqueConfs = Array.from(confMap.values());
-
-  const avgConfidence = uniqueConfs.length
-    ? uniqueConfs.reduce((a, b) => a + b, 0) / uniqueConfs.length
-    : undefined;
-
-  const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, clusters.length));
-
-  if (uniqueCodes.length === 0) {
-    const fb = await fallbackMultiAngle(baseCanvas, options);
-    return fb;
-  }
-
-  onProgress?.({ phase: "done", current: uniqueCodes.length, total: total, detail: "Điền mã" });
+  onProgress?.({ phase: "done", current: orderedAll.length, total: total, detail: "Điền mã" });
 
   return {
-    codes: uniqueCodes,
+    codes: orderedAll,
     stats: {
-      totalLines: clusters.length,
-      keptLines: uniqueCodes.length,
+      totalLines: lineRois.length,
+      keptLines: orderedAll.length,
       avgConfidence,
       durationMs: Math.round(t1 - t0),
       droppedIndices,
