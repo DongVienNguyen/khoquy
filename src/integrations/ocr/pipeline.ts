@@ -38,6 +38,20 @@ type DetectOptions = {
 // Helpers
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
+// THÊM: tiện ích percentile và điểm xanh để tạo mặt nạ xanh lá thích nghi
+function percentile(arr: number[], p: number): number {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = clamp(Math.floor((p / 100) * (sorted.length - 1)), 0, sorted.length - 1);
+  return sorted[idx]!;
+}
+function greenScore(r: number, g: number, b: number): number {
+  // điểm xanh tương đối theo sáng: nhấn mạnh G, trừ ảnh hưởng R/B
+  const lum = Math.max(1, 0.2126 * r + 0.7152 * g + 0.0722 * b);
+  const rel = (g - 0.5 * r - 0.5 * b) / lum;
+  return rel * 255;
+}
+
 function createCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = Math.max(1, Math.floor(w));
@@ -304,6 +318,66 @@ function closing(binary: ImageData): ImageData {
   return erode(dilate(binary));
 }
 
+// Horizontal morphology: erosion, dilation, and opening (erosion then dilation) along X-axis.
+// Treat black (<128) as ink; white (>=128) as background.
+function erodeHorizontal(binary: ImageData, radius: number): ImageData {
+  const { data, width, height } = binary;
+  const out = new ImageData(width, height);
+  const o = out.data;
+  const idx = (x: number, y: number) => (y * width + x) * 4;
+
+  const r = Math.max(1, Math.floor(radius));
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let allBlack = true;
+      for (let k = -r; k <= r; k++) {
+        const xx = clamp(x + k, 0, width - 1);
+        const i = idx(xx, y);
+        if (data[i] >= 128) { // encountered white → not fully black
+          allBlack = false;
+          break;
+        }
+      }
+      const ii = idx(x, y);
+      const v = allBlack ? 0 : 255;
+      o[ii] = o[ii + 1] = o[ii + 2] = v;
+      o[ii + 3] = 255;
+    }
+  }
+  return out;
+}
+
+function dilateHorizontal(binary: ImageData, radius: number): ImageData {
+  const { data, width, height } = binary;
+  const out = new ImageData(width, height);
+  const o = out.data;
+  const idx = (x: number, y: number) => (y * width + x) * 4;
+
+  const r = Math.max(1, Math.floor(radius));
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let setBlack = false;
+      for (let k = -r; k <= r; k++) {
+        const xx = clamp(x + k, 0, width - 1);
+        const i = idx(xx, y);
+        if (data[i] < 128) { // found black neighbor
+          setBlack = true;
+          break;
+        }
+      }
+      const ii = idx(x, y);
+      const v = setBlack ? 0 : 255;
+      o[ii] = o[ii + 1] = o[ii + 2] = v;
+      o[ii + 3] = 255;
+    }
+  }
+  return out;
+}
+
+function openHorizontal(binary: ImageData, radius: number): ImageData {
+  return dilateHorizontal(erodeHorizontal(binary, radius), radius);
+}
+
 function boxBlur(imageData: ImageData): ImageData {
   const { data, width, height } = imageData;
   const out = new ImageData(width, height);
@@ -525,10 +599,11 @@ function trimLineCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
   while (right >= 0 && proj[right] <= inkThresh) right--;
   // If nothing detected, keep original
   if (right <= left) return src;
-  // Add a small padding to avoid cutting off digits
-  const pad = Math.floor((right - left + 1) * 0.05);
+  // Add padding 12% để tránh cắt mất ký tự
+  const contentW = right - left + 1;
+  const pad = Math.floor(contentW * 0.12);
   const x = clamp(left - pad, 0, src.width - 1);
-  const w = clamp(right - left + 1 + 2 * pad, 1, src.width - x);
+  const w = clamp(contentW + 2 * pad, 1, src.width - x);
   const box: LineBox = { x, y: 0, w, h: src.height };
   return cropToCanvas(src, box);
 }
@@ -636,15 +711,28 @@ function extractAllPrefixedSequences(digits: string): string[] {
 
 // Tạo mặt nạ xanh lá để giữ lại vùng chữ số màu xanh (link)
 function maskNonGreenToWhite(src: HTMLCanvasElement): HTMLCanvasElement {
-  const out = createCanvas(src.width, src.height);
+  // Xây mask xanh lá thích nghi theo percentile để bền với thay đổi độ sáng/camera
   const ctxSrc = src.getContext("2d")!;
   const img = ctxSrc.getImageData(0, 0, src.width, src.height);
   const data = img.data;
+  // Lấy mẫu thưa để ước lượng phân bố điểm xanh
+  const scores: number[] = [];
+  const step = Math.max(1, Math.floor((src.width * src.height) / 20000)); // ~<=20k mẫu
+  for (let i = 0; i < data.length; i += 4 * step) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    scores.push(greenScore(r, g, b));
+  }
+  // Ngưỡng thích nghi: 85-90th percentile
+  let thr = percentile(scores, 88);
+  if (!Number.isFinite(thr)) thr = 40;
+  // Fallback an toàn nếu điểm xanh quá thấp
+  const out = createCanvas(src.width, src.height);
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
-    const isGreen = g > 80 && g > 1.15 * r && g > 1.15 * b;
+    const s = greenScore(r, g, b);
+    const isGreen = s > thr || (g > 80 && g > 1.15 * r && g > 1.15 * b);
     if (!isGreen) {
-      data[i] = 255; data[i + 1] = 255; data[i + 2] = 255; // trắng hóa vùng không xanh
+      data[i] = 255; data[i + 1] = 255; data[i + 2] = 255;
     } else {
       // làm đậm vùng xanh để nổi bật chữ số
       data[i] = 20; data[i + 1] = 200; data[i + 2] = 20;
@@ -655,21 +743,25 @@ function maskNonGreenToWhite(src: HTMLCanvasElement): HTMLCanvasElement {
   return out;
 }
 
-// Quét nhanh toàn ảnh theo nhiều góc, áp mặt nạ xanh, OCR PSM=6, trả về sớm nếu thấy mã
+// NEW: Quét nhanh toàn ảnh theo nhiều góc, áp mặt nạ xanh, OCR PSM=6, trả về sớm nếu thấy mã
 async function quickWholeImageScan(
   baseCanvas: HTMLCanvasElement,
   angles: number[],
   minConf: number
 ): Promise<{ codes: string[]; avgConf?: number } | null> {
   const found: { code: string; conf: number }[] = [];
+  const appearCount = new Map<string, number>();
+
   for (const ang of angles) {
     const rotated = rotateCanvas(baseCanvas, ang);
     const masked = maskNonGreenToWhite(rotated);
 
-    // Chuẩn hóa nhẹ và nhị phân để Tesseract dễ đọc
+    // Làm dịu moiré nhẹ trước threshold
     const gray = toGrayscale(getImageData(masked));
-    const enhanced = enhanceContrast(gray, 0.04, 0.96);
-    const bin = adaptiveThreshold(enhanced, Math.max(11, Math.floor(masked.height * 0.04)), 8);
+    const blurred = boxBlur(gray);
+    const enhanced = enhanceContrast(blurred, 0.04, 0.96);
+    const block = Math.max(11, Math.floor(masked.height * 0.05));
+    const bin = adaptiveThreshold(enhanced, block, 10);
     const cv = createCanvas(masked.width, masked.height);
     putImageData(cv, closing(bin));
 
@@ -679,9 +771,14 @@ async function quickWholeImageScan(
     const conf = typeof cand.confidence === "number" ? Math.round(cand.confidence) : 0;
 
     if (seqs.length && conf >= minConf) {
-      for (const s of seqs) found.push({ code: s, conf });
-      // Nếu đã thấy từ 2 mã trở lên, trả về ngay để tăng tốc
-      if (found.length >= 2) break;
+      for (const s of seqs) {
+        found.push({ code: s, conf });
+        appearCount.set(s, (appearCount.get(s) || 0) + 1);
+      }
+      // Early exit: đủ tốt
+      const unique = new Set(found.map(f => f.code));
+      const hasRepeat = Array.from(appearCount.values()).some(v => v >= 2);
+      if (unique.size >= 2 || hasRepeat || unique.size >= 10) break;
     }
   }
   if (!found.length) return null;
@@ -744,13 +841,18 @@ function scoreProjectionSharpness(binary: ImageData): number {
 }
 
 function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
-  const grayData = toGrayscale(getImageData(baseCanvas));
-  const blurred = boxBlur(grayData);
+  // Coarse-to-fine: quét rộng trên ảnh downscale rồi tinh chỉnh hẹp trên ảnh gốc
+  const downH = 600;
+  const coarseCanvas = baseCanvas.height > downH ? scaleCanvas(baseCanvas, downH) : baseCanvas;
+
+  let bestAngle = 0;
   let bestScore = -1;
-  let bestCanvas = baseCanvas;
-  // Mở rộng biên độ tìm góc từ ±6° thành ±12°
-  for (let ang = -12; ang <= 12; ang += 0.5) {
-    const rotated = rotateCanvas(baseCanvas, ang);
+
+  const coarseAngles: number[] = [];
+  for (let a = -22; a <= 22; a += 2) coarseAngles.push(a);
+
+  for (const ang of coarseAngles) {
+    const rotated = rotateCanvas(coarseCanvas, ang);
     const rd = toGrayscale(getImageData(rotated));
     const rb = boxBlur(rd);
     const t = otsuThreshold(rb);
@@ -758,10 +860,26 @@ function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
     const s = scoreProjectionSharpness(bin);
     if (s > bestScore) {
       bestScore = s;
-      bestCanvas = rotated;
+      bestAngle = ang;
     }
   }
-  return bestCanvas;
+
+  // Fine search quanh bestAngle trên ảnh gốc
+  let bestFineScore = -1;
+  let bestFineCanvas = baseCanvas;
+  for (let ang = bestAngle - 5; ang <= bestAngle + 5; ang += 0.5) {
+    const rotated = rotateCanvas(baseCanvas, ang);
+    const rd = toGrayscale(getImageData(rotated));
+    const rb = boxBlur(rd);
+    const t = otsuThreshold(rb);
+    const bin = threshold(rb, t);
+    const s = scoreProjectionSharpness(bin);
+    if (s > bestFineScore) {
+      bestFineScore = s;
+      bestFineCanvas = rotated;
+    }
+  }
+  return bestFineCanvas;
 }
 
 function cropColumn(binary: ImageData, srcCanvas: HTMLCanvasElement): HTMLCanvasElement {
@@ -939,9 +1057,10 @@ const processOne = async (roi: HTMLCanvasElement, turbo: boolean): Promise<ROIPr
     }
   }
 
-  // Micro-rotation fallback: thử các góc nhỏ quanh ROI khi kết quả yếu
-  if (!turbo && (!chosenStr || chosenConf < 70)) {
-    const angles = [-5, -3, -1.5, 0, 1.5, 3, 5];
+  // Micro-rotation fallback có điều kiện
+  const needMicro = !turbo && (!chosenStr || chosenConf < 75 || (chosenStr && chosenStr.length < 13));
+  if (needMicro) {
+    const angles = [-7, -5, -3, -1.5, 0, 1.5, 3, 5, 7];
     const microStrings: string[] = [];
     const microWeights: number[] = [];
     for (const ang of angles) {
@@ -981,13 +1100,13 @@ const processOne = async (roi: HTMLCanvasElement, turbo: boolean): Promise<ROIPr
 // Fallback: quét đa góc toàn ảnh nếu lượt chính không ra kết quả
 async function fallbackMultiAngle(baseCanvas: HTMLCanvasElement, options?: DetectOptions): Promise<OCRPipelineResult> {
   const onProgress = options?.onProgress;
-  const batchSize = Math.max(1, options?.batchSize ?? 4);
+  const batchSize = Math.max(1, options?.batchSize ?? 6);
   const turbo = options?.turbo ?? false;
   const maxLines = options?.maxLines ?? 40;
   const minConf = clamp(Math.round(options?.minConfidence ?? (options?.turbo ? 55 : 65)), 0, 100);
 
   const tStart = performance.now();
-  const angles = [-20, -16, -12, -8, -4, 0, 4, 8, 12, 16, 20];
+  const angles = [-28, -22, -16, -10, -6, -3, 0, 3, 6, 10, 16, 22, 28];
 
   for (let ai = 0; ai < angles.length; ai++) {
     const ang = angles[ai]!;
@@ -998,19 +1117,24 @@ async function fallbackMultiAngle(baseCanvas: HTMLCanvasElement, options?: Detec
     const grayData0 = toGrayscale(getImageData(rotated));
     const blurred0 = boxBlur(grayData0);
     const tOtsu0 = otsuThreshold(blurred0);
-    const binForProj = threshold(blurred0, tOtsu0);
+    // Mở ngang nhẹ để giảm gạch chân trước khi phân đoạn
+    const binForProj0 = threshold(blurred0, tOtsu0);
+    const binForProj = openHorizontal(binForProj0, 2);
 
     const columnCanvases = cropTopColumns(binForProj, rotated, 3);
 
     const lineRois: { canvas: HTMLCanvasElement; y: number; h: number }[] = [];
     for (const columnCanvas of columnCanvases) {
-      const grayData = toGrayscale(getImageData(columnCanvas));
+      // Áp mặt nạ xanh trước phân đoạn
+      const maskedCol = maskNonGreenToWhite(columnCanvas);
+      const grayData = toGrayscale(getImageData(maskedCol));
       const blurred = boxBlur(grayData);
       const tOtsu = otsuThreshold(blurred);
-      const binForSeg = threshold(blurred, tOtsu);
+      const bin0 = threshold(blurred, tOtsu);
+      const binForSeg = openHorizontal(bin0, 2);
       const lines = segmentLines(binForSeg, 1);
       for (const box of lines) {
-        let c = cropToCanvas(columnCanvas, box);
+        let c = cropToCanvas(maskedCol, box);
         c = trimLineCanvas(c);
         lineRois.push({ canvas: c, y: box.y, h: box.h });
         if (lineRois.length >= maxLines) break;
@@ -1141,7 +1265,7 @@ export async function detectCodesFromImage(
   options?: DetectOptions
 ): Promise<OCRPipelineResult> {
   const onProgress = options?.onProgress;
-  const batchSize = Math.max(1, options?.batchSize ?? 4);
+  const batchSize = Math.max(1, options?.batchSize ?? 6);
   const turbo = options?.turbo ?? false;
   const maxLines = options?.maxLines;
 
@@ -1155,15 +1279,19 @@ export async function detectCodesFromImage(
     baseCanvas = scaleCanvas(baseCanvas, minHeight);
   }
 
-  // NEW: Quét nhanh toàn ảnh trước để bắt trường hợp chữ rõ ràng
-  onProgress?.({ phase: "recognize", current: 0, total: 1, detail: "Quét nhanh toàn ảnh" });
+  // NEW: Quick scan toàn ảnh trên bản downscale để tăng tốc
+  const quickH = 760;
+  const quickCanvas = baseCanvas.height > quickH ? scaleCanvas(baseCanvas, quickH) : baseCanvas;
+  const anglesQuick: number[] = [];
+  for (let a = -25; a <= 25; a += 3) anglesQuick.push(a);
+
+  onProgress?.({ phase: "recognize", current: 0, total: anglesQuick.length, detail: `Quét nhanh toàn ảnh (${anglesQuick.length} góc)` });
   {
-    const minConfQuick = clamp(Math.round(options?.minConfidence ?? (turbo ? 55 : 65)), 0, 100);
-    const anglesQuick = [-15, -10, -5, 0, 5, 10, 15];
-    const quick = await quickWholeImageScan(baseCanvas, anglesQuick, minConfQuick);
+    const minConfQuick = clamp(Math.round(options?.minConfidence ?? (turbo ? 60 : 65)), 0, 100);
+    const quick = await quickWholeImageScan(quickCanvas, anglesQuick, minConfQuick);
     if (quick && quick.codes.length) {
       const t1 = performance.now();
-      onProgress?.({ phase: "done", current: quick.codes.length, total: 1, detail: "Điền mã (quét nhanh)" });
+      onProgress?.({ phase: "done", current: quick.codes.length, total: anglesQuick.length, detail: "Điền mã (quét nhanh)" });
       return {
         codes: Array.from(new Set(quick.codes)),
         stats: {
@@ -1178,30 +1306,33 @@ export async function detectCodesFromImage(
     }
   }
 
-  // Deskew
+  // Deskew coarse-to-fine
   const deskewed = deskewBySearch(baseCanvas);
-  onProgress?.({ phase: "deskew_crop", current: 0, total: 1, detail: "Căn thẳng & cắt cột số" });
+  onProgress?.({ phase: "deskew_crop", current: 0, total: 1, detail: "Căn thẳng (coarse-to-fine) & cắt cột số" });
 
-  // Base grayscale + binary
+  // Base grayscale + binary (kèm mở ngang nhẹ để giảm gạch chân)
   const grayData0 = toGrayscale(getImageData(deskewed));
   const blurred0 = boxBlur(grayData0);
   const tOtsu0 = otsuThreshold(blurred0);
-  const binForProj = threshold(blurred0, tOtsu0);
+  const binForProj0 = threshold(blurred0, tOtsu0);
+  const binForProj = openHorizontal(binForProj0, 2);
   onProgress?.({ phase: "normalize", current: 1, total: 1, detail: "Chuẩn hóa ảnh cho phân đoạn" });
 
   // Cắt theo 3 cột có mật độ số cao + toàn khung
   const columnCanvases = cropTopColumns(binForProj, deskewed, 3);
 
-  // Xây dựng binary cho từng cột và tách dòng (giữ y/h để nhóm theo dòng)
+  // Xây dựng binary cho từng cột và tách dòng (giữ y/h để nhóm theo dòng) - áp mask xanh + mở ngang
   const lineRois: LineROI[] = [];
   for (const columnCanvas of columnCanvases) {
-    const grayData = toGrayscale(getImageData(columnCanvas));
+    const maskedCol = maskNonGreenToWhite(columnCanvas);
+    const grayData = toGrayscale(getImageData(maskedCol));
     const blurred = boxBlur(grayData);
     const tOtsu = otsuThreshold(blurred);
-    const binForSeg = threshold(blurred, tOtsu);
+    const bin0 = threshold(blurred, tOtsu);
+    const binForSeg = openHorizontal(bin0, 2);
     const lines = segmentLines(binForSeg, 1);
     for (const box of lines) {
-      let c = cropToCanvas(columnCanvas, box);
+      let c = cropToCanvas(maskedCol, box);
       c = trimLineCanvas(c);
       lineRois.push({ canvas: c, y: box.y, h: box.h });
       if (typeof maxLines === "number" && maxLines > 0 && lineRois.length >= maxLines) break;
@@ -1220,10 +1351,13 @@ export async function detectCodesFromImage(
 
   const total = clusters.length;
   let done = 0;
+  const EARLY_EXIT_TARGET = 15; // dừng sớm nếu đã đủ nhiều mã duy nhất
 
   onProgress?.({ phase: "recognize", current: 0, total, detail: "Nhận dạng các dòng" });
 
   // Nhận dạng theo nhóm dòng (mỗi nhóm gồm nhiều ROI từ các cột khác nhau)
+  const uniqueSoFar = new Set<string>();
+  outerLoop:
   for (let gi = 0; gi < clusters.length; gi += batchSize) {
     const batch = clusters.slice(gi, gi + batchSize);
     // OCR tất cả ROI trong từng nhóm
@@ -1265,6 +1399,7 @@ export async function detectCodesFromImage(
       if (chosen) {
         results.push(chosen);
         confidences.push(chosenConf);
+        uniqueSoFar.add(chosen);
       } else {
         droppedIndices.push(groupIndex);
       }
@@ -1272,6 +1407,11 @@ export async function detectCodesFromImage(
       done += 1;
       onProgress?.({ phase: "recognize", current: done, total, detail: `Nhận dạng dòng ${done}/${total}` });
     });
+
+    if (uniqueSoFar.size >= EARLY_EXIT_TARGET) {
+      onProgress?.({ phase: "recognize", current: done, total, detail: "Dừng sớm: đủ mã" });
+      break outerLoop;
+    }
   }
 
   // Bỏ phiếu tổng thể đã làm theo nhóm
