@@ -669,7 +669,7 @@ export default function AssetEntryPage() {
             </div>
 
             <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
                   <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
@@ -772,6 +772,14 @@ export default function AssetEntryPage() {
               <div className="grid grid-cols-3 gap-2">
                 <div className="flex items-center gap-1 justify-center">
                   <Checkbox
+                    id="type-khac"
+                    checked={formData.transaction_type === "Khác"}
+                    onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
+                  />
+                  <Label htmlFor="type-khac" className="text-sm">Khác</Label>
+                </div>
+                <div className="flex items-center gap-1 justify-center">
+                  <Checkbox
                     id="type-xuat"
                     checked={formData.transaction_type === "Xuất"}
                     onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Xuất" : "Khác" }))}
@@ -785,14 +793,6 @@ export default function AssetEntryPage() {
                     onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Mượn" : "Khác" }))}
                   />
                   <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
-                </div>
-                <div className="flex items-center gap-1 justify-center">
-                  <Checkbox
-                    id="type-khac"
-                    checked={formData.transaction_type === "Khác"}
-                    onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
-                  />
-                  <Label htmlFor="type-khac" className="text-sm">Khác</Label>
                 </div>
               </div>
             </div>
