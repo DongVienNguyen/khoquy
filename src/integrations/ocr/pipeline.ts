@@ -243,7 +243,7 @@ function segmentLines(binary: ImageData, minGap: number = 1): LineBox[] {
   const { width, height } = binary;
   const proj = horizontalProjection(binary);
   const inkThreshold = Math.max(2, Math.floor(width * 0.01));
-  const lines: LineBox[] = [];
+  const rawBands: LineBox[] = [];
   let inBand = false;
   let startY = 0;
 
@@ -255,7 +255,7 @@ function segmentLines(binary: ImageData, minGap: number = 1): LineBox[] {
     } else if (!hasInk && inBand) {
       const endY = y - 1;
       if (endY - startY + 1 >= 8) {
-        lines.push({ x: 0, y: Math.max(0, startY - 2), w: width, h: Math.min(height - startY + 2, endY - startY + 5) });
+        rawBands.push({ x: 0, y: startY, w: width, h: endY - startY + 1 });
       }
       inBand = false;
     }
@@ -263,12 +263,51 @@ function segmentLines(binary: ImageData, minGap: number = 1): LineBox[] {
   if (inBand) {
     const endY = height - 1;
     if (endY - startY + 1 >= 8) {
-      lines.push({ x: 0, y: Math.max(0, startY - 2), w: width, h: Math.min(height - startY + 2, endY - startY + 5) });
+      rawBands.push({ x: 0, y: startY, w: width, h: endY - startY + 1 });
     }
   }
 
+  // Chia band lớn theo khoảng trống nội bộ (giúp tách các dòng dính liền)
+  const lowInkThreshold = Math.max(1, Math.floor(width * 0.005));
+  const refined: LineBox[] = [];
+  for (const band of rawBands) {
+    if (band.h <= 18) {
+      refined.push({ x: 0, y: Math.max(0, band.y - 2), w: width, h: Math.min(height - band.y + 2, band.h + 4) });
+      continue;
+    }
+    const bandProj = proj.slice(band.y, band.y + band.h);
+    let inSeg = false;
+    let segStart = 0;
+    for (let i = 0; i < bandProj.length; i++) {
+      const hasInk = bandProj[i] > lowInkThreshold;
+      if (hasInk && !inSeg) {
+        inSeg = true;
+        segStart = i;
+      } else if (!hasInk && inSeg) {
+        const segEnd = i - 1;
+        const segH = segEnd - segStart + 1;
+        if (segH >= 8) {
+          const y0 = band.y + Math.max(0, segStart - 2);
+          const h0 = Math.min(height - y0, segH + 4);
+          refined.push({ x: 0, y: y0, w: width, h: h0 });
+        }
+        inSeg = false;
+      }
+    }
+    if (inSeg) {
+      const segEnd = bandProj.length - 1;
+      const segH = segEnd - segStart + 1;
+      if (segH >= 8) {
+        const y0 = band.y + Math.max(0, segStart - 2);
+        const h0 = Math.min(height - y0, segH + 4);
+        refined.push({ x: 0, y: y0, w: width, h: h0 });
+      }
+    }
+  }
+
+  // Gộp các đoạn quá sát nhau để tránh chia thừa
   const merged: LineBox[] = [];
-  for (const lb of lines) {
+  for (const lb of refined) {
     const prev = merged[merged.length - 1];
     if (prev && lb.y - (prev.y + prev.h) <= minGap) {
       const top = Math.min(prev.y, lb.y);
@@ -283,7 +322,7 @@ function segmentLines(binary: ImageData, minGap: number = 1): LineBox[] {
 }
 
 // Chọn nhiều cột có mật độ số cao để tránh bỏ sót dòng nằm lệch cột
-function cropTopColumns(binary: ImageData, srcCanvas: HTMLCanvasElement, k: number = 2): HTMLCanvasElement[] {
+function cropTopColumns(binary: ImageData, srcCanvas: HTMLCanvasElement, k: number = 3): HTMLCanvasElement[] {
   const width = binary.width;
   const proj = verticalProjection(binary);
   const peaks = Array.from({ length: width }, (_, x) => ({ x, val: proj[x] }));
@@ -302,8 +341,10 @@ function cropTopColumns(binary: ImageData, srcCanvas: HTMLCanvasElement, k: numb
     if (outs.length >= k) break;
   }
 
-  if (outs.length === 0) return [srcCanvas];
-  return outs;
+  // Luôn thêm bản quét toàn khung để tránh bỏ sót
+  outs.push(srcCanvas);
+
+  return outs.length ? outs : [srcCanvas];
 }
 
 function cropToCanvas(src: HTMLCanvasElement, box: LineBox): HTMLCanvasElement {
@@ -461,7 +502,7 @@ export async function detectCodesFromImage(
   let baseCanvas = drawImageToCanvas(img);
 
   // Ensure minimum scale
-  const minHeight = 800;
+  const minHeight = 1000;
   if (baseCanvas.height < minHeight) {
     baseCanvas = scaleCanvas(baseCanvas, minHeight);
   }
@@ -476,8 +517,8 @@ export async function detectCodesFromImage(
   const tOtsu0 = otsuThreshold(blurred0);
   const binForProj = threshold(blurred0, tOtsu0);
 
-  // Cắt theo nhiều cột có mật độ số cao (thay vì chỉ 1 cột)
-  const columnCanvases = cropTopColumns(binForProj, deskewed, 2);
+  // Cắt theo 3 cột có mật độ số cao + toàn khung
+  const columnCanvases = cropTopColumns(binForProj, deskewed, 3);
 
   // Xây dựng binary cho từng cột và tách dòng
   const lineRois: HTMLCanvasElement[] = [];
