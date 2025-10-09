@@ -89,12 +89,15 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
   const lines = normalized.split("\n");
   const lines_count = lines.length;
 
+  // Ghép lại các chữ số bị ngắt bởi khoảng trắng/dấu chấm/gạch/chéo/underscore
+  const normalizedForMatch = normalized.replace(/(\d)[\s.\-\/_]+(\d)/g, "$1$2");
+
   const codes = new Set<string>();
   let candidates_count = 0;
 
   const direct = /\b(\d{1,4})\.(\d{2})\b/g;
   let m: RegExpExecArray | null;
-  while ((m = direct.exec(normalized)) !== null) {
+  while ((m = direct.exec(normalizedForMatch)) !== null) {
     const codeNum = parseInt(m[1], 10);
     const yearNum = parseInt(m[2], 10);
     if (Number.isFinite(codeNum) && codeNum >= 1 && codeNum <= 9999 && Number.isFinite(yearNum) && yearNum >= 20 && yearNum <= 99) {
@@ -107,7 +110,7 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
   }
 
   const flexible = /\b(?:TS[\s:\-]*)?(\d{1,4})[\s.\-\/_]{1,3}(\d{2})\b/gi;
-  while ((m = flexible.exec(normalized)) !== null) {
+  while ((m = flexible.exec(normalizedForMatch)) !== null) {
     const codeNum = parseInt(m[1], 10);
     const yearNum = parseInt(m[2], 10);
     if (Number.isFinite(codeNum) && codeNum >= 1 && codeNum <= 9999 && Number.isFinite(yearNum) && yearNum >= 20 && yearNum <= 99) {
@@ -119,36 +122,12 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     }
   }
 
-  if (codes.size === 0) {
-    const flexibleRev = /\b(\d{2})[\s.\-\/_]{1,3}(\d{1,4})\b/gi;
-    while ((m = flexibleRev.exec(normalized)) !== null) {
-      const yearNum = parseInt(m[1], 10);
-      const codeNum = parseInt(m[2], 10);
-      if (Number.isFinite(codeNum) && codeNum >= 1 && codeNum <= 9999 && Number.isFinite(yearNum) && yearNum >= 20 && yearNum <= 99) {
-        const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
-        if (!codes.has(v)) {
-          codes.add(v);
-          candidates_count++;
-        }
-      }
-    }
-  }
-
-  const prefix042Pattern = /(?:^|[^0-9])(042(?:[ \t\r\n\-\/_.]*\d){8,})(?:[^0-9]|$)/g;
-  const prefix042Matches = normalized.matchAll(prefix042Pattern);
-  for (const match of prefix042Matches) {
-    const rawSegment = match[1] ?? match[0];
-    const digits = rawSegment.replace(/\D/g, "");
-    if (!digits.startsWith("042")) continue;
-
-    if (digits.length >= 10) {
-      const yearStr = digits.slice(-10, -8);
-      const codeStr = digits.slice(-4);
-      const codeNum = parseInt(codeStr, 10);
-      const yearNum = parseInt(yearStr, 10);
-      if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
-      if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
-
+  // Luôn chạy mẫu year-code để bắt thêm trường hợp YY CODE
+  const flexibleRev = /\b(\d{2})[\s.\-\/_]{1,3}(\d{1,4})\b/gi;
+  while ((m = flexibleRev.exec(normalizedForMatch)) !== null) {
+    const yearNum = parseInt(m[1], 10);
+    const codeNum = parseInt(m[2], 10);
+    if (Number.isFinite(codeNum) && codeNum >= 1 && codeNum <= 9999 && Number.isFinite(yearNum) && yearNum >= 20 && yearNum <= 99) {
       const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
       if (!codes.has(v)) {
         codes.add(v);
@@ -157,9 +136,9 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     }
   }
 
-  const longSeqs = normalized.match(/\d{12,}/g) || [];
+  // Hạ ngưỡng chuỗi dài xuống >=10 để bắt các dãy số ngắn hơn
+  const longSeqs = normalizedForMatch.match(/\d{10,}/g) || [];
   for (const s of longSeqs) {
-    if (s.length < 12) continue;
     const year = s.slice(-10, -8);
     const codeRaw = s.slice(-4);
     const codeNum = parseInt(codeRaw, 10);
