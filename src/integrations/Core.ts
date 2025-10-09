@@ -20,7 +20,6 @@ type ExtractResult =
       output: {
         text_content: string;
         codes?: string[];
-        detected_room?: string;
         stats?: {
           totalLines: number;
           keptLines: number;
@@ -44,18 +43,6 @@ function formatFromSequence(seq: string): string | null {
   if (Number.isNaN(code) || year.length !== 2) return null;
   const formatted = `${code}.${year}`;
   return /^\d{1,4}\.\d{2}$/.test(formatted) ? formatted : null;
-}
-
-function detectRoomFromPrefix(seq: string): string | "" {
-  const p7 = seq.slice(0, 7);
-  const p6 = seq.slice(0, 6);
-  if (p7 === "0424201") return "CMT8";
-  if (p7 === "0424202") return "NS";
-  if (p7 === "0424203") return "ĐS";
-  if (p7 === "0424204") return "LĐH";
-  if (p6 === "042300") return "DVKH";
-  if (p6 === "042410") return "QLN";
-  return "";
 }
 
 export async function UploadFile({ file }: UploadFileParams): Promise<UploadFileResult> {
@@ -82,23 +69,10 @@ export async function ExtractDataFromUploadedFile(
       maxLines: options?.maxLines,
     });
 
-    // result.codes là chuỗi tiền tố nội bộ (0423/0424...); chuẩn hóa sang "code.year"
+    // result.codes là chuỗi bắt đầu bằng "042..."; chuẩn hóa sang "code.year"
     const formattedCodes = (result.codes || [])
       .map((seq) => formatFromSequence(seq))
       .filter((v): v is string => !!v);
-
-    // Chọn room: ưu tiên room từ pipeline, fallback vote theo codes
-    let room = result.detectedRoom || "";
-    if (!room && result.codes && result.codes.length > 0) {
-      const votes = new Map<string, number>();
-      for (const seq of result.codes) {
-        const r = detectRoomFromPrefix(seq);
-        if (r) votes.set(r, (votes.get(r) || 0) + 1);
-      }
-      for (const [r, cnt] of votes.entries()) {
-        if (!room || cnt > (votes.get(room) || 0)) room = r;
-      }
-    }
 
     const text_content = formattedCodes.join("\n");
 
@@ -107,7 +81,6 @@ export async function ExtractDataFromUploadedFile(
       output: {
         text_content,
         codes: formattedCodes,
-        detected_room: room || undefined,
         stats: {
           totalLines: result.stats.totalLines,
           keptLines: result.stats.keptLines,
@@ -129,30 +102,17 @@ export async function ExtractDataFromUploadedFile(
       } as any;
       const { data } = await Tesseract.recognize(blob ?? file_url, "eng", ocrOptions);
       const text = (data?.text || "").toString();
-      const rawMatches = text.match(/(0424\d+|0423\d+)/g) || [];
+      const rawMatches = text.match(/042\d{9,14}/g) || [];
 
       const formattedCodes = rawMatches
         .map((seq) => formatFromSequence(seq))
         .filter((v): v is string => !!v);
-
-      let room = "";
-      if (rawMatches.length > 0) {
-        const votes = new Map<string, number>();
-        for (const seq of rawMatches) {
-          const r = detectRoomFromPrefix(seq);
-          if (r) votes.set(r, (votes.get(r) || 0) + 1);
-        }
-        for (const [r, cnt] of votes.entries()) {
-          if (!room || cnt > (votes.get(room) || 0)) room = r;
-        }
-      }
 
       return {
         status: "success",
         output: {
           text_content: formattedCodes.join("\n") || text,
           codes: formattedCodes.length ? formattedCodes : undefined,
-          detected_room: room || undefined,
           stats: {
             totalLines: rawMatches.length,
             keptLines: formattedCodes.length,

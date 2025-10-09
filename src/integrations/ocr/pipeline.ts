@@ -10,7 +10,6 @@ type OCRCandidate = {
 
 export type OCRPipelineResult = {
   codes: string[];
-  detectedRoom?: string;
   stats: {
     totalLines: number;
     keptLines: number;
@@ -385,7 +384,8 @@ function normalizeDigits(text: string): string {
 }
 
 function extractPrefixedSequence(digits: string): string | null {
-  const matches: string[] = digits.match(/(0423\d{9,14}|0424\d{9,14})/g) ?? [];
+  // accept any sequence starting with 042 followed by 9-14 digits
+  const matches: string[] = digits.match(/042\d{9,14}/g) ?? [];
   if (matches.length === 0) return null;
   let best = matches[0]!;
   for (const m of matches) {
@@ -641,7 +641,7 @@ export async function detectCodesFromImage(
     // Normalize and filter candidates
     const normalizedStrings = candsRaw
       .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
-      .filter((s): s is string => !!s && s.length >= 13);
+      .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
 
     let chosenStr: string | null = null;
     let chosenConf = 0;
@@ -656,7 +656,7 @@ export async function detectCodesFromImage(
         const freq = new Map<string, { count: number; maxConf: number }>();
         for (const c of candsRaw) {
           const s = extractPrefixedSequence(normalizeDigits(c.raw));
-          if (!s) continue;
+          if (!s || !s.startsWith("042")) continue;
           const f = freq.get(s) || { count: 0, maxConf: 0 };
           f.count += 1;
           f.maxConf = Math.max(f.maxConf, c.confidence);
@@ -675,18 +675,23 @@ export async function detectCodesFromImage(
         chosenStr = bestStr || null;
       }
       // Confidence estimate: average of candidates matching chosenStr
-      const matches = candsRaw.filter((c) => extractPrefixedSequence(normalizeDigits(c.raw)) === chosenStr);
+      const matches = candsRaw.filter((c) => {
+        const s = extractPrefixedSequence(normalizeDigits(c.raw));
+        return s && s === chosenStr;
+      });
       chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
     }
 
-    // Fallback pass if low confidence
+    // Early exit: if we already have a good 042 sequence, skip extra fallback to speed up
     if (!chosenStr || chosenConf < 60) {
       const roiBlurred = boxBlur(roiGray);
       const roiBinAlt = threshold(roiBlurred, Math.max(100, tOtsuRoi - 10));
       const altCanvas = createCanvas(roiScaled.width, roiScaled.height);
       putImageData(altCanvas, roiBinAlt);
       const altCands = await Promise.all([ocrOne(altCanvas, PSM7), ocrOne(altCanvas, PSM11)]);
-      const altStrings = altCands.map((c) => extractPrefixedSequence(normalizeDigits(c.raw))).filter((s): s is string => !!s && s.length >= 13);
+      const altStrings = altCands
+        .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
+        .filter((s): s is string => !!s && s.length >= 13 && s.startsWith("042"));
       const altVoted = votePerChar(altStrings);
       if (altVoted) {
         chosenStr = altVoted;
@@ -719,25 +724,6 @@ export async function detectCodesFromImage(
   const orderedAll = results.slice();
   onProgress?.({ phase: "vote", current: orderedAll.length, total: total, detail: "Ghép kết quả theo từng dòng" });
 
-  // Detect room by prefixes
-  let detectedRoom = "";
-  const roomVotes = new Map<string, number>();
-  const vote = (room: string) => roomVotes.set(room, (roomVotes.get(room) || 0) + 1);
-
-  for (const code of orderedAll) {
-    const p7 = code.slice(0, 7);
-    const p6 = code.slice(0, 6);
-    if (p7 === "0424201") vote("CMT8");
-    else if (p7 === "0424202") vote("NS");
-    else if (p7 === "0424203") vote("ĐS");
-    else if (p7 === "0424204") vote("LĐH");
-    else if (p6 === "042300") vote("DVKH");
-    else if (p6 === "042410") vote("QLN");
-  }
-  for (const [room, cnt] of roomVotes.entries()) {
-    if (!detectedRoom || cnt > (roomVotes.get(detectedRoom) || 0)) detectedRoom = room;
-  }
-
   const t1 = performance.now();
   const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
   const variantsTriedPerLine = (turbo ? 3 : 6) * (turbo ? 2 : 4);
@@ -746,14 +732,13 @@ export async function detectCodesFromImage(
 
   return {
     codes: orderedAll,
-    detectedRoom: detectedRoom || undefined,
     stats: {
       totalLines: lineRois.length,
       keptLines: orderedAll.length,
       avgConfidence,
       durationMs: Math.round(t1 - t0),
       droppedIndices,
-      variantsTriedPerLine, // variants * PSM
+      variantsTriedPerLine,
     },
   };
 }

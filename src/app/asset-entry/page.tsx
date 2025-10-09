@@ -429,7 +429,6 @@ export default function AssetEntryPage() {
     setMessage({ type: "", text: "" });
     try {
       const allCodes: string[] = [];
-      let detectedRoom = "";
       let index = 0;
       // Tổng hợp thống kê qua nhiều ảnh
       let totalLinesAll = 0;
@@ -449,12 +448,10 @@ export default function AssetEntryPage() {
           file_url,
           json_schema: { type: "object", properties: { text_content: { type: "string" } } },
         }, {
-          // Tối ưu an toàn: dùng batch 4, không bật turbo để chính xác hơn
           batchSize: 4,
           turbo: aiTurbo,
           maxLines: aiMaxLines === "auto" ? undefined : parseInt(aiMaxLines, 10),
           onProgress: (p) => {
-            // Map phase -> label
             const phaseLabel =
               p.phase === "deskew_crop" ? "Căn thẳng & cắt" :
               p.phase === "normalize" ? "Chuẩn hóa" :
@@ -462,7 +459,6 @@ export default function AssetEntryPage() {
               p.phase === "recognize" ? "Nhận dạng" :
               p.phase === "vote" ? "Ghép kết quả" :
               "Điền mã";
-            // Nếu có tổng dòng, hiển thị phần trăm theo dòng
             const totalLines = Math.max(1, p.total || 1);
             const cur = Math.min(p.current || 0, totalLines);
             setAiStatus({
@@ -474,7 +470,6 @@ export default function AssetEntryPage() {
           },
         });
 
-        // Ưu tiên dùng kết quả từ pipeline: codes và detected_room
         if (result.status === "success") {
           const codesFromPipeline = result.output?.codes || [];
           const stats = result.output?.stats;
@@ -488,15 +483,10 @@ export default function AssetEntryPage() {
           }
           if (codesFromPipeline.length > 0) {
             for (const formatted of codesFromPipeline) {
-              // Giữ lại kiểm tra hợp lệ cuối cùng theo form
               if (isAssetValid(formatted)) {
                 allCodes.push(formatted);
               }
             }
-          }
-          const roomFromPipeline = result.output?.detected_room || "";
-          if (roomFromPipeline && (!detectedRoom || detectedRoom === roomFromPipeline)) {
-            detectedRoom = roomFromPipeline;
           }
         }
 
@@ -510,7 +500,6 @@ export default function AssetEntryPage() {
       }
 
       const uniqueCodes = Array.from(new Set(allCodes));
-      if (detectedRoom) handleRoomChange(detectedRoom);
       setMultipleAssets((prev) => {
         const existing = prev.filter((a) => a.trim());
         const merged = Array.from(new Set([...existing, ...uniqueCodes]));
@@ -531,7 +520,7 @@ export default function AssetEntryPage() {
       setIsProcessingImage(false);
       setTimeout(() => setAiStatus({ stage: "", progress: 0, total: 0, detail: "" }), 1200);
     }
-  }, [isAssetValid, handleRoomChange, aiTurbo, aiMaxLines]);
+  }, [isAssetValid, aiTurbo, aiMaxLines]);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
