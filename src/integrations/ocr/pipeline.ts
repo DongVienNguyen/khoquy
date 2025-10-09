@@ -329,7 +329,7 @@ function cropTopColumns(binary: ImageData, srcCanvas: HTMLCanvasElement, k: numb
   const peaks = Array.from({ length: width }, (_, x) => ({ x, val: proj[x] }));
   peaks.sort((a, b) => b.val - a.val);
 
-  const roiW = Math.max(48, Math.floor(width * 0.45));
+  const roiW = Math.max(48, Math.floor(width * 0.55));
   const minSeparation = Math.floor(roiW * 0.6);
   const chosen: number[] = [];
   const outs: HTMLCanvasElement[] = [];
@@ -450,7 +450,7 @@ function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
   const blurred = boxBlur(grayData);
   let bestScore = -1;
   let bestCanvas = baseCanvas;
-  for (let ang = -3; ang <= 3; ang += 0.5) {
+  for (let ang = -5; ang <= 5; ang += 0.5) {
     const rotated = rotateCanvas(baseCanvas, ang);
     const rd = toGrayscale(getImageData(rotated));
     const bin = threshold(rd, 170);
@@ -682,21 +682,16 @@ export async function detectCodesFromImage(
   }
 
   // Dedupe while preserving order
-  const seen = new Set<string>();
-  const orderedUnique = results.filter((r) => {
-    if (seen.has(r)) return false;
-    seen.add(r);
-    return true;
-  });
-
-  onProgress?.({ phase: "vote", current: orderedUnique.length, total: total, detail: "Ghép kết quả & lọc trùng" });
+  // Không lọc trùng: giữ nguyên theo từng dòng để đúng tổng số dòng
+  const orderedAll = results.slice();
+  onProgress?.({ phase: "vote", current: orderedAll.length, total: total, detail: "Ghép kết quả theo từng dòng" });
 
   // Detect room by prefixes
   let detectedRoom = "";
   const roomVotes = new Map<string, number>();
   const vote = (room: string) => roomVotes.set(room, (roomVotes.get(room) || 0) + 1);
 
-  for (const code of orderedUnique) {
+  for (const code of orderedAll) {
     const p7 = code.slice(0, 7);
     const p6 = code.slice(0, 6);
     if (p7 === "0424201") vote("CMT8");
@@ -712,17 +707,16 @@ export async function detectCodesFromImage(
 
   const t1 = performance.now();
   const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
-  // Tính đúng số biến thể đã thử mỗi dòng theo Turbo/non-Turbo
   const variantsTriedPerLine = (turbo ? 3 : 6) * (turbo ? 2 : 4);
 
-  onProgress?.({ phase: "done", current: orderedUnique.length, total: total, detail: "Điền mã" });
+  onProgress?.({ phase: "done", current: orderedAll.length, total: total, detail: "Điền mã" });
 
   return {
-    codes: orderedUnique,
+    codes: orderedAll,
     detectedRoom: detectedRoom || undefined,
     stats: {
       totalLines: lineRois.length,
-      keptLines: orderedUnique.length,
+      keptLines: orderedAll.length,
       avgConfidence,
       durationMs: Math.round(t1 - t0),
       droppedIndices,
