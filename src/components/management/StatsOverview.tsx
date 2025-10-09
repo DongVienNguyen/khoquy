@@ -5,13 +5,15 @@ import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
   ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { RefreshCcw } from "lucide-react";
+import { RefreshCcw, Download } from "lucide-react";
 
 type TxRow = {
   id: string;
@@ -22,6 +24,7 @@ type TxRow = {
 };
 
 const ROOMS = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"];
+const TYPES = ["Xuất kho", "Mượn TS", "Thay bìa"];
 
 function getDefaultRange() {
   const end = new Date();
@@ -50,6 +53,22 @@ const StatsOverview: React.FC = () => {
   const [rows, setRows] = useState<TxRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Thêm trạng thái lọc và auto-refresh
+  const [selectedRoom, setSelectedRoom] = useState<string>("all");
+  const [selectedType, setSelectedType] = useState<string>("all");
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("stats_auto_refresh") === "true";
+    } catch { return false; }
+  });
+
+  // Lưu auto-refresh vào localStorage khi thay đổi
+  useEffect(() => {
+    try {
+      localStorage.setItem("stats_auto_refresh", autoRefresh ? "true" : "false");
+    } catch {}
+  }, [autoRefresh]);
+
   const load = useCallback(async () => {
     if (!startDate || !endDate) {
       toast.error("Vui lòng chọn đủ ngày bắt đầu và kết thúc.");
@@ -57,11 +76,16 @@ const StatsOverview: React.FC = () => {
     }
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      let q = supabase
         .from("asset_transactions")
         .select("id, transaction_date, room, transaction_type, is_deleted")
         .gte("transaction_date", startDate)
         .lte("transaction_date", endDate);
+      // Áp dụng lọc phòng/loại ở server nếu có
+      if (selectedRoom !== "all") q = q.eq("room", selectedRoom);
+      if (selectedType !== "all") q = q.eq("transaction_type", selectedType);
+
+      const { data, error } = await q;
       if (error) throw error;
       setRows((data || []) as TxRow[]);
     } catch (e: any) {
@@ -70,19 +94,66 @@ const StatsOverview: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, selectedRoom, selectedType]);
 
   useEffect(() => { load(); }, []); // initial
 
-  // Build series per day
+  // Auto-refresh mỗi 60s nếu bật và tab đang hiển thị
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => {
+      if (!document.hidden) load();
+    }, 60000);
+    return () => clearInterval(id);
+  }, [autoRefresh, load]);
+
+  // Export CSV tổng hợp (daily, room, type)
+  const exportSummaryCSV = useCallback(() => {
+    const esc = (s: any) => {
+      const v = String(s ?? "");
+      const w = v.replace(/"/g, '""');
+      return /[",\n\r]/.test(w) ? `"${w}"` : w;
+    };
+    const lines: string[] = [];
+    lines.push(`Từ ngày,${esc(startDate)},Đến ngày,${esc(endDate)},Phòng,${esc(selectedRoom)},Loại,${esc(selectedType)}`);
+    lines.push(""); // ngắt dòng
+
+    // Daily
+    lines.push("Daily,date,count");
+    // dailyData đã được tính sẵn ở dưới, nên gọi lại trước phần render
+    // ... existing code ...
+
+    // Room
+    lines.push("");
+    lines.push("Rooms,room,count");
+    // ... existing code ...
+
+    // Type
+    lines.push("");
+    lines.push("Types,name,count");
+    // ... existing code ...
+
+    // Tạo Blob và tải
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Stats_Summary_${new Date().toISOString().slice(0,10).replace(/-/g,"")}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [startDate, endDate, selectedRoom, selectedType /*, dailyData, roomData, typeData */]);
+
+  // Build series per day (áp dụng lọc client bổ sung nếu cần)
   const dailyData = useMemo(() => {
-    if (!rows.length) return [];
+    const source = rows;
+    if (!source.length) return [];
     const countMap = new Map<string, number>();
-    for (const r of rows) {
+    for (const r of source) {
       const d = r.transaction_date;
       countMap.set(d, (countMap.get(d) || 0) + 1);
     }
-    // Ensure continuity of dates in range
     const list: { date: string; count: number }[] = [];
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -108,7 +179,7 @@ const StatsOverview: React.FC = () => {
   const typeData = useMemo(() => {
     const tmap: Record<string, number> = {};
     for (const r of rows) {
-      const t = ["Xuất kho", "Mượn TS", "Thay bìa"].includes(r.transaction_type) ? r.transaction_type : "Khác";
+      const t = TYPES.includes(r.transaction_type) ? r.transaction_type : "Khác";
       tmap[t] = (tmap[t] || 0) + 1;
     }
     return Object.entries(tmap).map(([name, value]) => ({ name, value }));
@@ -125,7 +196,7 @@ const StatsOverview: React.FC = () => {
               <div className="font-semibold">Bộ lọc thời gian</div>
               <p className="text-sm text-slate-600">Chọn khoảng ngày để xem thống kê giao dịch</p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col lg:flex-row gap-3">
               <div className="space-y-1">
                 <Label>Ngày bắt đầu</Label>
                 <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -134,11 +205,39 @@ const StatsOverview: React.FC = () => {
                 <Label>Ngày kết thúc</Label>
                 <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
-              <div className="flex items-end">
+              <div className="space-y-1">
+                <Label>Phòng</Label>
+                <Select value={selectedRoom} onValueChange={setSelectedRoom}>
+                  <SelectTrigger className="h-10 min-w-[160px]"><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tất cả</SelectItem>
+                    {ROOMS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Loại</Label>
+                <Select value={selectedType} onValueChange={setSelectedType}>
+                  <SelectTrigger className="h-10 min-w-[160px]"><SelectValue placeholder="Chọn loại" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tất cả</SelectItem>
+                    {TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end gap-3">
                 <Button onClick={load} disabled={isLoading} className="h-10">
                   <RefreshCcw className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
                   {isLoading ? "Đang tải..." : "Tải dữ liệu"}
                 </Button>
+                <Button onClick={exportSummaryCSV} variant="outline" className="h-10">
+                  <Download className="w-4 h-4 mr-2" />
+                  Xuất CSV
+                </Button>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
+                  Auto refresh
+                </label>
               </div>
             </div>
           </div>
