@@ -671,7 +671,7 @@ function scoreProjectionSharpness(binary: ImageData): number {
   return score;
 }
 
-function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
+function deskewBySearch(baseCanvas: HTMLCanvasElement, onProgress?: (p: OCRProgress) => void): { canvas: HTMLCanvasElement; coarseAngle: number; fineAngle: number; score: number } {
   // Coarse-to-fine deskew:
   // 1) Coarse on downscaled canvas
   const coarseTargetH = 800;
@@ -692,6 +692,7 @@ function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
       bestCoarse = ang;
     }
   }
+  onProgress?.({ phase: "deskew_crop", current: 1, total: 2, detail: `deskew • coarse_guess=${bestCoarse}°, score=${Math.round(bestScore)}` });
   // 2) Fine around best on target size
   const fineBaseH = 1000;
   const scaledFine = baseCanvas.height < fineBaseH ? scaleCanvas(baseCanvas, fineBaseH) : baseCanvas;
@@ -709,7 +710,8 @@ function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
       bestFine = ang;
     }
   }
-  return rotateCanvas(baseCanvas, bestFine);
+  onProgress?.({ phase: "deskew_crop", current: 2, total: 2, detail: `deskew • fine_best=${bestFine}°, score=${Math.round(bestScore)}` });
+  return { canvas: rotateCanvas(baseCanvas, bestFine), coarseAngle: bestCoarse, fineAngle: bestFine, score: bestScore };
 }
 
 function cropColumn(binary: ImageData, srcCanvas: HTMLCanvasElement): HTMLCanvasElement {
@@ -961,9 +963,10 @@ export async function detectCodesFromImage(
     };
   }
 
-  // 2) Deskew coarse-to-fine
-  const deskewed = deskewBySearch(baseCanvas);
-  onProgress?.({ phase: "deskew_crop", current: 1, total: 1, detail: "deskew • coarse-to-fine xong" });
+  // 2) Deskew coarse-to-fine (with angle logs)
+  const desk = deskewBySearch(baseCanvas, onProgress);
+  const deskewed = desk.canvas;
+  onProgress?.({ phase: "deskew_crop", current: 2, total: 2, detail: `deskew • coarse=${desk.coarseAngle}°, fine=${desk.fineAngle}°, score=${Math.round(desk.score)}` });
 
   // 3) Build masked + binary for segmentation (reduce moiré/underline)
   const masked = maskNonGreenToWhite(deskewed, 0.88);
@@ -978,11 +981,16 @@ export async function detectCodesFromImage(
   const lines = segmentLines(binForProj, 1);
   const rois0 = lines.map((box) => cropToCanvas(deskewed, box)).map((c) => trimLineCanvas(c));
 
-  // Limit lines dynamically when Auto
-  const maxLines =
+  // Limit lines dynamically when Auto (increase if quick scan miss and large image)
+  const quickMiss = !(quick.codes && quick.codes.length);
+  const baseMaxLines =
     typeof options?.maxLines === "number" && options.maxLines > 0
       ? options.maxLines
       : maxLinesAutoScale(baseCanvas.height);
+  let maxLines = baseMaxLines;
+  if (quickMiss && baseCanvas.height >= 1400) {
+    maxLines = Math.max(baseMaxLines, turbo ? 36 : 50);
+  }
   const lineRois = rois0.slice(0, Math.max(1, maxLines));
 
   onProgress?.({ phase: "segment", current: lineRois.length, total: lineRois.length, detail: `segmentation • totalLines=${lines.length}, using=${lineRois.length}` });
@@ -1034,12 +1042,12 @@ export async function detectCodesFromImage(
       return { chosenStr: quickSeq, chosenConf: quickCand.confidence || minAccept, variantsTried };
     }
 
-    // 2) Detailed line OCR with variants
+    // 2) Detailed line OCR (turbo: 2 fast variants first, add more if needed)
     const roiGamma08 = applyGamma(roiGrayEnhanced, 0.8);
     const roiGamma12 = applyGamma(roiGrayEnhanced, 1.2);
     const roiBin160 = threshold(roiGrayEnhanced, 160);
 
-    const canvases: HTMLCanvasElement[] = [];
+    let canvases: HTMLCanvasElement[] = [];
     const pushDataCanvas = (d: ImageData) => {
       const c = createCanvas(roiScaled.width, roiScaled.height);
       putImageData(c, d);
@@ -1047,10 +1055,11 @@ export async function detectCodesFromImage(
     };
 
     if (turbo) {
-      pushDataCanvas(roiGrayEnhanced);
+      canvases = [];
       pushDataCanvas(roiBinOtsu);
       pushDataCanvas(roiBinAdaptiveClosed);
     } else {
+      canvases = [];
       pushDataCanvas(roiGrayEnhanced);
       pushDataCanvas(roiGamma08);
       pushDataCanvas(roiGamma12);
@@ -1062,30 +1071,39 @@ export async function detectCodesFromImage(
     const PSM7 = 7;
     const PSM11 = 11;
 
-    const jobs: Promise<OCRCandidate>[] = [];
-    for (const c of canvases) {
-      jobs.push(ocrOne(c, PSM7));
-      jobs.push(ocrOne(c, PSM11));
-    }
-    const limit = turbo ? 4 : 6;
-    const candsRaw: OCRCandidate[] = [];
-    for (let i = 0; i < jobs.length; i += limit) {
-      const partial = await Promise.all(jobs.slice(i, i + limit));
-      candsRaw.push(...partial);
-      variantsTried += partial.length;
-    }
-
-    // Collect candidates
-    const candStrings: string[] = [];
-    const candWeights: number[] = [];
-    for (const c of candsRaw) {
-      const s = extractPrefixedSequence(normalizeDigits(c.raw));
-      if (s && s.length >= 13 && s.startsWith("042")) {
-        candStrings.push(s);
-        candWeights.push(c.confidence || 0);
+    const runOCRSet = async (cs: HTMLCanvasElement[]) => {
+      const jobs: Promise<OCRCandidate>[] = [];
+      for (const c of cs) {
+        jobs.push(ocrOne(c, PSM7));
+        jobs.push(ocrOne(c, PSM11));
       }
-    }
+      const limit = turbo ? 4 : 6;
+      const chunked: OCRCandidate[] = [];
+      for (let i = 0; i < jobs.length; i += limit) {
+        const partial = await Promise.all(jobs.slice(i, i + limit));
+        chunked.push(...partial);
+        variantsTried += partial.length;
+      }
+      return chunked;
+    };
 
+    // First pass
+    let candsRaw: OCRCandidate[] = await runOCRSet(canvases);
+
+    const collect = (list: OCRCandidate[]) => {
+      const candStrings: string[] = [];
+      const candWeights: number[] = [];
+      for (const c of list) {
+        const s = extractPrefixedSequence(normalizeDigits(c.raw));
+        if (s && s.length >= 13 && s.startsWith("042")) {
+          candStrings.push(s);
+          candWeights.push(c.confidence || 0);
+        }
+      }
+      return { candStrings, candWeights };
+    };
+
+    let { candStrings, candWeights } = collect(candsRaw);
     let chosenStr: string | null = null;
     let chosenConf = 0;
     if (candStrings.length > 0) {
@@ -1098,7 +1116,31 @@ export async function detectCodesFromImage(
       chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
     }
 
-    // 3) Per-digit fallback if low confidence
+    // Turbo second pass if needed: add gray + hard threshold variants
+    if (turbo && (!chosenStr || chosenConf < 70)) {
+      const extra: HTMLCanvasElement[] = [];
+      const c1 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c1, roiGrayEnhanced); extra.push(c1);
+      const c2 = createCanvas(roiScaled.width, roiScaled.height); putImageData(c2, roiBin160); extra.push(c2);
+      const more = await runOCRSet(extra);
+      candsRaw = candsRaw.concat(more);
+      ({ candStrings, candWeights } = collect(candsRaw));
+      if (candStrings.length > 0) {
+        const votedW2 = votePerCharWeighted(candStrings, candWeights) || votePerChar(candStrings);
+        if (votedW2) {
+          const matches2 = candsRaw.filter((c) => {
+            const s = extractPrefixedSequence(normalizeDigits(c.raw));
+            return s && s === votedW2;
+          });
+          const conf2 = matches2.length ? matches2.reduce((a, b) => a + (b.confidence || 0), 0) / matches2.length : 0;
+          if (!chosenStr || conf2 > chosenConf) {
+            chosenStr = votedW2;
+            chosenConf = conf2;
+          }
+        }
+      }
+    }
+
+    // Per-digit fallback
     if (!chosenStr || chosenConf < (turbo ? 65 : 75)) {
       const boxesOtsu = segmentDigitBoxes(roiBinClosed);
       const boxesAdp = segmentDigitBoxes(roiBinAdaptiveClosed);
@@ -1125,7 +1167,7 @@ export async function detectCodesFromImage(
       }
     }
 
-    // 4) Micro-rotation gating if still not good enough
+    // Micro-rotation gating
     const needMicro = !chosenStr || chosenConf < 75 || (chosenStr.length < 13);
     if (needMicro) {
       const microAngles = [-7, -5, -3, -1.5, 0, 1.5, 3, 5, 7];
@@ -1153,16 +1195,13 @@ export async function detectCodesFromImage(
             }
           }
         }
-        // Early stop if a string repeats twice with sufficient confidence
         for (const [s, cnt] of stable.entries()) {
-          if (cnt >= 2 && chosenConf >= 75) {
-            break;
-          }
+          if (cnt >= 2 && chosenConf >= 75) break;
         }
       }
     }
 
-    // 5) Final fallback slight blur + threshold
+    // Final slight-blur fallback
     if (!chosenStr || chosenConf < 60) {
       const roiBlurred = boxBlur(roiGrayEnhanced);
       const altBinOtsu = closing(threshold(roiBlurred, Math.max(100, tOtsuRoiE - 10)));
@@ -1215,6 +1254,9 @@ export async function detectCodesFromImage(
     }
   }
 
+  // After recognition loop, add segmentation summary
+  onProgress?.({ phase: "segment", current: lineRois.length, total: lineRois.length, detail: `segmentation_result • kept=${results.length}, dropped=${droppedIndices.length}` });
+
   // 5) Fallback multi-angle if still empty
   if (uniqueSet.size === 0) {
     onProgress?.({ phase: "recognize", current: 0, total: 1, detail: "fallback_multi_angle • start" });
@@ -1230,15 +1272,30 @@ export async function detectCodesFromImage(
     }
   }
 
-  // Prepare outputs
-  const orderedAll = results.slice();
-  onProgress?.({ phase: "vote", current: orderedAll.length, total: total, detail: `vote • codes=${orderedAll.length} • repeats=${Array.from(codeOccurrence.values()).reduce((a,b)=>a+(b>1?1:0),0)}` });
+  // Prepare outputs: dedupe + prioritize by consensus count then confidence
+  const summary = new Map<string, { count: number; maxConf: number; first: number }>();
+  for (let i = 0; i < results.length; i++) {
+    const code = results[i]!;
+    const conf = confidences[i] || 0;
+    const cur = summary.get(code);
+    if (cur) {
+      cur.count += 1;
+      if (conf > cur.maxConf) cur.maxConf = conf;
+    } else {
+      summary.set(code, { count: 1, maxConf: conf, first: i });
+    }
+  }
+  const orderedAll = Array.from(summary.entries())
+    .sort((a, b) => (b[1].count - a[1].count) || (b[1].maxConf - a[1].maxConf) || (a[1].first - b[1].first))
+    .map(([code]) => code);
+
+  onProgress?.({ phase: "vote", current: orderedAll.length, total: lineRois.length, detail: `vote • codes=${orderedAll.length}` });
 
   const t1 = performance.now();
   const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
   const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, lineRois.length));
 
-  onProgress?.({ phase: "done", current: orderedAll.length, total: total, detail: `done • avgConf=${avgConfidence ? Math.round(avgConfidence) : '-'} • variants/line=${avgVariantsPerLine || '-'}` });
+  onProgress?.({ phase: "done", current: orderedAll.length, total: lineRois.length, detail: `done • avgConf=${avgConfidence ? Math.round(avgConfidence) : '-'} • variants/line=${avgVariantsPerLine || '-'}` });
 
   return {
     codes: orderedAll,
