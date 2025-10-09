@@ -318,7 +318,8 @@ function segmentLines(binary: ImageData, minGap: number = 1): LineBox[] {
       merged.push({ ...lb });
     }
   }
-  return merged.filter((l) => l.h >= 10);
+  // Hạ ngưỡng tối thiểu độ cao dòng để bắt được dòng thấp hơn
+  return merged.filter((l) => l.h >= 7);
 }
 
 // Chọn nhiều cột có mật độ số cao để tránh bỏ sót dòng nằm lệch cột
@@ -516,6 +517,8 @@ export async function detectCodesFromImage(
   const blurred0 = boxBlur(grayData0);
   const tOtsu0 = otsuThreshold(blurred0);
   const binForProj = threshold(blurred0, tOtsu0);
+  // Báo cáo bước normalize để người dùng thấy tiến trình
+  onProgress?.({ phase: "normalize", current: 1, total: 1, detail: "Chuẩn hóa ảnh cho phân đoạn" });
 
   // Cắt theo 3 cột có mật độ số cao + toàn khung
   const columnCanvases = cropTopColumns(binForProj, deskewed, 3);
@@ -547,7 +550,7 @@ export async function detectCodesFromImage(
   // helper xử lý 1 dòng
   const processOne = async (roi: HTMLCanvasElement) => {
     // Normalize height for OCR
-    const targetH = 64;
+    const targetH = 96;
     const roiScaled = scaleCanvas(roi, targetH);
 
     // Variants: grayscale, gamma(0.8/1.2), thresholds (Otsu, 160, 190)
@@ -586,12 +589,19 @@ export async function detectCodesFromImage(
 
     const PSM7 = 7;
     const PSM11 = 11;
+    // Thử thêm các PSM khi không bật Turbo để đa dạng chiến lược:
+    const PSM6 = 6;   // single block of text
+    const PSM13 = 13; // raw line
 
-    // Run OCR in parallel for each variant × 2 PSM
+    // Run OCR in parallel for each variant × 2/4 PSM
     const jobs: Promise<OCRCandidate>[] = [];
     for (const c of canvases) {
       jobs.push(ocrOne(c, PSM7));
       jobs.push(ocrOne(c, PSM11));
+      if (!turbo) {
+        jobs.push(ocrOne(c, PSM6));
+        jobs.push(ocrOne(c, PSM13));
+      }
     }
     const candsRaw = await Promise.all(jobs);
 
@@ -702,6 +712,8 @@ export async function detectCodesFromImage(
 
   const t1 = performance.now();
   const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
+  // Tính đúng số biến thể đã thử mỗi dòng theo Turbo/non-Turbo
+  const variantsTriedPerLine = (turbo ? 3 : 6) * (turbo ? 2 : 4);
 
   onProgress?.({ phase: "done", current: orderedUnique.length, total: total, detail: "Điền mã" });
 
@@ -714,7 +726,7 @@ export async function detectCodesFromImage(
       avgConfidence,
       durationMs: Math.round(t1 - t0),
       droppedIndices,
-      variantsTriedPerLine: turbo ? 3 * 2 : 6 * 2, // variants * PSM
+      variantsTriedPerLine, // variants * PSM
     },
   };
 }
