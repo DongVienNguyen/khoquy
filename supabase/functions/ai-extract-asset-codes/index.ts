@@ -78,15 +78,22 @@ serve(async (req: Request) => {
 
     const endpoint = provider === "openrouter" ? `${baseUrl}/chat/completions` : `${baseUrl}/v1/chat/completions`;
 
-    const rooms = ["QLN","CMT8","NS","ĐS","LĐH","DVKH"];
-    const systemPrompt = `Bạn là trợ lý đọc ảnh để trích xuất mã tài sản. Yêu cầu:
-- Phân tích các ảnh đầu vào, trích OCR tất cả chuỗi số liên quan.
-- Xác định phòng ban (room) theo prefix:
-  0424201 -> CMT8, 0424202 -> NS, 0424203 -> ĐS, 0424204 -> LĐH, 042300 -> DVKH, 042410 -> QLN.
-- Từ chuỗi, lấy 2 ký tự năm ở vị trí -10..-8, và 4 ký tự mã cuối cùng, tạo định dạng "code.year" (ví dụ 259.24).
-- Chỉ nhận các mã hợp lệ theo định dạng \\d{1,4}.\\d{2}.
-- Trả về JSON: {"room": one_of(${rooms.join("|")}) or null, "codes": string[] }.
-- Không thêm mô tả ngoài JSON.`;
+    const systemPrompt = `Bạn là trợ lý đọc ảnh trích xuất mã tài sản thật nhanh và chính xác.
+Yêu cầu:
+1) Với mỗi ảnh đầu vào, ước lượng tổng số dòng văn bản (lines_count).
+2) Từ các chuỗi số nhận diện được, chuẩn hóa mã tài sản theo quy tắc:
+   - Nếu có chuỗi số dài (>= 12 ký tự), lấy 2 ký tự năm ở vị trí thứ 9 và 10 tính từ phải sang trái (ví dụ "0424102470200259" -> năm "24").
+   - Lấy 4 ký tự cuối cùng làm mã thô, loại bỏ số 0 ở đầu để được mã tài sản 1-4 chữ số (ví dụ "0259" -> "259").
+   - Tạo định dạng "code.year" (ví dụ "259.24").
+3) Chỉ nhận các mã hợp lệ theo định dạng \\d{1,4}\\.\\d{2}.
+4) Trả về JSON thuần với cấu trúc:
+{
+  "images": [
+    { "index": number, "lines_count": number, "codes": string[] }
+  ],
+  "codes": string[] // danh sách mã hợp lệ (duy nhất) hợp nhất từ tất cả ảnh
+}
+Không thêm mô tả ngoài JSON.`;
 
     const userText = "Hãy trích xuất room và danh sách mã tài sản từ các ảnh sau (trả về JSON thuần).";
 
@@ -124,7 +131,7 @@ serve(async (req: Request) => {
     }
     const json = await resp.json();
     let contentText = json?.choices?.[0]?.message?.content ?? "";
-    let parsed: { room?: string | null; codes?: string[] } | null = null;
+    let parsed: { images?: Array<{ index: number; lines_count: number; codes: string[] }>; codes?: string[] } | null = null;
 
     if (typeof contentText === "string" && contentText.trim()) {
       try {
@@ -139,8 +146,13 @@ serve(async (req: Request) => {
     }
 
     // Final normalization and fallback regex extraction
-    let room: string | null = parsed?.room && rooms.includes(parsed.room) ? parsed.room : null;
-    let codes: string[] = Array.isArray(parsed?.codes) ? parsed!.codes!.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x))) : [];
+    let codes: string[] = [];
+    if (Array.isArray(parsed?.codes)) {
+      codes = parsed!.codes!.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x)));
+    } else if (Array.isArray(parsed?.images)) {
+      const collect = parsed!.images!.flatMap((img) => Array.isArray(img.codes) ? img.codes : []);
+      codes = Array.from(new Set(collect.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x)))));
+    }
 
     if (codes.length === 0) {
       const raw = typeof contentText === "string" ? contentText : JSON.stringify(json);
@@ -148,7 +160,7 @@ serve(async (req: Request) => {
       codes = Array.from(new Set(matches));
     }
 
-    return new Response(JSON.stringify({ data: { room, codes } }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ data: { codes, images: Array.isArray(parsed?.images) ? parsed!.images! : [] } }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }

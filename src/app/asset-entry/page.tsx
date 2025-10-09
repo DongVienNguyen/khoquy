@@ -456,7 +456,6 @@ export default function AssetEntryPage() {
       }
 
       const payload: any = data?.data ?? data;
-      const aiRoom: string | null = payload?.room || null;
       const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
 
       if (!aiCodes.length) {
@@ -472,7 +471,6 @@ export default function AssetEntryPage() {
         return;
       }
 
-      if (aiRoom) handleRoomChange(aiRoom);
       setMultipleAssets((prev) => {
         const existing = prev.filter((a) => a.trim());
         const merged = Array.from(new Set([...existing, ...uniqueCodes]));
@@ -489,7 +487,7 @@ export default function AssetEntryPage() {
       setIsProcessingImage(false);
       setTimeout(() => setAiStatus({ stage: "", progress: 0, total: 0, detail: "" }), 1200);
     }
-  }, [isAssetValid, handleRoomChange]);
+  }, [isAssetValid]);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
