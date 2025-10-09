@@ -419,26 +419,51 @@ export default function AssetEntryPage() {
   }, [isRestrictedTime, currentStaff, formData, multipleAssets, requiresNoteDropdown, getUtcNowIso, getYmd, parseAssetCode, calculateDefaultValues]);
 
   // AI image process (UI có sẵn; phần OCR sẽ bổ sung sau)
+  const compressImageToDataUrl = (file: File, maxDim = 1600, quality = 0.75): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let { width, height } = img as HTMLImageElement;
+          const scale = Math.min(1, maxDim / Math.max(width, height));
+          width = Math.max(1, Math.round(width * scale));
+          height = Math.max(1, Math.round(height * scale));
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(String(reader.result));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          try {
+            const dataUrl = canvas.toDataURL("image/jpeg", quality);
+            resolve(dataUrl);
+          } catch {
+            resolve(String(reader.result));
+          }
+        };
+        img.onerror = () => resolve(String(reader.result));
+        img.src = String(reader.result);
+      };
+      reader.onerror = () => reject(new Error("Không đọc được file"));
+      reader.readAsDataURL(file);
+    });
+
   const processImages = useCallback(async (files: File[]) => {
     setIsProcessingImage(true);
     setAiStatus({ stage: "starting", progress: 0, total: files.length, detail: "Đang chuẩn bị xử lý hình ảnh..." });
     setMessage({ type: "", text: "" });
     try {
       // Convert files to base64 data URLs to send to Edge Function
-      const toDataUrl = (f: File) =>
-        new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error("Không đọc được file"));
-          reader.readAsDataURL(f);
-        });
-
       const images: string[] = [];
       let index = 0;
       for (const file of files) {
         index += 1;
-        setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang chuẩn bị ảnh ${index}/${files.length}...` });
-        const dataUrl = await toDataUrl(file);
+        setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang tối ưu ảnh ${index}/${files.length}...` });
+        const dataUrl = await compressImageToDataUrl(file, 1600, 0.75);
         images.push(dataUrl);
         setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã nạp ${index}/${files.length} ảnh` });
       }

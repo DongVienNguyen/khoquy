@@ -154,10 +154,38 @@ Không thêm mô tả ngoài JSON.`;
       codes = Array.from(new Set(collect.filter((x) => /^\d{1,4}\.\d{2}$/.test(String(x)))));
     }
 
-    if (codes.length === 0) {
-      const raw = typeof contentText === "string" ? contentText : JSON.stringify(json);
-      const matches = raw.match(/\b(\d{1,4}\.\d{2})\b/g) || [];
-      codes = Array.from(new Set(matches));
+    const raw = typeof contentText === "string" ? contentText : JSON.stringify(json);
+    // 1) Bổ sung fallback: lấy thẳng mã có định dạng X.YY từ văn bản trả về
+    const matches = raw.match(/\b(\d{1,4}\.\d{2})\b/g) || [];
+    if (matches.length) {
+      codes = Array.from(new Set([...(codes || []), ...matches]));
+    }
+    // 2) Fallback nâng cao: khôi phục từ chuỗi số dài (>= 12 ký tự)
+    const longSeqs = raw.match(/\d{12,}/g) || [];
+    if (longSeqs.length) {
+      const derived = new Set<string>();
+      for (const s of longSeqs) {
+        if (!s || s.length < 12) continue;
+        const year = s.slice(-10, -8);
+        const codeRaw = s.slice(-4);
+        const codeNum = parseInt(codeRaw, 10);
+        if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
+        const code = String(codeNum);
+        const formatted = `${code}.${year}`;
+        if (/^\d{1,4}\.\d{2}$/.test(formatted)) derived.add(formatted);
+      }
+      if (derived.size) {
+        codes = Array.from(new Set([...(codes || []), ...Array.from(derived)]));
+      }
+    }
+    // 3) Sắp xếp ổn định theo năm rồi mã để UI hiển thị nhất quán
+    if (codes.length) {
+      codes.sort((a: string, b: string) => {
+        const [ca, ya] = a.split(".");
+        const [cb, yb] = b.split(".");
+        const byYear = ya.localeCompare(yb);
+        return byYear !== 0 ? byYear : (parseInt(ca, 10) - parseInt(cb, 10));
+      });
     }
 
     return new Response(JSON.stringify({ data: { codes, images: Array.isArray(parsed?.images) ? parsed!.images! : [] } }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
