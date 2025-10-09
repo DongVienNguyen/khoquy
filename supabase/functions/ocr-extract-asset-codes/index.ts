@@ -143,23 +143,29 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     }
   }
 
-  // Strategy 1d: các chuỗi bắt đầu bằng 042 (có thể ngắt bởi khoảng trắng/gạch)
-  // Bắt một đoạn bắt đầu bằng 042, theo sau là số và dấu phân cách, sau đó gom thành chuỗi số sạch.
-  const prefix042Matches = normalized.match(/(?:^|[^0-9])(042[0-9\s\-\/\_]{9,})(?:[^0-9]|$)/g) || [];
-  for (const raw of prefix042Matches) {
-    const digits = raw.replace(/\D/g, "");
+  // Strategy 1d: các chuỗi bắt đầu bằng 042 (cho phép khoảng trắng/tab/xuống dòng/gạch/chéo/underscore giữa các số)
+  // Dùng matchAll với nhóm bắt để luôn lấy đúng phần chuỗi sau 042, rồi gom lại thành chuỗi số liền.
+  const prefix042Pattern = /(?:^|[^0-9])(042(?:[ \t\r\n\-\/_]*\d){8,})(?:[^0-9]|$)/g;
+  const prefix042Matches = normalized.matchAll(prefix042Pattern);
+  for (const match of prefix042Matches) {
+    const rawSegment = match[1] ?? match[0];
+    const digits = rawSegment.replace(/\D/g, "");
     if (!digits.startsWith("042")) continue;
-    if (digits.length < 12) continue; // cần đủ dài để lấy 10th-from-right và 4 cuối
-    const yearStr = digits.slice(-10, -8);
-    const codeStr = digits.slice(-4);
-    const codeNum = parseInt(codeStr, 10);
-    const yearNum = parseInt(yearStr, 10);
-    if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
-    if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
-    const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
-    if (!codes.has(v)) {
-      codes.add(v);
-      candidates_count++;
+
+    // Nếu đủ dài, suy ra X.YY như quy tắc hiện tại; nếu ngắn, bỏ qua để tránh nhiễu.
+    if (digits.length >= 12) {
+      const yearStr = digits.slice(-10, -8);
+      const codeStr = digits.slice(-4);
+      const codeNum = parseInt(codeStr, 10);
+      const yearNum = parseInt(yearStr, 10);
+      if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
+      if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
+
+      const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
+      if (!codes.has(v)) {
+        codes.add(v);
+        candidates_count++;
+      }
     }
   }
 
