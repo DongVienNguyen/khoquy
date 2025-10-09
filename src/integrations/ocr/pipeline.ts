@@ -355,6 +355,31 @@ function cropToCanvas(src: HTMLCanvasElement, box: LineBox): HTMLCanvasElement {
   return out;
 }
 
+function trimLineCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
+  // Build binary image for vertical projection
+  const gray = toGrayscale(getImageData(src));
+  const blurred = boxBlur(gray);
+  const t = otsuThreshold(blurred);
+  const binary = threshold(blurred, t);
+  const proj = verticalProjection(binary);
+  // Determine significant ink threshold based on line height
+  const inkThresh = Math.max(1, Math.floor(binary.height * 0.01));
+  let left = 0;
+  let right = proj.length - 1;
+  // Trim empty columns from the left
+  while (left < proj.length && proj[left] <= inkThresh) left++;
+  // Trim empty columns from the right
+  while (right >= 0 && proj[right] <= inkThresh) right--;
+  // If nothing detected, keep original
+  if (right <= left) return src;
+  // Add a small padding to avoid cutting off digits
+  const pad = Math.floor((right - left + 1) * 0.05);
+  const x = clamp(left - pad, 0, src.width - 1);
+  const w = clamp(right - left + 1 + 2 * pad, 1, src.width - x);
+  const box: LineBox = { x, y: 0, w, h: src.height };
+  return cropToCanvas(src, box);
+}
+
 function normalizeDigits(text: string): string {
   return (text || "").replace(/[^0-9]/g, "");
 }
@@ -534,6 +559,8 @@ export async function detectCodesFromImage(
     const binForSeg = threshold(blurred, tOtsu);
     const lines = segmentLines(binForSeg, 1);
     let rois = lines.map((box) => cropToCanvas(columnCanvas, box));
+    // Trim left/right whitespace to focus on numeric region per line
+    rois = rois.map((c) => trimLineCanvas(c));
     if (typeof maxLines === "number" && maxLines > 0) {
       rois = rois.slice(0, Math.max(1, maxLines - lineRois.length));
     }
