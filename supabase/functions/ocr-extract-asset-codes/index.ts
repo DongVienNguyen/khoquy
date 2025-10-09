@@ -127,9 +127,25 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     }
   }
 
-  // Strategy 1c: các chuỗi bắt đầu bằng 042 (có thể ngắt bởi khoảng trắng/gạch)
+  // Strategy 1c (fallback nếu chưa bắt được gì): nhận dạng đảo chiều YY-X và đổi thành X.YY
+  if (codes.size === 0) {
+    const flexibleRev = /\b(\d{2})[\s.\-\/_]{1,3}(\d{1,4})\b/gi;
+    while ((m = flexibleRev.exec(normalized)) !== null) {
+      const yearNum = parseInt(m[1], 10);
+      const codeNum = parseInt(m[2], 10);
+      if (Number.isFinite(codeNum) && codeNum >= 1 && codeNum <= 9999 && Number.isFinite(yearNum) && yearNum >= 20 && yearNum <= 99) {
+        const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
+        if (!codes.has(v)) {
+          codes.add(v);
+          candidates_count++;
+        }
+      }
+    }
+  }
+
+  // Strategy 1d: các chuỗi bắt đầu bằng 042 (có thể ngắt bởi khoảng trắng/gạch)
   // Bắt một đoạn bắt đầu bằng 042, theo sau là số và dấu phân cách, sau đó gom thành chuỗi số sạch.
-  const prefix042Matches = normalized.match(/(?:^|[^0-9])(042[0-9\s\-\_]{9,})(?:[^0-9]|$)/g) || [];
+  const prefix042Matches = normalized.match(/(?:^|[^0-9])(042[0-9\s\-\/\_]{9,})(?:[^0-9]|$)/g) || [];
   for (const raw of prefix042Matches) {
     const digits = raw.replace(/\D/g, "");
     if (!digits.startsWith("042")) continue;
@@ -173,7 +189,7 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     return byYear !== 0 ? byYear : (parseInt(ca, 10) - parseInt(cb, 10));
   });
 
-  return { codes: sorted, lines_count, candidates_count };
+  return { codes: sorted, lines_count: lines_count, candidates_count };
 }
 
 async function ensureBucket(supabase: any, bucketName: string) {
