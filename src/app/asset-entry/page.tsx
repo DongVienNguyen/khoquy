@@ -425,66 +425,61 @@ export default function AssetEntryPage() {
     setAiStatus({ stage: "starting", progress: 0, total: files.length, detail: "Đang chuẩn bị xử lý hình ảnh..." });
     setMessage({ type: "", text: "" });
     try {
-      const allCodes: string[] = [];
-      let detectedRoom = "";
+      // Convert files to base64 data URLs to send to Edge Function
+      const toDataUrl = (f: File) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("Không đọc được file"));
+          reader.readAsDataURL(f);
+        });
+
+      const images: string[] = [];
       let index = 0;
       for (const file of files) {
         index += 1;
-        setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang tải ảnh ${index}/${files.length}...` });
-        const { file_url } = await UploadFile({ file });
-
-        setAiStatus({ stage: "extracting", progress: index - 1, total: files.length, detail: `Đang đọc mã từ ảnh ${index}/${files.length}...` });
-        const result = await ExtractDataFromUploadedFile({
-          file_url,
-          json_schema: { type: "object", properties: { text_content: { type: "string" } } },
-        });
-
-        if (result.status === "success" && result.output?.text_content) {
-          const rawText = result.output.text_content || "";
-          const compactText = rawText.replace(/\s+/g, "");
-          const matchesRaw = rawText.match(/(0424\d+|0423\d+)/g) || [];
-          const matchesCompact = compactText.match(/(0424\d+|0423\d+)/g) || [];
-          const matches = Array.from(new Set([...matchesRaw, ...matchesCompact]));
-          for (const match of matches) {
-            if (match.length >= 10) {
-              const prefix7 = match.substring(0, 7);
-              const prefix6 = match.substring(0, 6);
-              let room = "";
-              if (prefix7 === "0424201") room = "CMT8";
-              else if (prefix7 === "0424202") room = "NS";
-              else if (prefix7 === "0424203") room = "ĐS";
-              else if (prefix7 === "0424204") room = "LĐH";
-              else if (prefix6 === "042300") room = "DVKH";
-              else if (prefix6 === "042410") room = "QLN";
-
-              if (room && (!detectedRoom || detectedRoom === room)) {
-                detectedRoom = room;
-                const year = match.slice(-10, -8);
-                const code = parseInt(match.slice(-4), 10);
-                const formatted = `${code}.${year}`;
-                if (isAssetValid(formatted)) {
-                  allCodes.push(formatted);
-                }
-              }
-            }
-          }
-        }
-        setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã xử lý ${index}/${files.length} ảnh` });
+        setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang chuẩn bị ảnh ${index}/${files.length}...` });
+        const dataUrl = await toDataUrl(file);
+        images.push(dataUrl);
+        setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã nạp ${index}/${files.length} ảnh` });
       }
 
-      if (allCodes.length === 0) {
+      setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang phân tích bằng AI..." });
+      const { data, error } = await supabase.functions.invoke("ai-extract-asset-codes", {
+        body: { images },
+        headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+      });
+
+      if (error) {
+        setAiStatus({ stage: "error", progress: 0, total: files.length, detail: "AI lỗi khi phân tích hình ảnh." });
+        setMessage({ type: "error", text: error.message || "AI lỗi khi phân tích hình ảnh." });
+        return;
+      }
+
+      const payload: any = data?.data ?? data;
+      const aiRoom: string | null = payload?.room || null;
+      const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
+
+      if (!aiCodes.length) {
         setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: "Không tìm thấy mã tài sản hợp lệ." });
         setMessage({ type: "error", text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh." });
         return;
       }
 
-      const uniqueCodes = Array.from(new Set(allCodes));
-      if (detectedRoom) handleRoomChange(detectedRoom);
+      const uniqueCodes = Array.from(new Set(aiCodes)).filter((formatted) => isAssetValid(formatted));
+      if (!uniqueCodes.length) {
+        setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: "Không tìm thấy mã hợp lệ theo định dạng." });
+        setMessage({ type: "error", text: "Không tìm thấy mã hợp lệ theo định dạng X.YY." });
+        return;
+      }
+
+      if (aiRoom) handleRoomChange(aiRoom);
       setMultipleAssets((prev) => {
         const existing = prev.filter((a) => a.trim());
         const merged = Array.from(new Set([...existing, ...uniqueCodes]));
         return merged.length > 0 ? merged : [""];
       });
+
       setIsImageDialogOpen(false);
       setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.` });
       setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });

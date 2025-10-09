@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import StatsOverview from "@/components/management/StatsOverview";
+import AISettingsTab from "@/components/management/AISettingsTab";
 
 type SafeStaff = {
   id: string;
@@ -267,7 +268,7 @@ export default function ManagementPage() {
   const [message, setMessage] = useState<{ type: "" | "success" | "error" | "info"; text: string }>({ type: "", text: "" });
 
   // Tabs
-  const [tab, setTab] = useState<"stats" | "data" | "overview">("stats");
+  const [tab, setTab] = useState<"stats" | "data" | "overview" | "ai">("stats");
 
   // Data tab states
   const [selectedEntity, setSelectedEntity] = useState<string>("");
@@ -1180,6 +1181,9 @@ export default function ManagementPage() {
         <Button variant={tab === "overview" ? "default" : "outline"} onClick={() => setTab("overview")} className="flex items-center gap-2">
           <Database className="w-4 h-4" /> Tổng quan & Cài đặt
         </Button>
+        <Button variant={tab === "ai" ? "default" : "outline"} onClick={() => setTab("ai")} className="flex items-center gap-2">
+          <Settings className="w-4 h-4" /> AI Setting
+        </Button>
       </div>
 
       {tab === "stats" && (
@@ -1497,6 +1501,12 @@ export default function ManagementPage() {
 
           <input ref={fileInputRef} type="file" accept=".csv" onChange={handleImportCSV} className="hidden" />
           <input ref={backupFileInputRef} type="file" accept="application/json,.json" onChange={handleRestoreBackup} className="hidden" />
+        </div>
+      )}
+
+      {tab === "ai" && (
+        <div className="space-y-6">
+          <AISettingsTab />
         </div>
       )}
 
