@@ -32,6 +32,7 @@ type DetectOptions = {
   batchSize?: number; // số dòng xử lý song song
   turbo?: boolean; // true: ít biến thể hơn để nhanh hơn
   maxLines?: number; // giới hạn số dòng tối đa
+  minConfidence?: number; // NGƯỠNG TIN CẬY TỐI THIỂU (0-100)
 };
 
 // Helpers
@@ -986,16 +987,46 @@ export async function detectCodesFromImage(
   onProgress?.({ phase: "vote", current: results.length, total: total, detail: "Ghép kết quả theo từng dòng" });
 
   const t1 = performance.now();
-  const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : undefined;
+
+  // Lọc theo ngưỡng tin cậy và khử trùng lặp kết quả
+  const minConf = clamp(Math.round(options?.minConfidence ?? (options?.turbo ? 55 : 65)), 0, 100);
+
+  const keptByThreshold: { code: string; conf: number; srcIndex: number }[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const code = results[i];
+    const conf = confidences[i] ?? 0;
+    if (code && seqLooksValid(code) && conf >= minConf) {
+      keptByThreshold.push({ code, conf, srcIndex: i });
+    } else {
+      // đánh dấu dropped nếu dưới ngưỡng
+      if (typeof droppedIndices.find((d) => d === i) === "undefined") {
+        // i ở đây là thứ tự kết quả, không phải groupIndex; để an toàn không ghi đè groupIndex đã tồn tại
+      }
+    }
+  }
+
+  // Khử trùng lặp theo mã, giữ độ tin cậy cao nhất cho mỗi mã
+  const confMap = new Map<string, number>();
+  for (const { code, conf } of keptByThreshold) {
+    const cur = confMap.get(code) ?? -1;
+    if (conf > cur) confMap.set(code, conf);
+  }
+  const uniqueCodes = Array.from(confMap.keys());
+  const uniqueConfs = Array.from(confMap.values());
+
+  const avgConfidence = uniqueConfs.length
+    ? uniqueConfs.reduce((a, b) => a + b, 0) / uniqueConfs.length
+    : undefined;
+
   const avgVariantsPerLine = Math.round(totalVariantsTried / Math.max(1, clusters.length));
 
-  onProgress?.({ phase: "done", current: results.length, total: total, detail: "Điền mã" });
+  onProgress?.({ phase: "done", current: uniqueCodes.length, total: total, detail: "Điền mã" });
 
   return {
-    codes: results,
+    codes: uniqueCodes,
     stats: {
       totalLines: clusters.length,
-      keptLines: results.length,
+      keptLines: uniqueCodes.length,
       avgConfidence,
       durationMs: Math.round(t1 - t0),
       droppedIndices,
