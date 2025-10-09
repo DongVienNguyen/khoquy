@@ -450,10 +450,12 @@ function deskewBySearch(baseCanvas: HTMLCanvasElement): HTMLCanvasElement {
   const blurred = boxBlur(grayData);
   let bestScore = -1;
   let bestCanvas = baseCanvas;
-  for (let ang = -5; ang <= 5; ang += 0.5) {
+  for (let ang = -6; ang <= 6; ang += 0.5) {
     const rotated = rotateCanvas(baseCanvas, ang);
     const rd = toGrayscale(getImageData(rotated));
-    const bin = threshold(rd, 170);
+    const rb = boxBlur(rd);
+    const t = otsuThreshold(rb);
+    const bin = threshold(rb, t);
     const s = scoreProjectionSharpness(bin);
     if (s > bestScore) {
       bestScore = s;
@@ -589,11 +591,10 @@ export async function detectCodesFromImage(
 
     const PSM7 = 7;
     const PSM11 = 11;
-    // Thử thêm các PSM khi không bật Turbo để đa dạng chiến lược:
     const PSM6 = 6;   // single block of text
     const PSM13 = 13; // raw line
 
-    // Run OCR in parallel for each variant × 2/4 PSM
+    // Run OCR with controlled concurrency: prevents CPU/memory spikes
     const jobs: Promise<OCRCandidate>[] = [];
     for (const c of canvases) {
       jobs.push(ocrOne(c, PSM7));
@@ -603,7 +604,12 @@ export async function detectCodesFromImage(
         jobs.push(ocrOne(c, PSM13));
       }
     }
-    const candsRaw = await Promise.all(jobs);
+    const limit = turbo ? 4 : 8; // fewer parallel jobs on Turbo; more on precise mode
+    const candsRaw: OCRCandidate[] = [];
+    for (let i = 0; i < jobs.length; i += limit) {
+      const partial = await Promise.all(jobs.slice(i, i + limit));
+      candsRaw.push(...partial);
+    }
 
     // Normalize and filter candidates
     const normalizedStrings = candsRaw
