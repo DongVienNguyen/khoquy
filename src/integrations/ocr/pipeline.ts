@@ -573,6 +573,56 @@ function votePerCharWeighted(strings: string[], weights: number[]): string | nul
   return outChars.join("");
 }
 
+function buildIntegral(gray: ImageData): { ii: Float64Array; width: number; height: number } {
+  const { width, height, data } = gray;
+  const ii = new Float64Array(width * height);
+  const idx = (x: number, y: number) => y * width + x;
+  for (let y = 0; y < height; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < width; x++) {
+      const iData = (y * width + x) * 4;
+      const val = data[iData]; // grayscale in R
+      rowSum += val;
+      ii[idx(x, y)] = rowSum + (y > 0 ? ii[idx(x, y - 1)] : 0);
+    }
+  }
+  return { ii, width, height };
+}
+
+function sumRect(ii: Float64Array, width: number, x0: number, y0: number, x1: number, y1: number): number {
+  const idx = (x: number, y: number) => y * width + x;
+  const A = x0 > 0 && y0 > 0 ? ii[idx(x0 - 1, y0 - 1)] : 0;
+  const B = y0 > 0 ? ii[idx(x1, y0 - 1)] : 0;
+  const C = x0 > 0 ? ii[idx(x0 - 1, y1)] : 0;
+  const D = ii[idx(x1, y1)];
+  return D - B - C + A;
+}
+
+function adaptiveThreshold(gray: ImageData, win: number, C: number): ImageData {
+  const { width, height } = gray;
+  const out = new ImageData(width, height);
+  const o = out.data;
+  const { ii } = buildIntegral(gray);
+  const half = Math.max(1, Math.floor(win / 2));
+  for (let y = 0; y < height; y++) {
+    const y0 = clamp(y - half, 0, height - 1);
+    const y1 = clamp(y + half, 0, height - 1);
+    for (let x = 0; x < width; x++) {
+      const x0 = clamp(x - half, 0, width - 1);
+      const x1 = clamp(x + half, 0, width - 1);
+      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const sum = sumRect(ii, width, x0, y0, x1, y1);
+      const mean = sum / area;
+      const iData = (y * width + x) * 4;
+      const val = gray.data[iData];
+      const bin = val > mean - C ? 255 : 0;
+      o[iData] = o[iData + 1] = o[iData + 2] = bin;
+      o[iData + 3] = 255;
+    }
+  }
+  return out;
+}
+
 async function ocrOne(canvas: HTMLCanvasElement, psm: number): Promise<OCRCandidate> {
   const { data } = await Tesseract.recognize(canvas, "eng", {
     tessedit_char_whitelist: "0123456789",
@@ -581,7 +631,7 @@ async function ocrOne(canvas: HTMLCanvasElement, psm: number): Promise<OCRCandid
     preserve_interword_spaces: "0",
     tessedit_pageseg_mode: String(psm),
     psm: String(psm),
-    // Ưu tiên số, giảm ảnh hưởng từ điển
+    oem: "1", // LSTM-only for better digit accuracy
     classify_bln_numeric_mode: "1",
     load_system_dawg: "F",
     load_freq_dawg: "F",
@@ -702,20 +752,20 @@ function cropDigitCanvases(srcCanvas: HTMLCanvasElement, digitBoxes: { x: number
 }
 
 async function ocrDigitBest(c: HTMLCanvasElement, turbo: boolean): Promise<{ ch: string | null; conf: number; tried: number }> {
-  // Nhận dạng ký tự đơn với numeric-only
   const jobs: Promise<OCRCandidate>[] = [];
-  // Chuẩn bị biến thể nhẹ nhàng
   const gray = toGrayscale(getImageData(c));
   const grayEnhanced = enhanceContrast(gray, 0.03, 0.97);
   const tOtsu = otsuThreshold(grayEnhanced);
   const binOtsu = threshold(grayEnhanced, tOtsu);
   const binClosed = closing(binOtsu);
+  const binAdaptive = adaptiveThreshold(grayEnhanced, Math.max(11, Math.floor(c.height * 0.05)), 10);
+  const binAdaptiveClosed = closing(binAdaptive);
 
   const cv1 = createCanvas(c.width, c.height); putImageData(cv1, grayEnhanced);
-  const cv2 = createCanvas(c.width, c.height); putImageData(cv2, binOtsu);
-  const cv3 = createCanvas(c.width, c.height); putImageData(cv3, binClosed);
+  const cv2 = createCanvas(c.width, c.height); putImageData(cv2, binClosed);
+  const cv3 = createCanvas(c.width, c.height); putImageData(cv3, binAdaptiveClosed);
 
-  const PSM10 = 10; // single character
+  const PSM10 = 10;
   const variants = turbo ? [cv2, cv3] : [cv1, cv2, cv3];
   for (const v of variants) {
     jobs.push(ocrOne(v, PSM10));
@@ -807,19 +857,20 @@ export async function detectCodesFromImage(
   // helper xử lý 1 dòng
   const processOne = async (roi: HTMLCanvasElement) => {
     let variantsTried = 0;
-
-    // Tăng scale để rõ nét ký tự số hơn
     const targetH = 128;
     const roiScaled = scaleCanvas(roi, targetH);
 
     const roiGray = toGrayscale(getImageData(roiScaled));
     const roiGrayEnhanced = enhanceContrast(roiGray, 0.03, 0.97);
-    const roiGrayCanvas = createCanvas(roiScaled.width, roiScaled.height);
-    putImageData(roiGrayCanvas, roiGrayEnhanced);
 
     const tOtsuRoiE = otsuThreshold(roiGrayEnhanced);
     const roiBinOtsu = threshold(roiGrayEnhanced, tOtsuRoiE);
     const roiBinClosed = closing(roiBinOtsu);
+
+    // Adaptive threshold (cục bộ)
+    const win = Math.max(15, Math.floor(roiScaled.height * 0.04));
+    const roiBinAdaptive = adaptiveThreshold(roiGrayEnhanced, win, 10);
+    const roiBinAdaptiveClosed = closing(roiBinAdaptive);
 
     // 1) Khảo sát nhanh (PSM13) để kiểm tra có '042'
     const quickCanvas = createCanvas(roiScaled.width, roiScaled.height);
@@ -827,17 +878,14 @@ export async function detectCodesFromImage(
     const quickCand = await ocrOne(quickCanvas, 13);
     variantsTried += 1;
     const quickSeq = extractPrefixedSequence(normalizeDigits(quickCand.raw));
-
     if (!quickSeq) {
-      // Không có '042' -> bỏ qua sớm
       return { chosenStr: null as string | null, chosenConf: 0, variantsTried };
     }
-    // Nếu chuỗi trông hợp lệ và độ tin cậy tốt: chấp nhận luôn
     if (seqLooksValid(quickSeq) && (quickCand.confidence || 0) >= (options?.turbo ? 60 : 75)) {
       return { chosenStr: quickSeq, chosenConf: quickCand.confidence || (options?.turbo ? 60 : 75), variantsTried };
     }
 
-    // 2) Nhận dạng chi tiết khi đã biết có '042'
+    // 2) Nhận dạng chi tiết theo dòng với thêm biến thể adaptive
     const roiGamma08 = applyGamma(roiGrayEnhanced, 0.8);
     const roiGamma12 = applyGamma(roiGrayEnhanced, 1.2);
     const roiBin160 = threshold(roiGrayEnhanced, 160);
@@ -850,25 +898,26 @@ export async function detectCodesFromImage(
     };
 
     if (options?.turbo) {
-      // Turbo: ít biến thể để nhanh
       pushDataCanvas(roiGrayEnhanced);
       pushDataCanvas(roiBinOtsu);
-      pushDataCanvas(roiBin160);
+      pushDataCanvas(roiBinAdaptiveClosed);
     } else {
-      // Non-turbo: thêm gamma & Otsu để tăng cơ hội đúng
       pushDataCanvas(roiGrayEnhanced);
       pushDataCanvas(roiGamma08);
       pushDataCanvas(roiGamma12);
       pushDataCanvas(roiBinOtsu);
+      pushDataCanvas(roiBinAdaptiveClosed);
       pushDataCanvas(roiBin160);
     }
 
     const PSM7 = 7;
+    const PSM8 = 8;  // single word
     const PSM11 = 11;
 
     const jobs: Promise<OCRCandidate>[] = [];
     for (const c of canvases) {
       jobs.push(ocrOne(c, PSM7));
+      if (!options?.turbo) jobs.push(ocrOne(c, PSM8));
       jobs.push(ocrOne(c, PSM11));
     }
     const limit = options?.turbo ? 4 : 6;
@@ -879,7 +928,6 @@ export async function detectCodesFromImage(
       variantsTried += partial.length;
     }
 
-    // Lấy chuỗi và trọng số (confidence) cho weighted voting
     const candStrings: string[] = [];
     const candWeights: number[] = [];
     for (const c of candsRaw) {
@@ -896,30 +944,6 @@ export async function detectCodesFromImage(
     if (candStrings.length > 0) {
       const votedW = votePerCharWeighted(candStrings, candWeights);
       chosenStr = votedW || votePerChar(candStrings);
-
-      if (!chosenStr) {
-        const freq = new Map<string, { count: number; maxConf: number }>();
-        for (let i = 0; i < candStrings.length; i++) {
-          const s = candStrings[i];
-          const w = candWeights[i] || 0;
-          const f = freq.get(s) || { count: 0, maxConf: 0 };
-          f.count += 1;
-          f.maxConf = Math.max(f.maxConf, w);
-          freq.set(s, f);
-        }
-        let bestStr = "";
-        let bestCount = -1;
-        let bestConf = -1;
-        for (const [str, { count, maxConf }] of freq.entries()) {
-          if (count > bestCount || (count === bestCount && (str.length > bestStr.length || (str.length === bestStr.length && maxConf > bestConf)))) {
-            bestStr = str;
-            bestCount = count;
-            bestConf = maxConf;
-          }
-        }
-        chosenStr = bestStr || null;
-      }
-
       const matches = candsRaw.filter((c) => {
         const s = extractPrefixedSequence(normalizeDigits(c.raw));
         return s && s === chosenStr;
@@ -927,10 +951,17 @@ export async function detectCodesFromImage(
       chosenConf = matches.length ? matches.reduce((a, b) => a + (b.confidence || 0), 0) / matches.length : 0;
     }
 
-    // 3) Nếu độ tin cậy chưa đủ, thử nhận dạng theo từng ký tự số (PSM10)
+    // 3) Nếu chưa đủ tin cậy, thử nhận dạng từng ký tự, chọn binary tốt hơn (Otsu vs Adaptive)
     if (!chosenStr || chosenConf < (options?.turbo ? 65 : 75)) {
-      const digitBoxes = segmentDigitBoxes(roiBinClosed);
-      // Yêu cầu tối thiểu 12 ký tự (042 + 9 số) và tối đa 20 để hợp lý
+      const boxesOtsu = segmentDigitBoxes(roiBinClosed);
+      const boxesAdp = segmentDigitBoxes(roiBinAdaptiveClosed);
+      let digitBoxes = boxesOtsu;
+      if (
+        (boxesAdp.length >= 12 && boxesAdp.length <= 20) ||
+        boxesAdp.length > boxesOtsu.length
+      ) {
+        digitBoxes = boxesAdp;
+      }
       if (digitBoxes.length >= 12 && digitBoxes.length <= 20) {
         const digitCanvases = cropDigitCanvases(roiScaled, digitBoxes);
         const digits: string[] = [];
@@ -950,13 +981,16 @@ export async function detectCodesFromImage(
       }
     }
 
-    // 4) Fallback nhẹ khi vẫn chưa đủ tin cậy: thử biến thể blur+threshold
+    // 4) Fallback nhẹ khi vẫn chưa đủ tin cậy: blur + adaptive/otsu close
     if (!chosenStr || chosenConf < 60) {
       const roiBlurred = boxBlur(roiGrayEnhanced);
-      const roiBinAlt = closing(threshold(roiBlurred, Math.max(100, tOtsuRoiE - 10)));
-      const altCanvas = createCanvas(roiScaled.width, roiScaled.height);
-      putImageData(altCanvas, roiBinAlt);
-      const altCands = await Promise.all([ocrOne(altCanvas, PSM7), ocrOne(altCanvas, PSM11)]);
+      const altBinOtsu = closing(threshold(roiBlurred, Math.max(100, tOtsuRoiE - 10)));
+      const altBinAdp = closing(adaptiveThreshold(roiBlurred, win, 12));
+      const altCanvas1 = createCanvas(roiScaled.width, roiScaled.height);
+      const altCanvas2 = createCanvas(roiScaled.width, roiScaled.height);
+      putImageData(altCanvas1, altBinOtsu);
+      putImageData(altCanvas2, altBinAdp);
+      const altCands = await Promise.all([ocrOne(altCanvas1, PSM7), ocrOne(altCanvas2, PSM7), ocrOne(altCanvas1, PSM11), ocrOne(altCanvas2, PSM11)]);
       variantsTried += altCands.length;
       const altStrings = altCands
         .map((c) => extractPrefixedSequence(normalizeDigits(c.raw)))
