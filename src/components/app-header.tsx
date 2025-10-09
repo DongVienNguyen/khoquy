@@ -111,7 +111,7 @@ const AppHeader: React.FC = () => {
               <DropdownMenuItem disabled>
                 <Archive className="mr-2" /> Tài sản khác gửi kho
               </DropdownMenuItem>
-              <DropdownMenuItem disabled>
+              <DropdownMenuItem onSelect={() => go("/management")}>
                 <Database className="mr-2" /> Quản lý dữ liệu
               </DropdownMenuItem>
               <DropdownMenuItem disabled>
