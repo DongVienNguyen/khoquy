@@ -502,9 +502,16 @@ export default function AssetEntryPage() {
         return merged.length > 0 ? merged : [""];
       });
 
+      // Inform about ambiguous codes if any
+      const needsCount = Number(payload?.needs_confirmation?.codes?.length || 0);
+      if (needsCount > 0) {
+        setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${payload?.needs_confirmation?.codes.join(", ")}).` });
+      } else {
+        setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
+      }
+
       setIsImageDialogOpen(false);
       setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.` });
-      setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
     } catch (_err) {
       setAiStatus({ stage: "error", progress: 0, total: 0, detail: "Có lỗi xảy ra khi xử lý hình ảnh." });
       setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
