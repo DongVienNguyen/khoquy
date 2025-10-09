@@ -73,16 +73,21 @@ function base64Size(base64: string): number {
 }
 
 function normalizeText(input: string): string {
-  return input.replace(/\r/g, "").trim();
+  return input
+    .replace(/\r/g, "")
+    .replace(/[|_,]/g, " ")
+    .replace(/[–—]/g, "-")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function mapConfusableChars(input: string): string {
-  // Fallback mapping common OCR confusions
+  // Bổ sung kháng lỗi chữ thường
   return input
     .replace(/[Oo]/g, "0")
     .replace(/[Il]/g, "1")
-    .replace(/S/g, "5")
-    .replace(/Z/g, "2");
+    .replace(/[Ss]/g, "5")
+    .replace(/[Zz]/g, "2");
 }
 
 function extractCodesFromText(text: string): { codes: string[]; lines_count: number; candidates_count: number } {
@@ -93,19 +98,36 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
   const codes = new Set<string>();
   let candidates_count = 0;
 
-  // Strategy 1: direct matches like X.YY
-  const directMatches = normalized.match(/\b(\d{1,4}\.\d{2})\b/g) || [];
-  for (const m of directMatches) {
-    const [codePart, yearPart] = m.split(".");
-    const codeNum = parseInt(codePart, 10);
-    const yearNum = parseInt(yearPart, 10);
+  // Strategy 1a: dạng chuẩn X.YY
+  const direct = /\b(\d{1,4})\.(\d{2})\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = direct.exec(normalized)) !== null) {
+    const codeNum = parseInt(m[1], 10);
+    const yearNum = parseInt(m[2], 10);
     if (Number.isFinite(codeNum) && codeNum >= 1 && codeNum <= 9999 && Number.isFinite(yearNum) && yearNum >= 20 && yearNum <= 99) {
-      codes.add(`${codeNum}.${String(yearNum).padStart(2, "0")}`);
-      candidates_count++;
+      const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
+      if (!codes.has(v)) {
+        codes.add(v);
+        candidates_count++;
+      }
     }
   }
 
-  // Strategy 2: long numeric sequences (>=12 chars)
+  // Strategy 1b: hỗ trợ separator linh hoạt (. - / _ hoặc khoảng trắng) và tiền tố TS tùy chọn
+  const flexible = /\b(?:TS[\s:\-]*)?(\d{1,4})[\s.\-\/_]{1,3}(\d{2})\b/gi;
+  while ((m = flexible.exec(normalized)) !== null) {
+    const codeNum = parseInt(m[1], 10);
+    const yearNum = parseInt(m[2], 10);
+    if (Number.isFinite(codeNum) && codeNum >= 1 && codeNum <= 9999 && Number.isFinite(yearNum) && yearNum >= 20 && yearNum <= 99) {
+      const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
+      if (!codes.has(v)) {
+        codes.add(v);
+        candidates_count++;
+      }
+    }
+  }
+
+  // Strategy 2: chuỗi số dài (>=12) theo quy tắc đặc tả
   const longSeqs = normalized.match(/\d{12,}/g) || [];
   for (const s of longSeqs) {
     if (s.length < 12) continue;
@@ -115,11 +137,14 @@ function extractCodesFromText(text: string): { codes: string[]; lines_count: num
     const yearNum = parseInt(year, 10);
     if (!Number.isFinite(codeNum) || codeNum <= 0) continue;
     if (!Number.isFinite(yearNum) || yearNum < 20 || yearNum > 99) continue;
-    codes.add(`${codeNum}.${String(yearNum).padStart(2, "0")}`);
-    candidates_count++;
+    const v = `${codeNum}.${String(yearNum).padStart(2, "0")}`;
+    if (!codes.has(v)) {
+      codes.add(v);
+      candidates_count++;
+    }
   }
 
-  // De-dup and sort by (year, code)
+  // De-dup & sort: tăng dần theo year rồi code
   const sorted = Array.from(codes);
   sorted.sort((a, b) => {
     const [ca, ya] = a.split(".");
