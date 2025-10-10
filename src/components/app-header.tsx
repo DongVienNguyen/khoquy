@@ -118,7 +118,7 @@ const AppHeader: React.FC = () => {
                     <DropdownMenuItem disabled>
                       <ClipboardCheck className="mr-2" /> Nhắc duyệt CRC
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled>
+                    <DropdownMenuItem onSelect={() => go("/borrow-report")}>
                       <BarChart3 className="mr-2" /> Báo cáo TS đã mượn
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled>
