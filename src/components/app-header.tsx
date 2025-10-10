@@ -55,6 +55,17 @@ const AppHeader: React.FC = () => {
   const pathname = usePathname();
   const router = useRouter();
   const initial = useUserInitial();
+  const [roleDept, setRoleDept] = React.useState<{ role?: string; dept?: string }>({});
+
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("loggedInStaff");
+      if (raw) {
+        const s = JSON.parse(raw) as { role?: string; department?: string };
+        setRoleDept({ role: s.role, dept: s.department });
+      }
+    } catch {}
+  }, []);
 
   // Ẩn header ở trang đăng nhập
   if (pathname === "/sign-in") return null;
@@ -63,6 +74,8 @@ const AppHeader: React.FC = () => {
   const handleLogout = () => {
     router.replace("/sign-out");
   };
+  const isQLNUser = roleDept.role === "user" && roleDept.dept === "QLN";
+  const isNQUser = roleDept.role === "user" && roleDept.dept === "NQ";
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur">
@@ -76,46 +89,52 @@ const AppHeader: React.FC = () => {
             <Package className="h-5 w-5" />
           </Link>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-2">
-                Menu
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel>Điều hướng</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => go("/asset-entry")}>
-                <Package className="mr-2" /> Thông báo Mượn/Xuất
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => go("/daily-report")}>
-                <FileText className="mr-2" /> Danh sách TS cần lấy
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>
-                <Timer className="mr-2" /> Theo dõi TS gửi tạm
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <Clock className="mr-2" /> Nhắc tài sản đến hạn
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <ClipboardCheck className="mr-2" /> Nhắc duyệt CRC
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <BarChart3 className="mr-2" /> Báo cáo TS đã mượn
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <Archive className="mr-2" /> Tài sản khác gửi kho
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => go("/management")}>
-                <Database className="mr-2" /> Quản lý dữ liệu
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <Bug className="mr-2" /> Báo lỗi ứng dụng
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {!isQLNUser && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="gap-2">
+                  Menu
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuLabel>Điều hướng</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => go("/asset-entry")}>
+                  <Package className="mr-2" /> Thông báo Mượn/Xuất
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => go("/daily-report")}>
+                  <FileText className="mr-2" /> Danh sách TS cần lấy
+                </DropdownMenuItem>
+                {!isNQUser && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabled>
+                      <Timer className="mr-2" /> Theo dõi TS gửi tạm
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      <Clock className="mr-2" /> Nhắc tài sản đến hạn
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      <ClipboardCheck className="mr-2" /> Nhắc duyệt CRC
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      <BarChart3 className="mr-2" /> Báo cáo TS đã mượn
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      <Archive className="mr-2" /> Tài sản khác gửi kho
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => go("/management")}>
+                      <Database className="mr-2" /> Quản lý dữ liệu
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      <Bug className="mr-2" /> Báo lỗi ứng dụng
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

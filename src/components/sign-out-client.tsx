@@ -20,6 +20,15 @@ const SignOutClient: React.FC = () => {
         cookieParts.push("Secure");
       }
       document.cookie = cookieParts.join("; ");
+      
+      // Clear cookie hạn chế vai trò/phòng ban
+      const kill = (name: string) => {
+        const parts = [`${name}=`, "Max-Age=0", "path=/", "SameSite=Lax"];
+        if (typeof window !== "undefined" && window.location.protocol === "https:") parts.push("Secure");
+        document.cookie = parts.join("; ");
+      };
+      kill("staffRole");
+      kill("staffDept");
     } catch {}
     router.replace("/sign-in");
   }, [router]);

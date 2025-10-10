@@ -151,6 +151,13 @@ export default function SignInPage() {
       if (payload?.ok) {
         const staff: SafeStaff = payload.data;
         localStorage.setItem("loggedInStaff", JSON.stringify(staff));
+        // Set cookie cho middleware
+        try {
+          const cookieBase = ["path=/", "SameSite=Lax"];
+          if (typeof window !== "undefined" && window.location.protocol === "https:") cookieBase.push("Secure");
+          document.cookie = [`staffRole=${encodeURIComponent(staff.role)}`, ...cookieBase].join("; ");
+          document.cookie = [`staffDept=${encodeURIComponent(staff.department || "")}`, ...cookieBase].join("; ");
+        } catch {}
         toast.success("Đăng nhập thành công");
         const target = staff?.department === "NQ" ? "/daily-report" : "/asset-entry";
         router.replace(target);

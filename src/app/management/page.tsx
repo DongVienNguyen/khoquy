@@ -231,6 +231,7 @@ const entityConfig: Record<string, EntityConfigItem> = {
     name: "Nhân viên",
     defaultSort: "-updated_date",
     fields: [
+      { key: "id", label: "ID", type: "text" },
       { key: "username", label: "Tên đăng nhập", type: "text" },
       { key: "password", label: "Mật khẩu", type: "password" },
       { key: "staff_name", label: "Tên nhân viên", type: "text" },
@@ -238,9 +239,13 @@ const entityConfig: Record<string, EntityConfigItem> = {
       { key: "role", label: "Quyền", type: "select", options: ["admin", "user"] },
       { key: "department", label: "Phòng ban", type: "text" },
       { key: "account_status", label: "Trạng thái", type: "select", options: ["active", "locked"] },
+      { key: "link_enabled", label: "Bật link", type: "select", options: ["true", "false"] },
       { key: "failed_login_attempts", label: "Số lần sai", type: "number" },
       { key: "last_failed_login", label: "Sai cuối", type: "datetime-local" },
       { key: "locked_at", label: "Khóa lúc", type: "datetime-local" },
+      { key: "created_date", label: "Tạo lúc", type: "datetime-local" },
+      { key: "updated_date", label: "Cập nhật lúc", type: "datetime-local" },
+      { key: "created_by", label: "Tạo bởi", type: "text" },
     ],
   },
 };
@@ -654,7 +659,8 @@ export default function ManagementPage() {
     if (!config) return;
     const dataToSave: Record<string, any> = { ...formData };
     config.fields.forEach(field => {
-      if (field.type === "select" && ["is_done", "is_read", "is_deleted"].includes(field.key)) {
+      // Chuẩn hóa boolean cho các select dùng true/false (bao gồm link_enabled)
+      if (field.type === "select" && Array.isArray(field.options) && field.options.includes("true") && field.options.includes("false")) {
         if (dataToSave[field.key] === "true") dataToSave[field.key] = true;
         else if (dataToSave[field.key] === "false") dataToSave[field.key] = false;
         else if (dataToSave[field.key] === "") dataToSave[field.key] = null;
@@ -784,7 +790,7 @@ export default function ManagementPage() {
               }
               item[key] = v || null;
             } else if (field.type === "datetime-local") item[key] = v || null;
-            else if (field.type === "select" && ["is_done", "is_read", "is_deleted"].includes(field.key)) item[key] = v.toLowerCase() === "true";
+            else if (field.type === "select" && Array.isArray(field.options) && field.options.includes("true") && field.options.includes("false")) item[key] = v.toLowerCase() === "true";
             else if (field.type === "json") {
               try { item[key] = v ? JSON.parse(v) : null; } catch { item[key] = v || null; }
             } else item[key] = v === "" ? null : v;
