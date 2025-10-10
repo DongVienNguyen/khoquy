@@ -39,6 +39,8 @@ export default function CRCRemindersPage() {
   const [showProgress, setShowProgress] = useState(false);
   const [isBgRefreshing, setIsBgRefreshing] = useState(false);
   const [searchText, setSearchText] = useState("");
+  const [editingReminder, setEditingReminder] = useState<CRCReminder | null>(null);
+  const [editingSentReminder, setEditingSentReminder] = useState<SentCRCReminder | null>(null);
 
   const [newReminder, setNewReminder] = useState<Partial<CRCReminder>>({
     loai_bt_crc: "",
@@ -182,11 +184,23 @@ export default function CRCRemindersPage() {
   }, [newReminder, isValidDdMm, loadReminders]);
 
   const editReminder = useCallback((r: CRCReminder) => {
-    setNewReminder({ ...r });
+    setEditingReminder(r);
+    setEditingSentReminder(null);
+    setNewReminder({
+      loai_bt_crc: r.loai_bt_crc,
+      ngay_thuc_hien: r.ngay_thuc_hien,
+      ldpcrc: r.ldpcrc || "",
+      cbcrc: r.cbcrc || "",
+      quycrc: r.quycrc || "",
+      // giữ id để xác định cập nhật
+      id: r.id as any,
+    });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   const cancelEdit = useCallback(() => {
+    setEditingReminder(null);
+    setEditingSentReminder(null);
     setNewReminder({ loai_bt_crc: "", ngay_thuc_hien: format(new Date(), "dd-MM"), ldpcrc: "", cbcrc: "", quycrc: "" });
   }, []);
 
@@ -367,7 +381,7 @@ export default function CRCRemindersPage() {
         <Card className="border-0 shadow-xl shadow-slate-100/50">
           <CardHeader className="bg-gradient-to-r from-slate-50 to-purple-50 border-b border-slate-200">
             <CardTitle className="text-lg font-semibold text-slate-800">
-              {(newReminder as any).id ? "Chỉnh sửa" : "Thêm"} nhắc nhở CRC
+              {editingReminder ? "Chỉnh sửa" : editingSentReminder ? "Tạo nhắc nhở mới" : (newReminder as any).id ? "Chỉnh sửa" : "Thêm"} nhắc nhở CRC
             </CardTitle>
           </CardHeader>
           <CardContent className="p-6">
@@ -442,7 +456,7 @@ export default function CRCRemindersPage() {
                 <Button type="button" onClick={clearForm} variant="outline" tabIndex={-1}>
                   Làm mới Form
                 </Button>
-                {(newReminder as any).id && (
+                {(editingReminder || editingSentReminder || (newReminder as any).id) && (
                   <Button type="button" onClick={cancelEdit} variant="outline" tabIndex={-1}>
                     Hủy
                   </Button>
@@ -454,7 +468,7 @@ export default function CRCRemindersPage() {
                   disabled={isSending}
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  {(newReminder as any).id ? "Cập nhật" : "Thêm"} nhắc nhở
+                  {editingReminder ? "Cập nhật" : editingSentReminder ? "Tạo nhắc nhở mới" : (newReminder as any).id ? "Cập nhật" : "Thêm"} nhắc nhở
                 </Button>
               </div>
             </form>
@@ -613,6 +627,8 @@ export default function CRCRemindersPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
+                                  setEditingSentReminder(reminder);
+                                  setEditingReminder(null);
                                   setNewReminder({
                                     loai_bt_crc: reminder.loai_bt_crc,
                                     ngay_thuc_hien: reminder.ngay_thuc_hien,
@@ -665,6 +681,67 @@ export default function CRCRemindersPage() {
         })()}
         currentUsername={currentUser?.username}
       />
+
+     {/* Keyboard shortcuts & Tab trap */}
+     {(() => {
+       const focusOrder = [loaiCRCRef, ngayThucHienRef, ldpcrcRef, cbcrcRef, quycrcRef, addButtonRef];
+       const focusByIndex = (idx: number) => {
+         const ref: any = focusOrder[(idx + focusOrder.length) % focusOrder.length];
+         if (ref && ref.current) {
+           const input = typeof ref.current.querySelector === "function" ? ref.current.querySelector("input") : null;
+           (input || ref.current).focus?.();
+         }
+       };
+       const findCurrentIndex = () => {
+         const ae = document.activeElement;
+         return focusOrder.findIndex((r: any) => {
+           if (!r || !r.current) return false;
+           if (r.current === ae) return true;
+           const input = typeof r.current.querySelector === "function" ? r.current.querySelector("input") : null;
+           return input && input === ae;
+         });
+       };
+       useEffect(() => {
+         const onKeyDown = (e: KeyboardEvent) => {
+           // Shortcuts
+           if (e.ctrlKey && e.shiftKey) {
+             const key = (e.key || "").toLowerCase();
+             if (key === "t") {
+               e.preventDefault();
+               (addButtonRef.current as any)?.click?.();
+               return;
+             }
+             if (key === "g") {
+               e.preventDefault();
+               sendToday();
+               return;
+             }
+           }
+           // Tab trap across our inputs/buttons
+           if (e.key === "Tab") {
+             const ae = document.activeElement as HTMLElement | null;
+             const acRoot = ae && (ae.closest?.("[data-autocomplete-root]") as HTMLElement | null);
+             const isAcOpen = acRoot && acRoot.getAttribute("data-open") === "true";
+             const isFocusedInForm =
+               focusOrder.some((r: any) => {
+                 if (!r || !r.current) return false;
+                 const input = typeof r.current.querySelector === "function" ? r.current.querySelector("input") : null;
+                 return r.current === ae || input === ae;
+               }) || addButtonRef.current === ae;
+             if (isFocusedInForm && !isAcOpen) {
+               e.preventDefault();
+               const cur = findCurrentIndex();
+               const dir = e.shiftKey ? -1 : 1;
+               if (cur === -1) focusByIndex(0);
+               else focusByIndex(cur + dir);
+             }
+           }
+         };
+         window.addEventListener("keydown", onKeyDown, true);
+         return () => window.removeEventListener("keydown", onKeyDown, true);
+       }, [sendToday]);
+       return null;
+     })()}
     </div>
   );
 }
