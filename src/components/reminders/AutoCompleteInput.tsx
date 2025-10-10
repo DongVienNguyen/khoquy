@@ -45,8 +45,12 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
               setHighlight(-1);
             }}
             onFocus={() => setOpen(true)}
-            onBlur={() => setTimeout(() => setOpen(false), 120)}
             onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setOpen(false);
+                return;
+              }
               if (!open) return;
               if (e.key === "ArrowDown") {
                 e.preventDefault();
@@ -75,7 +79,9 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
                   key={`${s}-${idx}`}
                   className={cn("w-full text-left px-3 py-2 text-sm hover:bg-accent", idx === highlight && "bg-accent")}
                   onMouseEnter={() => setHighlight(idx)}
-                  onClick={() => {
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault(); // tránh blur Input trước khi xử lý
                     onChange(s);
                     setOpen(false);
                   }}
