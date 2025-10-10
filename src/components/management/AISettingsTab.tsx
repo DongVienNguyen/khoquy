@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/client";
+import { Switch } from "@/components/ui/switch";
 
 type AISettings = {
   default_provider: "openrouter" | "custom";
@@ -17,6 +19,9 @@ type AISettings = {
   custom_api_key?: string | null;
   custom_base_url?: string | null;
   custom_model?: string | null;
+  // Thêm mới
+  external_sync_enabled?: boolean;
+  external_sync_interval_minutes?: number;
 };
 
 const AI_SETTINGS_KEY = "ai_settings_v1";
@@ -29,6 +34,9 @@ const defaults: AISettings = {
   custom_api_key: "",
   custom_base_url: "https://v98store.com",
   custom_model: "gpt-4o-mini",
+  // Thêm mặc định
+  external_sync_enabled: false,
+  external_sync_interval_minutes: 2,
 };
 
 export default function AISettingsTab() {
@@ -114,6 +122,24 @@ export default function AISettingsTab() {
 
   const setDefaultProvider = (p: "openrouter" | "custom") => {
     setSettings((prev) => ({ ...prev, default_provider: p }));
+  };
+
+  const syncNow = async () => {
+    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-asset-transactions", {
+        body: { date: todayStr },
+        headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+      });
+      if (error) {
+        toast.error("Đồng bộ thất bại.");
+        return;
+      }
+      const res: any = data?.data ?? data;
+      toast.success(`Đồng bộ xong: +${res?.inserted || 0} mới, ${res?.updated || 0} cập nhật, ${res?.skipped || 0} bỏ qua.`);
+    } catch (e: any) {
+      toast.error(e?.message || "Có lỗi khi gọi đồng bộ.");
+    }
   };
 
   if (isLoading) {
@@ -214,6 +240,57 @@ export default function AISettingsTab() {
               onChange={(e) => setSettings((prev) => ({ ...prev, custom_model: e.target.value }))}
               placeholder="gpt-4o-mini"
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Nhóm mới: Đồng bộ API AssetTransaction */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Đồng bộ API AssetTransaction</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <Label>Bật đồng bộ API</Label>
+              <p className="text-xs text-muted-foreground">
+                Chỉ đồng bộ dữ liệu NGÀY HÔM NAY (GMT+7). Không xóa, chỉ insert/update.
+              </p>
+            </div>
+            <Switch
+              checked={!!settings.external_sync_enabled}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({ ...prev, external_sync_enabled: checked }))
+              }
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Chu kỳ đồng bộ (phút)</Label>
+            <Select
+              value={String(settings.external_sync_interval_minutes ?? 2)}
+              onValueChange={(v) =>
+                setSettings((prev) => ({ ...prev, external_sync_interval_minutes: Number(v) }))
+              }
+            >
+              <SelectTrigger className="h-10">
+                <SelectValue placeholder="Chọn chu kỳ" />
+              </SelectTrigger>
+              <SelectContent>
+                {["1", "2", "3", "4", "5"].map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m} phút
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button onClick={syncNow} variant="outline" className="bg-blue-50 hover:bg-blue-100 text-blue-700">
+              Đồng bộ ngay
+            </Button>
+            <p className="text-xs text-muted-foreground">Bấm để chạy đồng bộ ngay lập tức.</p>
           </div>
         </CardContent>
       </Card>
