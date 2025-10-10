@@ -106,6 +106,9 @@ const AppHeader: React.FC = () => {
                 <DropdownMenuItem onSelect={() => go("/daily-report")}>
                   <FileText className="mr-2" /> Danh sách TS cần lấy
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => go("/other-assets")}>
+                  <Archive className="mr-2" /> Tài sản khác gửi kho
+                </DropdownMenuItem>
                 {!isNQUser && (
                   <>
                     <DropdownMenuSeparator />
@@ -120,9 +123,6 @@ const AppHeader: React.FC = () => {
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => go("/borrow-report")}>
                       <BarChart3 className="mr-2" /> Báo cáo TS đã mượn
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled>
-                      <Archive className="mr-2" /> Tài sản khác gửi kho
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => go("/management")}>
                       <Database className="mr-2" /> Quản lý dữ liệu
