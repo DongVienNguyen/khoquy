@@ -683,18 +683,30 @@ export default function CRCRemindersPage() {
         onTemplateChange={setEmailTemplate}
         sampleReminder={reminders[0] || { loai_bt_crc: "Nhập kho - 001 - HS ABC", ngay_thuc_hien: "01-01", ldpcrc: "Nguyễn Văn A", cbcrc: "Trần Thị B", quycrc: "Lê Văn C" }}
         recipientsBlock={(() => {
+          const norm = (t: string) =>
+            (t || "")
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .replace(/đ/g, "d")
+              .replace(/Đ/g, "d");
+          const findByName = <T extends { ten_nv: string }>(list: T[], name?: string) => {
+            if (!name) return undefined;
+            const n = norm(name);
+            return list.find(x => norm(x.ten_nv) === n);
+          };
           const sample = reminders[0] || { ldpcrc: "Nguyễn Văn A", cbcrc: "Trần Thị B", quycrc: "Lê Văn C" };
           const lines: string[] = [];
           if (sample.ldpcrc) {
-            const s = ldpcrcStaff.find(x => x.ten_nv === sample.ldpcrc);
+            const s = findByName(ldpcrcStaff, sample.ldpcrc);
             lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.ldpcrc}`);
           }
           if (sample.cbcrc) {
-            const s = cbcrcStaff.find(x => x.ten_nv === sample.cbcrc);
+            const s = findByName(cbcrcStaff, sample.cbcrc);
             lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.cbcrc}`);
           }
           if (sample.quycrc) {
-            const s = quycrcStaff.find(x => x.ten_nv === sample.quycrc);
+            const s = findByName(quycrcStaff, sample.quycrc);
             lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.quycrc}`);
           }
           return lines.join("<br/>");

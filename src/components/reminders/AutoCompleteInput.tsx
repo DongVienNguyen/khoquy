@@ -23,14 +23,22 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
     (s || "")
       .toLowerCase()
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/g, "d")
+      .replace(/Đ/g, "d");
 
   const filtered = useMemo(() => {
     const q = normalize(value || "");
     if (!q) return [];
-    return (suggestions || [])
-      .filter((s) => normalize(s).includes(q))
-      .slice(0, 10);
+    const scored = (suggestions || []).map((s) => {
+      const ns = normalize(s);
+      const starts = ns.startsWith(q) || ns.split(/\s+/).some((w) => w.startsWith(q));
+      const contains = ns.includes(q);
+      const score = starts ? 2 : contains ? 1 : 0;
+      return { s, score };
+    }).filter(x => x.score > 0);
+    scored.sort((a, b) => b.score - a.score || a.s.localeCompare(b.s));
+    return scored.slice(0, 10).map(x => x.s);
   }, [value, suggestions]);
 
   useImperativeHandle(ref, () => ({
