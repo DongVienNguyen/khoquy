@@ -128,6 +128,9 @@ export default function AssetEntryPage() {
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ stage: string; progress: number; total: number; detail: string }>({ stage: "", progress: 0, total: 0, detail: "" });
+  // 1) Hàng đợi ảnh chờ nhập
+  const [pendingImages, setPendingImages] = useState<File[]>([]);
+  const AI_MAX_IMAGES = 10;
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
   // Ẩn/Hiện toàn bộ khung tùy chọn ở trên (mặc định ẩn)
@@ -458,6 +461,24 @@ export default function AssetEntryPage() {
       reader.readAsDataURL(file);
     });
 
+  // Thêm tiện ích: gom và giới hạn số ảnh trong hàng đợi theo AI_MAX_IMAGES
+  const addPendingFiles = useCallback((files: File[]) => {
+    if (!files || files.length === 0) return;
+    setPendingImages((prev) => {
+      const room = AI_MAX_IMAGES - prev.length;
+      if (room <= 0) {
+        toast.error(`Tối đa ${AI_MAX_IMAGES} ảnh cho một lần nhập.`);
+        return prev;
+      }
+      const toAdd = files.slice(0, room);
+      const ignored = files.length - toAdd.length;
+      if (ignored > 0) {
+        toast.warning(`Đã đạt tối đa ${AI_MAX_IMAGES} ảnh. Bỏ qua ${ignored} ảnh.`);
+      }
+      return [...prev, ...toAdd];
+    });
+  }, []);
+
   const processImages = useCallback(async (files: File[]) => {
     setIsProcessingImage(true);
     setAiStatus({ stage: "starting", progress: 0, total: files.length, detail: "Đang chuẩn bị xử lý hình ảnh..." });
@@ -541,11 +562,56 @@ export default function AssetEntryPage() {
     }
   }, [isAssetValid, currentStaff]);
 
+  // Sửa: khi chọn file (upload/camera) thì chỉ đưa vào hàng đợi, không phân tích ngay
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
-    if (files.length > 0) processImages(files);
+    if (files.length > 0) {
+      addPendingFiles(files);
+      toast.success(`Đã thêm ${Math.min(files.length, AI_MAX_IMAGES)} ảnh vào danh sách.`);
+    }
     event.target.value = "";
-  }, [processImages]);
+  }, [addPendingFiles]);
+
+  // Thêm: Dán ảnh từ clipboard
+  const handlePasteFromClipboard = useCallback(async () => {
+    try {
+      const navAny = navigator as any;
+      if (!navAny.clipboard || typeof navAny.clipboard.read !== "function") {
+        toast.error("Trình duyệt không hỗ trợ dán ảnh từ clipboard.");
+        return;
+      }
+      const items: any[] = await navAny.clipboard.read();
+      const images: File[] = [];
+      let idx = 0;
+      for (const item of items) {
+        for (const type of item.types || []) {
+          if (String(type).startsWith("image/")) {
+            const blob: Blob = await item.getType(type);
+            const fname = `clipboard-${Date.now()}-${idx++}.${type.includes("png") ? "png" : (type.includes("webp") ? "webp" : "jpg")}`;
+            images.push(new File([blob], fname, { type: blob.type }));
+          }
+        }
+      }
+      if (images.length === 0) {
+        toast.error("Không tìm thấy ảnh trong clipboard.");
+        return;
+      }
+      addPendingFiles(images);
+      toast.success(`Đã dán ${images.length} ảnh từ clipboard.`);
+    } catch (e: any) {
+      toast.error("Không thể đọc ảnh từ clipboard. Hãy cho phép quyền hoặc thử lại.");
+    }
+  }, [addPendingFiles]);
+
+  // Thêm: Nhập dữ liệu từ hàng đợi
+  const handleProcessPending = useCallback(async () => {
+    if (pendingImages.length === 0) {
+      toast.error("Chưa có ảnh nào trong danh sách.");
+      return;
+    }
+    await processImages(pendingImages);
+    setPendingImages([]);
+  }, [pendingImages, processImages]);
 
   // Load my today submissions (GMT+7)
   const fetchMyToday = useCallback(async () => {
@@ -733,7 +799,7 @@ export default function AssetEntryPage() {
               <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS] (Nếu nhiều TS chọn nút AI nhập bằng hình):</Label>
-                  <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
+                  <Dialog open={isImageDialogOpen} onOpenChange={(v) => { setIsImageDialogOpen(v); if (!v) setPendingImages([]); }}>
                     <DialogTrigger asChild>
                       <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
                         <Camera className="w-5 h-5" />
@@ -743,12 +809,58 @@ export default function AssetEntryPage() {
                     <DialogContent className="max-w-md">
                       <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
                       <div className="space-y-4">
-                        <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
-                          <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
-                        </Button>
-                        <Button onClick={() => document.getElementById("camera-input")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
-                          <Camera className="w-5 h-5" /> Chụp ảnh
-                        </Button>
+                        <div className="grid grid-cols-1 gap-2">
+                          <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                            <Upload className="w-5 h-5" /> Upload từ thiết bị
+                          </Button>
+                          <Button onClick={() => document.getElementById("camera-input")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                            <Camera className="w-5 h-5" /> Chụp ảnh
+                          </Button>
+                          <Button onClick={handlePasteFromClipboard} className="w-full h-12 bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                            <Upload className="w-5 h-5" /> Dán ảnh từ clipboard
+                          </Button>
+                        </div>
+
+                        {(pendingImages.length > 0) && (
+                          <div className="p-3 rounded-md border bg-slate-50 text-sm">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="font-medium">Đã chọn {pendingImages.length}/{AI_MAX_IMAGES} ảnh</div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPendingImages([])}
+                                disabled={isProcessingImage}
+                              >
+                                Xóa danh sách
+                              </Button>
+                            </div>
+                            <div className="max-h-40 overflow-auto space-y-1">
+                              {pendingImages.map((f, i) => (
+                                <div key={i} className="truncate">{f.name || `Ảnh ${i + 1}`}</div>
+                              ))}
+                            </div>
+                            <div className="mt-3 flex gap-2">
+                              <Button
+                                onClick={handleProcessPending}
+                                className="flex-1 bg-green-600 hover:bg-green-700"
+                                disabled={isProcessingImage || pendingImages.length === 0}
+                              >
+                                Nhập dữ liệu
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => setPendingImages([])}
+                                disabled={isProcessingImage}
+                              >
+                                Hủy
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
                         {(isProcessingImage || aiStatus.stage) && (
                           <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
                             <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
