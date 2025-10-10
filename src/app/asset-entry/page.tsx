@@ -116,9 +116,9 @@ export default function AssetEntryPage() {
   }>({
     transaction_date: null,
     parts_day: "",
-    room: "",
+    room: "QLN",
     transaction_type: "Khác",
-    note: "Ship PGD",
+    note: "",
   });
 
   const [multipleAssets, setMultipleAssets] = useState<string[]>([""]);
@@ -130,6 +130,8 @@ export default function AssetEntryPage() {
   const [aiStatus, setAiStatus] = useState<{ stage: string; progress: number; total: number; detail: string }>({ stage: "", progress: 0, total: 0, detail: "" });
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
+  // Ẩn/Hiện toàn bộ khung tùy chọn ở trên (mặc định ẩn)
+  const [showOptions, setShowOptions] = useState(false);
 
   const [myRows, setMyRows] = useState<AssetTx[]>([]);
   const [listOpen, setListOpen] = useState<boolean>(false);
@@ -186,8 +188,8 @@ export default function AssetEntryPage() {
       defaultDate = now;
     }
 
-    const department = staff.department || "";
-    const defaultRoom = ROOMS.includes(department as any) ? String(department) : "";
+    // Mặc định luôn là QLN theo yêu cầu
+    const defaultRoom = "QLN";
 
     return {
       transaction_date: defaultDate,
@@ -616,7 +618,18 @@ export default function AssetEntryPage() {
               <Package className="w-6 h-6 text-white" />
             </div>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold">Thông báo Mượn/Xuất</h1>
+              <div className="flex items-center justify-between">
+                <h1 className="text-2xl font-bold">Thông báo lấy TS</h1>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowOptions((v) => !v)}
+                  className="ml-2"
+                >
+                  {showOptions ? "Ẩn" : "Hiện"}
+                </Button>
+              </div>
               <p className="text-muted-foreground mt-1">
                 {currentStaff?.role === "admin"
                   ? "Không giới hạn thời gian cho Admin"
@@ -625,11 +638,14 @@ export default function AssetEntryPage() {
             </div>
           </div>
 
-          <div className="mt-6 rounded-md bg-green-50 text-green-700 p-3 text-sm" id="instruction-section">
-            Từ Phải sang Trái: 2 ký tự thứ 9 và 10 là Năm TS: 24; 4 ký tự cuối là Mã TS: 259 - vd: 0424102470200259
-          </div>
+          {showOptions && (
+            <div className="mt-6 rounded-md bg-green-50 text-green-700 p-3 text-sm" id="instruction-section">
+              Từ <strong>Phải sang Trái</strong>: 2 ký tự thứ 9 và 10 là Năm TS: 24; 4 ký tự cuối là Mã TS: 259 - vd: 0424102470200259
+            </div>
+          )}
 
           <form onSubmit={handleOpenConfirm} className="mt-6 space-y-6">
+            {showOptions && (
             <div>
               <Label className="flex items-center gap-2 text-sm font-medium mb-2">
                 <Building className="text-muted-foreground" size={18} />
@@ -661,7 +677,9 @@ export default function AssetEntryPage() {
                 ) : null}
               </div>
             </div>
+            )}
 
+            {showOptions && (
             <div className="space-y-3">
               <Label className="flex items-center gap-2 text-sm font-medium">
                 <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
@@ -709,11 +727,12 @@ export default function AssetEntryPage() {
                 </Popover>
               </div>
             </div>
+            )}
 
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
+                  <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS] (Nếu nhiều TS chọn nút AI nhập bằng hình):</Label>
                   <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
                     <DialogTrigger asChild>
                       <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
