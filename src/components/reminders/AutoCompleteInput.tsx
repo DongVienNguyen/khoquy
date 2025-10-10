@@ -2,7 +2,6 @@
 
 import React, { useMemo, useState, useImperativeHandle } from "react";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -25,6 +24,7 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "");
+
   const filtered = useMemo(() => {
     const q = normalize(value || "");
     if (!q) return [];
@@ -42,48 +42,52 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
 
   return (
     <div data-autocomplete-root data-open={open ? "true" : "false"} className="relative">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Input
-            id={id}
-            value={value}
-            onChange={(e) => {
-              const next = e.target.value;
-              onChange(next);
-              setOpen(Boolean(next.trim()));
-              setHighlight(-1);
-            }}
-            onFocus={() => {
-              if ((value || "").trim()) setOpen(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setOpen(false);
-                return;
-              }
-              if (!open) return;
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setHighlight((h) => Math.min(filtered.length - 1, h + 1));
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setHighlight((h) => Math.max(0, h - 1));
-              } else if (e.key === "Enter" || (e.key === "Tab" && stayAfterTabSelect)) {
-                const pick = filtered[highlight >= 0 ? highlight : 0];
-                if (pick) {
-                  e.preventDefault();
-                  onChange(pick);
-                  // Giữ focus ở ô hiện tại nếu stayAfterTabSelect, còn Enter thì đóng gợi ý
-                  if (e.key === "Enter") setOpen(false);
-                }
-              }
-            }}
-            placeholder={placeholder}
-            className={cn("h-10", className)}
-          />
-        </PopoverTrigger>
-        <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]">
+      <Input
+        id={id}
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value;
+          onChange(next);
+          setOpen(Boolean(next.trim()));
+          setHighlight(-1);
+        }}
+        onFocus={() => {
+          if ((value || "").trim()) setOpen(true);
+        }}
+        onBlur={() => {
+          // đóng nhẹ nhàng khi blur ra ngoài
+          setTimeout(() => setOpen(false), 120);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setOpen(false);
+            return;
+          }
+          if (!open) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setHighlight((h) => Math.min(filtered.length - 1, h + 1));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHighlight((h) => Math.max(0, h - 1));
+          } else if (e.key === "Enter" || (e.key === "Tab" && stayAfterTabSelect)) {
+            const pick = filtered[highlight >= 0 ? highlight : 0];
+            if (pick) {
+              e.preventDefault();
+              onChange(pick);
+              if (e.key === "Enter") setOpen(false);
+            }
+          }
+        }}
+        placeholder={placeholder}
+        className={cn("h-10", className)}
+        autoComplete="off"
+        spellCheck={false}
+      />
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border bg-background shadow-md">
           <div className="max-h-44 overflow-auto py-1">
             {filtered.length === 0 ? (
               <div className="px-3 py-2 text-sm text-muted-foreground">Không có gợi ý</div>
@@ -105,8 +109,8 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
               ))
             )}
           </div>
-        </PopoverContent>
-      </Popover>
+        </div>
+      )}
     </div>
   );
 });
