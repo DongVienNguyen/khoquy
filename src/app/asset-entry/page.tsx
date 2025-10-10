@@ -141,8 +141,6 @@ export default function AssetEntryPage() {
   
   // Khai báo refs cho các ô nhập mã và hàm format ngày ngắn
   const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
-
   const formatDateShort = React.useCallback((date: Date | null) => {
     if (!date) return "Chọn ngày";
     const d = new Date(date);
@@ -150,40 +148,6 @@ export default function AssetEntryPage() {
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const yy = String(d.getFullYear()).slice(-2);
     return `${dd}/${mm}/${yy}`;
-  }, []);
-
-  // Tự động focus vào ô nhập đầu tiên khi mở trang
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const el = assetInputRefs.current[0];
-      if (el) {
-        try {
-          el.focus();
-          // Đưa con trỏ về cuối nội dung
-          const len = el.value?.length ?? 0;
-          el.setSelectionRange?.(len, len);
-        } catch {}
-      }
-    }, 0);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Lắng nghe thay đổi VisualViewport để né bàn phím ảo
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.visualViewport) return;
-    const vv = window.visualViewport;
-    const onChange = () => {
-      // Phần không gian bị che phía dưới
-      const occluded = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
-      setKeyboardOffset(occluded);
-    };
-    onChange();
-    vv.addEventListener("resize", onChange);
-    vv.addEventListener("scroll", onChange);
-    return () => {
-      vv.removeEventListener("resize", onChange);
-      vv.removeEventListener("scroll", onChange);
-    };
   }, []);
 
   // Defaults per spec
@@ -643,9 +607,6 @@ export default function AssetEntryPage() {
     setMyRows((prev) => prev.filter((r) => r.id !== id));
   }, [currentStaff]);
 
-  // Tính toán vị trí đáy cho thanh hành động mobile (tôn trọng safe area)
-  const mobileBarBottom = `calc(${Math.max(8, keyboardOffset + 8)}px + env(safe-area-inset-bottom))`;
-
   return (
     <div className="w-full">
       <SonnerToaster />
@@ -719,56 +680,54 @@ export default function AssetEntryPage() {
               )}
 
               <div className="space-y-3">
-                {showOptions && (
-                  <div>
-                    <Label className="flex items-center gap-2 text-sm font-medium">
-                      <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
-                    </Label>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                        <div className="flex items-center gap-1">
-                          <Checkbox
-                            id="session-sang"
-                            checked={formData.parts_day === "Sáng"}
-                            onCheckedChange={(v: CheckedState) =>
-                              setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
-                            }
-                          />
-                          <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                        <div className="flex items-center gap-1">
-                          <Checkbox
-                            id="session-chieu"
-                            checked={formData.parts_day === "Chiều"}
-                            onCheckedChange={(v: CheckedState) =>
-                              setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
-                            }
-                          />
-                          <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
-                        </div>
-                      </div>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="h-10 w-full justify-center">
-                            {formatDateShort(formData.transaction_date)}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[calc(100vw-2rem)] sm:w-auto p-0">
-                          <Calendar
-                            mode="single"
-                            selected={formData.transaction_date || undefined}
-                            onSelect={(date) => date && setFormData((p) => ({ ...p, transaction_date: date }))}
-                            disabled={(date) => !!date && date < minDate}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
+                </Label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                    <div className="flex items-center gap-1">
+                      <Checkbox
+                        id="session-sang"
+                        checked={formData.parts_day === "Sáng"}
+                        onCheckedChange={(v: CheckedState) =>
+                          setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
+                        }
+                      />
+                      <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
                     </div>
                   </div>
-                )}
+                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                    <div className="flex items-center gap-1">
+                      <Checkbox
+                        id="session-chieu"
+                        checked={formData.parts_day === "Chiều"}
+                        onCheckedChange={(v: CheckedState) =>
+                          setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
+                        }
+                      />
+                      <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
+                    </div>
+                  </div>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="h-10 w-full justify-center">
+                        {formatDateShort(formData.transaction_date)}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[calc(100vw-2rem)] sm:w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={formData.transaction_date || undefined}
+                        onSelect={(date) => date && setFormData((p) => ({ ...p, transaction_date: date }))}
+                        disabled={(date) => !!date && date < minDate}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
 
+              <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
@@ -1027,8 +986,8 @@ export default function AssetEntryPage() {
 
         {/* Mobile sticky actions */}
         {(!isRestrictedTime || currentStaff?.role === "admin") ? (
-          <div className="md:hidden fixed left-0 right-0 z-40 px-4" style={{ bottom: mobileBarBottom }}>
-            <div className="bg-white/95 backdrop-blur shadow-lg rounded-xl p-3 flex items-center gap-2 border" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+          <div className="md:hidden fixed bottom-4 left-0 right-0 z-40 px-4">
+            <div className="bg-white/95 backdrop-blur shadow-lg rounded-xl p-3 flex items-center gap-2 border">
               <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setMessage({ type: "", text: "" }); }} variant="outline" className="flex-1">Clear</Button>
               <Button onClick={() => handleOpenConfirm()} disabled={!isFormValid || isLoading} className="flex-1 bg-green-600 text-white hover:bg-green-700">
                 {isLoading ? "Đang gửi..." : "Gửi thông báo"}
@@ -1036,8 +995,8 @@ export default function AssetEntryPage() {
             </div>
           </div>
         ) : (
-          <div className="md:hidden fixed left-0 right-0 z-40 px-4" style={{ bottom: mobileBarBottom }}>
-            <div className="bg-orange-50 border border-orange-200 text-orange-700 rounded-xl p-3 text-center" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+          <div className="md:hidden fixed bottom-4 left-0 right-0 z-40 px-4">
+            <div className="bg-orange-50 border border-orange-200 text-orange-700 rounded-xl p-3 text-center">
               Khung giờ nghỉ • Vui lòng nhắn Zalo
             </div>
           </div>
