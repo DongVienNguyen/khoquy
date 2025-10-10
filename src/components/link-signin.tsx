@@ -19,6 +19,16 @@ const LinkSignIn: React.FC<{ staff: SafeStaff }> = ({ staff }) => {
   React.useEffect(() => {
     try {
       window.localStorage.setItem("loggedInStaff", JSON.stringify(staff));
+      // Set cookie 'linkUser' để middleware nhận diện phiên 'đi link'
+      const cookieParts = [
+        `linkUser=${encodeURIComponent(staff.username)}`,
+        "path=/",
+        "SameSite=Lax",
+      ];
+      if (typeof window !== "undefined" && window.location.protocol === "https:") {
+        cookieParts.push("Secure");
+      }
+      document.cookie = cookieParts.join("; ");
     } catch {}
     router.replace("/asset-entry");
   }, [router, staff]);

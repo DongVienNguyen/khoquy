@@ -35,13 +35,13 @@ async function linkLookup(usernameRaw: string): Promise<SafeStaff | null> {
   return json.data as SafeStaff;
 }
 
-export default async function Page({ params }: { params: { username: string } }) {
-  const usernameParam = params?.username || "";
+export default async function Page({ params }: { params: Promise<{ username: string }> }) {
+  const { username } = await params;
+  const usernameParam = username || "";
   const staff = await linkLookup(usernameParam);
   if (!staff) {
     redirect("/sign-in");
   }
-
   // Trang chuyển tiếp: client sẽ ghi localStorage và chuyển sang /asset-entry
   return (
     <div className="min-h-screen w-full grid place-items-center p-6">
