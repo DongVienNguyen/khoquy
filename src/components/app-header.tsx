@@ -82,7 +82,7 @@ const AppHeader: React.FC = () => {
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-3">
           <Link
-            href="/daily-report"
+            href="/asset-entry"
             className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-green-700 text-white shadow"
             aria-label="Trang chủ báo cáo"
           >
