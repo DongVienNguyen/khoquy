@@ -794,6 +794,35 @@ export default function AssetEntryPage() {
             </div>
 
             <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex items-center gap-1 justify-center">
+                  <Checkbox
+                    id="type-khac"
+                    checked={formData.transaction_type === "Khác"}
+                    onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
+                  />
+                  <Label htmlFor="type-khac" className="text-sm">Khác</Label>
+                </div>
+                <div className="flex items-center gap-1 justify-center">
+                  <Checkbox
+                    id="type-xuat"
+                    checked={formData.transaction_type === "Xuất"}
+                    onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Xuất" : "Khác" }))}
+                  />
+                  <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
+                </div>
+                <div className="flex items-center gap-1 justify-center">
+                  <Checkbox
+                    id="type-muon"
+                    checked={formData.transaction_type === "Mượn"}
+                    onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Mượn" : "Khác" }))}
+                  />
+                  <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:  (nhiều TS chọn nút AI nhập bằng hình)</Label>
@@ -936,35 +965,6 @@ export default function AssetEntryPage() {
                     </Button>
                   </div>
                 )}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex items-center gap-1 justify-center">
-                  <Checkbox
-                    id="type-khac"
-                    checked={formData.transaction_type === "Khác"}
-                    onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
-                  />
-                  <Label htmlFor="type-khac" className="text-sm">Khác</Label>
-                </div>
-                <div className="flex items-center gap-1 justify-center">
-                  <Checkbox
-                    id="type-xuat"
-                    checked={formData.transaction_type === "Xuất"}
-                    onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Xuất" : "Khác" }))}
-                  />
-                  <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
-                </div>
-                <div className="flex items-center gap-1 justify-center">
-                  <Checkbox
-                    id="type-muon"
-                    checked={formData.transaction_type === "Mượn"}
-                    onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Mượn" : "Khác" }))}
-                  />
-                  <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
-                </div>
               </div>
             </div>
 
