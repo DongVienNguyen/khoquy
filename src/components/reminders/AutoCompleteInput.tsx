@@ -12,10 +12,11 @@ type Props = {
   placeholder?: string;
   className?: string;
   stayAfterTabSelect?: boolean;
+  onOpenSuggestions?: () => void;
 };
 
 const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) => {
-  const { id, value, onChange, suggestions, placeholder, className, stayAfterTabSelect } = props;
+  const { id, value, onChange, suggestions, placeholder, className, stayAfterTabSelect, onOpenSuggestions } = props;
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState<number>(-1);
 
@@ -56,11 +57,18 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
         onChange={(e) => {
           const next = e.target.value;
           onChange(next);
-          setOpen(Boolean(next.trim()));
+          const shouldOpen = Boolean(next.trim());
+          setOpen(shouldOpen);
+          if (shouldOpen) {
+            onOpenSuggestions?.();
+          }
           setHighlight(-1);
         }}
         onFocus={() => {
-          if ((value || "").trim()) setOpen(true);
+          if ((value || "").trim()) {
+            setOpen(true);
+            onOpenSuggestions?.();
+          }
         }}
         onBlur={() => {
           // đóng nhẹ nhàng khi blur ra ngoài

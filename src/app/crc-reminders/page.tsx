@@ -318,6 +318,25 @@ export default function CRCRemindersPage() {
     });
   }, [reminders, searchText]);
 
+  // Ensure staff lists are loaded on-demand when user opens autocomplete
+  const ensureLDPCRCLoaded = useCallback(async () => {
+    if (ldpcrcStaff.length > 0) return;
+    const l = await LDPCRCStaffAPI.list();
+    setLdpcrcStaff(Array.isArray(l) ? l : []);
+  }, [ldpcrcStaff.length]);
+
+  const ensureCBCRCLoaded = useCallback(async () => {
+    if (cbcrcStaff.length > 0) return;
+    const l = await CBCRCStaffAPI.list();
+    setCbcrcStaff(Array.isArray(l) ? l : []);
+  }, [cbcrcStaff.length]);
+
+  const ensureQUYCRCLoaded = useCallback(async () => {
+    if (quycrcStaff.length > 0) return;
+    const l = await QUYCRCStaffAPI.list();
+    setQuycrcStaff(Array.isArray(l) ? l : []);
+  }, [quycrcStaff.length]);
+
   return (
     <div className="p-4 md:p-8">
       <SonnerToaster />
@@ -433,6 +452,7 @@ export default function CRCRemindersPage() {
                       suggestions={ldpcrcStaff.map(s => s.ten_nv)}
                       placeholder="Nhập tên LĐP duyệt CRC"
                       className="h-12"
+                      onOpenSuggestions={ensureLDPCRCLoaded}
                     />
                   </div>
                 </div>
@@ -446,6 +466,7 @@ export default function CRCRemindersPage() {
                       suggestions={cbcrcStaff.map(s => s.ten_nv)}
                       placeholder="Nhập tên CB làm CRC"
                       className="h-12"
+                      onOpenSuggestions={ensureCBCRCLoaded}
                     />
                   </div>
                 </div>
@@ -459,6 +480,7 @@ export default function CRCRemindersPage() {
                       suggestions={quycrcStaff.map(s => s.ten_nv)}
                       placeholder="Nhập tên Thủ quỹ duyệt CRC"
                       className="h-12"
+                      onOpenSuggestions={ensureQUYCRCLoaded}
                     />
                   </div>
                 </div>
