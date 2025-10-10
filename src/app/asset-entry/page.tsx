@@ -116,9 +116,9 @@ export default function AssetEntryPage() {
   }>({
     transaction_date: null,
     parts_day: "",
-    room: "QLN",
+    room: "",
     transaction_type: "Khác",
-    note: "",
+    note: "Ship PGD",
   });
 
   const [multipleAssets, setMultipleAssets] = useState<string[]>([""]);
@@ -130,7 +130,6 @@ export default function AssetEntryPage() {
   const [aiStatus, setAiStatus] = useState<{ stage: string; progress: number; total: number; detail: string }>({ stage: "", progress: 0, total: 0, detail: "" });
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
 
   const [myRows, setMyRows] = useState<AssetTx[]>([]);
   const [listOpen, setListOpen] = useState<boolean>(false);
@@ -187,8 +186,8 @@ export default function AssetEntryPage() {
       defaultDate = now;
     }
 
-    // Yêu cầu: mặc định luôn là QLN
-    const defaultRoom = "QLN";
+    const department = staff.department || "";
+    const defaultRoom = ROOMS.includes(department as any) ? String(department) : "";
 
     return {
       transaction_date: defaultDate,
@@ -617,18 +616,7 @@ export default function AssetEntryPage() {
               <Package className="w-6 h-6 text-white" />
             </div>
             <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">Thông báo Mượn/Xuất</h1>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowOptions((v) => !v)}
-                  className="ml-2"
-                >
-                  {showOptions ? "Ẩn" : "Hiện"}
-                </Button>
-              </div>
+              <h1 className="text-2xl font-bold">Thông báo Mượn/Xuất</h1>
               <p className="text-muted-foreground mt-1">
                 {currentStaff?.role === "admin"
                   ? "Không giới hạn thời gian cho Admin"
@@ -637,284 +625,278 @@ export default function AssetEntryPage() {
             </div>
           </div>
 
-          {showOptions && (
-            <div className="mt-6 rounded-md bg-green-50 text-green-700 p-3 text-sm" id="instruction-section">
-              Từ Phải sang Trái: 2 ký tự thứ 9 và 10 là Năm TS: 24; 4 ký tự cuối là Mã TS: 259 - vd: 0424102470200259
-            </div>
-          )}
+          <div className="mt-6 rounded-md bg-green-50 text-green-700 p-3 text-sm" id="instruction-section">
+            Từ Phải sang Trái: 2 ký tự thứ 9 và 10 là Năm TS: 24; 4 ký tự cuối là Mã TS: 259 - vd: 0424102470200259
+          </div>
 
           <form onSubmit={handleOpenConfirm} className="mt-6 space-y-6">
             <div>
-              {showOptions && (
-                <div>
-                  <Label className="flex items-center gap-2 text-sm font-medium mb-2">
-                    <Building className="text-muted-foreground" size={18} />
-                    Tài sản của phòng
-                  </Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Select value={formData.room} onValueChange={handleRoomChange}>
-                      <SelectTrigger className="h-10"><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
-                      <SelectContent>
-                        {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+              <Label className="flex items-center gap-2 text-sm font-medium mb-2">
+                <Building className="text-muted-foreground" size={18} />
+                Tài sản của phòng
+              </Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Select value={formData.room} onValueChange={handleRoomChange}>
+                  <SelectTrigger className="h-10"><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
+                  <SelectContent>
+                    {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
 
-                    {formData.room === "QLN" ? (
-                      <Textarea
-                        rows={2}
-                        placeholder="Ghi chú (tùy chọn)"
-                        value={formData.note}
-                        onChange={(e) => setFormData((p) => ({ ...p, note: e.target.value }))}
-                      />
-                    ) : requiresNoteDropdown ? (
-                      <Select value={formData.note} onValueChange={(v) => setFormData((p) => ({ ...p, note: v }))}>
-                        <SelectTrigger className="h-10"><SelectValue placeholder="Chọn ghi chú" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Ship PGD">Ship PGD</SelectItem>
-                          <SelectItem value="Lấy ở CN">Lấy ở CN</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : null}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2 text-sm font-medium">
-                  <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
-                </Label>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                    <div className="flex items-center gap-1">
-                      <Checkbox
-                        id="session-sang"
-                        checked={formData.parts_day === "Sáng"}
-                        onCheckedChange={(v: CheckedState) =>
-                          setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
-                        }
-                      />
-                      <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                    <div className="flex items-center gap-1">
-                      <Checkbox
-                        id="session-chieu"
-                        checked={formData.parts_day === "Chiều"}
-                        onCheckedChange={(v: CheckedState) =>
-                          setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
-                        }
-                      />
-                      <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
-                    </div>
-                  </div>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="h-10 w-full justify-center">
-                        {formatDateShort(formData.transaction_date)}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[calc(100vw-2rem)] sm:w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={formData.transaction_date || undefined}
-                        onSelect={(date) => date && setFormData((p) => ({ ...p, transaction_date: date }))}
-                        disabled={(date) => !!date && date < minDate}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
+                {formData.room === "QLN" ? (
+                  <Textarea
+                    rows={2}
+                    placeholder="Ghi chú (tùy chọn)"
+                    value={formData.note}
+                    onChange={(e) => setFormData((p) => ({ ...p, note: e.target.value }))}
+                  />
+                ) : requiresNoteDropdown ? (
+                  <Select value={formData.note} onValueChange={(v) => setFormData((p) => ({ ...p, note: v }))}>
+                    <SelectTrigger className="h-10"><SelectValue placeholder="Chọn ghi chú" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Ship PGD">Ship PGD</SelectItem>
+                      <SelectItem value="Lấy ở CN">Lấy ở CN</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : null}
               </div>
+            </div>
 
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 gap-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
-                    <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
-                          <Camera className="w-5 h-5" />
-                          <span className="text-sm font-semibold">AI</span>
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-md">
-                        <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
-                        <div className="space-y-4">
-                          <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
-                            <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
-                          </Button>
-                          <Button onClick={() => document.getElementById("camera-input")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
-                            <Camera className="w-5 h-5" /> Chụp ảnh
-                          </Button>
-                          {(isProcessingImage || aiStatus.stage) && (
-                            <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
-                              <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
-                              <div>
-                                <div className="font-medium">{aiStatus.detail || "Đang xử lý..."}</div>
-                                {aiStatus.total > 0 && (
-                                  <div className="mt-2 h-2 bg-slate-200 rounded">
-                                    <div className="h-2 bg-green-600 rounded" style={{ width: `${Math.min(100, Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100))}%` }}></div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
+              </Label>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                  <div className="flex items-center gap-1">
+                    <Checkbox
+                      id="session-sang"
+                      checked={formData.parts_day === "Sáng"}
+                      onCheckedChange={(v: CheckedState) =>
+                        setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
+                      }
+                    />
+                    <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
                   </div>
+                </div>
+                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                  <div className="flex items-center gap-1">
+                    <Checkbox
+                      id="session-chieu"
+                      checked={formData.parts_day === "Chiều"}
+                      onCheckedChange={(v: CheckedState) =>
+                        setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
+                      }
+                    />
+                    <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
+                  </div>
+                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-10 w-full justify-center">
+                      {formatDateShort(formData.transaction_date)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[calc(100vw-2rem)] sm:w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={formData.transaction_date || undefined}
+                      onSelect={(date) => date && setFormData((p) => ({ ...p, transaction_date: date }))}
+                      disabled={(date) => !!date && date < minDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
 
-                  {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
-                    const valid = isAssetValid(val);
-                    return (
-                      <div key={idx} className="flex items-center gap-2">
-                        <div className="relative flex-1">
-                          <Input
-                            type="text"
-                            inputMode="decimal"
-                            lang="en-US"
-                            pattern="[0-9.,]*"
-                            autoComplete="off"
-                            autoCorrect="off"
-                            value={val}
-                            onChange={(e) => handleAssetChange(idx, e.target.value)}
-                            ref={(el) => { assetInputRefs.current[idx] = el; }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Tab" && !e.shiftKey) {
-                                e.preventDefault();
-                                const next = idx + 1;
-                                if (next >= multipleAssets.length) {
-                                  setMultipleAssets((prev) => [...prev, ""]);
-                                  setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
-                                } else {
-                                  assetInputRefs.current[next]?.focus();
-                                }
-                              } else if (e.key === "Tab" && e.shiftKey) {
-                                e.preventDefault();
-                                const prevIdx = idx - 1;
-                                if (prevIdx >= 0) assetInputRefs.current[prevIdx]?.focus();
-                              }
-                            }}
-                            placeholder="Ví dụ: 259.24"
-                            className={`h-10 pr-9 font-mono text-center ${val ? (valid ? "border-green-300" : "border-red-300") : ""}`}
-                          />
-                          {val && (
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                              {valid ? <CheckCircle className="w-5 h-5 text-green-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}
-                            </div>
-                          )}
-                        </div>
-                        <Button type="button" onClick={addAssetField} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-green-600 text-green-800 hover:bg-green-100" aria-label="Thêm dòng">
-                          <Plus className="w-4 h-4" />
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:</Label>
+                  <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
+                        <Camera className="w-5 h-5" />
+                        <span className="text-sm font-semibold">AI</span>
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
+                      <div className="space-y-4">
+                        <Button onClick={() => document.getElementById("file-input")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                          <Upload className="w-5 h-5" /> {isProcessingImage ? "Đang xử lý..." : "Upload từ thiết bị"}
                         </Button>
-                        {multipleAssets.length > 1 && (
-                          <Button type="button" onClick={() => removeAssetField(idx)} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-red-500 text-red-500 hover:bg-red-100" aria-label="Xóa dòng">
-                            <Minus className="w-4 h-4" />
-                          </Button>
+                        <Button onClick={() => document.getElementById("camera-input")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+                          <Camera className="w-5 h-5" /> Chụp ảnh
+                        </Button>
+                        {(isProcessingImage || aiStatus.stage) && (
+                          <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
+                            <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
+                            <div>
+                              <div className="font-medium">{aiStatus.detail || "Đang xử lý..."}</div>
+                              {aiStatus.total > 0 && (
+                                <div className="mt-2 h-2 bg-slate-200 rounded">
+                                  <div className="h-2 bg-green-600 rounded" style={{ width: `${Math.min(100, Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100))}%` }}></div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </div>
-                    );
-                  })}
-
-                  {multipleAssets.length > 5 && (
-                    <div className="flex justify-center">
-                      <Button type="button" variant="ghost" onClick={() => setShowAllAssets((v) => !v)} className="text-slate-600 hover:text-slate-800">
-                        {showAllAssets ? (<><ChevronUp className="w-4 h-4 mr-1" /> Thu gọn</>) : (<><ChevronDown className="w-4 h-4 mr-1" /> Xem thêm {multipleAssets.length - 5}</>)}
-                      </Button>
-                    </div>
-                  )}
+                    </DialogContent>
+                  </Dialog>
                 </div>
-              </div>
 
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="flex items-center gap-1 justify-center">
-                    <Checkbox
-                      id="type-khac"
-                      checked={formData.transaction_type === "Khác"}
-                      onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
-                    />
-                    <Label htmlFor="type-khac" className="text-sm">Khác</Label>
-                  </div>
-                  <div className="flex items-center gap-1 justify-center">
-                    <Checkbox
-                      id="type-xuat"
-                      checked={formData.transaction_type === "Xuất"}
-                      onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Xuất" : "Khác" }))}
-                    />
-                    <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
-                  </div>
-                  <div className="flex items-center gap-1 justify-center">
-                    <Checkbox
-                      id="type-muon"
-                      checked={formData.transaction_type === "Mượn"}
-                      onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Mượn" : "Khác" }))}
-                    />
-                    <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
-                  </div>
-                </div>
-              </div>
-
-              {isRestrictedTime && currentStaff?.role !== "admin" && (
-                <Alert className="border-orange-200 bg-orange-50">
-                  <AlertCircle className="h-4 w-4 text-orange-600" />
-                  <AlertDescription className="text-orange-800">
-                    <strong>Thông báo:</strong> Từ 7:45-8:05 và 12:45-13:05: Hãy nhắn Zalo.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {message.text && (
-                <Alert variant={message.type === "success" ? "default" : "destructive"} className={message.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
-                  {message.type === "success" ? <CheckCircle className="h-4 w-4 text-green-600" /> : <AlertCircle className="h-4 w-4" />}
-                  <AlertDescription className={message.type === "success" ? "text-green-800" : "text-red-800"}>{message.text}</AlertDescription>
-                </Alert>
-              )}
-
-              <div className="hidden md:flex items-center justify-end gap-2 pt-2">
-                <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setMessage({ type: "", text: "" }); }} variant="outline">
-                  Clear
-                </Button>
-                <Button type="submit" disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")} className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
-                  {isLoading ? "Đang gửi..." : "Gửi thông báo"}
-                </Button>
-              </div>
-
-              <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>Xác nhận gửi thông báo</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-3 text-sm">
-                    <div><span className="font-medium">Phòng:</span> {formData.room}</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><span className="font-medium">Buổi:</span> {formData.parts_day}</div>
-                      <div><span className="font-medium">Ngày:</span> {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : "-"}</div>
-                      <div><span className="font-medium">Loại:</span> {formData.transaction_type || "-"}</div>
-                      <div><span className="font-medium">Ghi chú:</span> {formData.note || "-"}</div>
-                    </div>
-                    <div>
-                      <span className="font-semibold">Danh sách mã TS ({multipleAssets.filter((a) => a.trim()).length}):</span>
-                      <div className="mt-2 max-h-40 overflow-auto rounded border bg-slate-50 p-3">
-                        {multipleAssets.filter((a) => a.trim()).map((a, idx) => (
-                          <div key={idx} className="flex items-center gap-2 text-base">
-                            {isAssetValid(a) ? <CheckCircle className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
-                            <span className={`${isAssetValid(a) ? "text-slate-800" : "text-red-600"}`}>{a}</span>
+                {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
+                  const valid = isAssetValid(val);
+                  return (
+                    <div key={idx} className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          lang="en-US"
+                          pattern="[0-9.,]*"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          value={val}
+                          onChange={(e) => handleAssetChange(idx, e.target.value)}
+                          ref={(el) => { assetInputRefs.current[idx] = el; }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Tab" && !e.shiftKey) {
+                              e.preventDefault();
+                              const next = idx + 1;
+                              if (next >= multipleAssets.length) {
+                                setMultipleAssets((prev) => [...prev, ""]);
+                                setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
+                              } else {
+                                assetInputRefs.current[next]?.focus();
+                              }
+                            } else if (e.key === "Tab" && e.shiftKey) {
+                              e.preventDefault();
+                              const prevIdx = idx - 1;
+                              if (prevIdx >= 0) assetInputRefs.current[prevIdx]?.focus();
+                            }
+                          }}
+                          placeholder="Ví dụ: 259.24"
+                          className={`h-10 pr-9 font-mono text-center ${val ? (valid ? "border-green-300" : "border-red-300") : ""}`}
+                        />
+                        {val && (
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                            {valid ? <CheckCircle className="w-5 h-5 text-green-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}
                           </div>
-                        ))}
+                        )}
                       </div>
+                      <Button type="button" onClick={addAssetField} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-green-600 text-green-800 hover:bg-green-100" aria-label="Thêm dòng">
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                      {multipleAssets.length > 1 && (
+                        <Button type="button" onClick={() => removeAssetField(idx)} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-red-500 text-red-500 hover:bg-red-100" aria-label="Xóa dòng">
+                          <Minus className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setIsConfirmOpen(false)}>Hủy</Button>
-                    <Button onClick={performSubmit} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
-                      {isLoading ? "Đang gửi..." : "Xác nhận & Gửi"}
+                  );
+                })}
+
+                {multipleAssets.length > 5 && (
+                  <div className="flex justify-center">
+                    <Button type="button" variant="ghost" onClick={() => setShowAllAssets((v) => !v)} className="text-slate-600 hover:text-slate-800">
+                      {showAllAssets ? (<><ChevronUp className="w-4 h-4 mr-1" /> Thu gọn</>) : (<><ChevronDown className="w-4 h-4 mr-1" /> Xem thêm {multipleAssets.length - 5}</>)}
                     </Button>
                   </div>
-                </DialogContent>
-              </Dialog>
+                )}
+              </div>
             </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex items-center gap-1 justify-center">
+                  <Checkbox
+                    id="type-khac"
+                    checked={formData.transaction_type === "Khác"}
+                    onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
+                  />
+                  <Label htmlFor="type-khac" className="text-sm">Khác</Label>
+                </div>
+                <div className="flex items-center gap-1 justify-center">
+                  <Checkbox
+                    id="type-xuat"
+                    checked={formData.transaction_type === "Xuất"}
+                    onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Xuất" : "Khác" }))}
+                  />
+                  <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
+                </div>
+                <div className="flex items-center gap-1 justify-center">
+                  <Checkbox
+                    id="type-muon"
+                    checked={formData.transaction_type === "Mượn"}
+                    onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Mượn" : "Khác" }))}
+                  />
+                  <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
+                </div>
+              </div>
+            </div>
+
+            {isRestrictedTime && currentStaff?.role !== "admin" && (
+              <Alert className="border-orange-200 bg-orange-50">
+                <AlertCircle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-orange-800">
+                  <strong>Thông báo:</strong> Từ 7:45-8:05 và 12:45-13:05: Hãy nhắn Zalo.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {message.text && (
+              <Alert variant={message.type === "success" ? "default" : "destructive"} className={message.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
+                {message.type === "success" ? <CheckCircle className="h-4 w-4 text-green-600" /> : <AlertCircle className="h-4 w-4" />}
+                <AlertDescription className={message.type === "success" ? "text-green-800" : "text-red-800"}>{message.text}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="hidden md:flex items-center justify-end gap-2 pt-2">
+              <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setMessage({ type: "", text: "" }); }} variant="outline">
+                Clear
+              </Button>
+              <Button type="submit" disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")} className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
+                {isLoading ? "Đang gửi..." : "Gửi thông báo"}
+              </Button>
+            </div>
+
+            <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Xác nhận gửi thông báo</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 text-sm">
+                  <div><span className="font-medium">Phòng:</span> {formData.room}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><span className="font-medium">Buổi:</span> {formData.parts_day}</div>
+                    <div><span className="font-medium">Ngày:</span> {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : "-"}</div>
+                    <div><span className="font-medium">Loại:</span> {formData.transaction_type || "-"}</div>
+                    <div><span className="font-medium">Ghi chú:</span> {formData.note || "-"}</div>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Danh sách mã TS ({multipleAssets.filter((a) => a.trim()).length}):</span>
+                    <div className="mt-2 max-h-40 overflow-auto rounded border bg-slate-50 p-3">
+                      {multipleAssets.filter((a) => a.trim()).map((a, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-base">
+                          {isAssetValid(a) ? <CheckCircle className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                          <span className={`${isAssetValid(a) ? "text-slate-800" : "text-red-600"}`}>{a}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setIsConfirmOpen(false)}>Hủy</Button>
+                  <Button onClick={performSubmit} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
+                    {isLoading ? "Đang gửi..." : "Xác nhận & Gửi"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </form>
         </div>
 
