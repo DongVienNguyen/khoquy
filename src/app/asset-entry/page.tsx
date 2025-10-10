@@ -1001,12 +1001,9 @@ export default function AssetEntryPage() {
                   <DialogTitle>Xác nhận gửi thông báo</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3 text-sm">
-                  <div><span className="font-medium">Phòng:</span> {formData.room}</div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><span className="font-medium">Buổi:</span> {formData.parts_day}</div>
                     <div><span className="font-medium">Ngày:</span> {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : "-"}</div>
-                    <div><span className="font-medium">Loại:</span> {formData.transaction_type || "-"}</div>
-                    <div><span className="font-medium">Ghi chú:</span> {formData.note || "-"}</div>
                   </div>
                   <div>
                     <span className="font-semibold">Danh sách mã TS ({multipleAssets.filter((a) => a.trim()).length}):</span>
@@ -1014,7 +1011,7 @@ export default function AssetEntryPage() {
                       {multipleAssets.filter((a) => a.trim()).map((a, idx) => (
                         <div key={idx} className="flex items-center gap-2 text-base">
                           {isAssetValid(a) ? <CheckCircle className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
-                          <span className={`${isAssetValid(a) ? "text-slate-800" : "text-red-600"}`}>{a}</span>
+                          <span className={`${isAssetValid(a) ? "text-slate-800" : "text-red-600"} text-lg font-semibold`}>{a.replace(".", "/")}</span>
                         </div>
                       ))}
                     </div>
