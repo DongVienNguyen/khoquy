@@ -745,7 +745,6 @@ export default function AssetEntryPage() {
             </div>
             )}
 
-            {showOptions && (
             <div className="space-y-3">
               <Label className="flex items-center gap-2 text-sm font-medium">
                 <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS
@@ -793,7 +792,6 @@ export default function AssetEntryPage() {
                 </Popover>
               </div>
             </div>
-            )}
 
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3">
