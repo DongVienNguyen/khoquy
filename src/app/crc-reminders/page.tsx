@@ -12,6 +12,9 @@ import { format } from "date-fns";
 import AutoCompleteInput from "@/components/reminders/AutoCompleteInput";
 import DateInput from "@/components/reminders/DateInput";
 import CRCTemplateDialog, { DEFAULT_TEMPLATE_CRC, renderCRCTemplate } from "@/components/reminders/CRCTemplateDialog";
+import { LDPCRCStaffAPI, LDPCRCStaffItem } from "@/entities/LDPCRCStaff";
+import { CBCRCStaffAPI, CBCRCStaffItem } from "@/entities/CBCRCStaff";
+import { QUYCRCStaffAPI, QUYCRCStaffItem } from "@/entities/QUYCRCStaff";
 import { CRCReminder, CRCReminderAPI } from "@/entities/CRCReminder";
 import { SentCRCReminder, SentCRCReminderAPI } from "@/entities/SentCRCReminder";
 import { fetchWithCache, cacheManager } from "@/lib/cache";
@@ -26,7 +29,9 @@ export default function CRCRemindersPage() {
   const [currentUser, setCurrentUser] = useState<Staff | null>(null);
   const [reminders, setReminders] = useState<CRCReminder[]>([]);
   const [sentReminders, setSentReminders] = useState<SentCRCReminder[]>([]);
-  const [staffSuggestions, setStaffSuggestions] = useState<{ staff_name: string; username: string; email: string | null }[]>([]);
+  const [ldpcrcStaff, setLdpcrcStaff] = useState<LDPCRCStaffItem[]>([]);
+  const [cbcrcStaff, setCbcrcStaff] = useState<CBCRCStaffItem[]>([]);
+  const [quycrcStaff, setQuycrcStaff] = useState<QUYCRCStaffItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<{ type: "" | "success" | "error"; text: string }>({ type: "", text: "" });
 
@@ -133,8 +138,14 @@ export default function CRCRemindersPage() {
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
     try {
-      const staff = await fetchWithCache("crc_staff_suggestions", () => CRCReminderAPI.staffSuggestions(), 300000);
-      setStaffSuggestions(staff || []);
+      const [ldp, cb, quy] = await Promise.all([
+        fetchWithCache("ldpcrc_staff", () => LDPCRCStaffAPI.list(), 300000),
+        fetchWithCache("cbcrc_staff", () => CBCRCStaffAPI.list(), 300000),
+        fetchWithCache("quycrc_staff", () => QUYCRCStaffAPI.list(), 300000),
+      ]);
+      setLdpcrcStaff(Array.isArray(ldp) ? ldp : []);
+      setCbcrcStaff(Array.isArray(cb) ? cb : []);
+      setQuycrcStaff(Array.isArray(quy) ? quy : []);
       await loadReminders();
     } catch {
       setMessage({ type: "error", text: "Không thể tải dữ liệu." });
@@ -419,7 +430,7 @@ export default function CRCRemindersPage() {
                       id="ldpcrc"
                       value={String(newReminder.ldpcrc || "")}
                       onChange={(value: string) => setNewReminder({ ...newReminder, ldpcrc: value })}
-                      suggestions={staffSuggestions.map(s => s.staff_name)}
+                      suggestions={ldpcrcStaff.map(s => s.ten_nv)}
                       placeholder="Nhập tên LĐP duyệt CRC"
                       className="h-12"
                     />
@@ -432,7 +443,7 @@ export default function CRCRemindersPage() {
                       id="cbcrc"
                       value={String(newReminder.cbcrc || "")}
                       onChange={(value: string) => setNewReminder({ ...newReminder, cbcrc: value })}
-                      suggestions={staffSuggestions.map(s => s.staff_name)}
+                      suggestions={cbcrcStaff.map(s => s.ten_nv)}
                       placeholder="Nhập tên CB làm CRC"
                       className="h-12"
                     />
@@ -445,7 +456,7 @@ export default function CRCRemindersPage() {
                       id="quycrc"
                       value={String(newReminder.quycrc || "")}
                       onChange={(value: string) => setNewReminder({ ...newReminder, quycrc: value })}
-                      suggestions={staffSuggestions.map(s => s.staff_name)}
+                      suggestions={quycrcStaff.map(s => s.ten_nv)}
                       placeholder="Nhập tên Thủ quỹ duyệt CRC"
                       className="h-12"
                     />
@@ -672,11 +683,20 @@ export default function CRCRemindersPage() {
         onTemplateChange={setEmailTemplate}
         sampleReminder={reminders[0] || { loai_bt_crc: "Nhập kho - 001 - HS ABC", ngay_thuc_hien: "01-01", ldpcrc: "Nguyễn Văn A", cbcrc: "Trần Thị B", quycrc: "Lê Văn C" }}
         recipientsBlock={(() => {
-          const r = reminders[0] || { ldpcrc: "Nguyễn Văn A", cbcrc: "Trần Thị B", quycrc: "Lê Văn C" };
+          const sample = reminders[0] || { ldpcrc: "Nguyễn Văn A", cbcrc: "Trần Thị B", quycrc: "Lê Văn C" };
           const lines: string[] = [];
-          if (r.ldpcrc) lines.push(`Người nhận: ${r.ldpcrc}`);
-          if (r.cbcrc) lines.push(`Người nhận: ${r.cbcrc}`);
-          if (r.quycrc) lines.push(`Người nhận: ${r.quycrc}`);
+          if (sample.ldpcrc) {
+            const s = ldpcrcStaff.find(x => x.ten_nv === sample.ldpcrc);
+            lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.ldpcrc}`);
+          }
+          if (sample.cbcrc) {
+            const s = cbcrcStaff.find(x => x.ten_nv === sample.cbcrc);
+            lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.cbcrc}`);
+          }
+          if (sample.quycrc) {
+            const s = quycrcStaff.find(x => x.ten_nv === sample.quycrc);
+            lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.quycrc}`);
+          }
           return lines.join("<br/>");
         })()}
         currentUsername={currentUser?.username}
