@@ -747,7 +747,7 @@ export default function AssetEntryPage() {
 
             <div className="space-y-3">
               <Label className="flex items-center gap-2 text-sm font-medium">
-                <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS: Qua tuần khác mới cần chọn ngày.
+                <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS: (Qua )tuần khác mới cần chọn ngày)
               </Label>
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex items-center justify-center h-10 px-2 border rounded-md">
