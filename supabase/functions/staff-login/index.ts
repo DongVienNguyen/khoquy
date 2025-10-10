@@ -32,6 +32,7 @@ type Staff = {
   failed_login_attempts: number
   last_failed_login: string | null
   locked_at: string | null
+  link_enabled?: boolean
 }
 
 async function findStaff(username: string): Promise<Staff | null> {
@@ -94,10 +95,63 @@ serve(async (req: Request) => {
   try {
     const body = await req.json().catch(() => ({}))
     const action = body?.action as "check" | "login" | "ensure-admin"
+    | "link-lookup"
 
     if (action === "ensure-admin") {
       const res = await ensureAdmin()
       return new Response(JSON.stringify({ ok: true, data: res }), {
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+        status: 200,
+      })
+    }
+
+    // Action: link-lookup (tự động tạo phiên "đi link" cho user)
+    if (action === "link-lookup") {
+      const usernameInput: string = String(body?.username ?? "").trim()
+      if (!usernameInput) {
+        return new Response(JSON.stringify({ ok: false, error: "Thiếu tên đăng nhập" }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+          status: 400,
+        })
+      }
+      const staff = await findStaff(usernameInput)
+      if (!staff) {
+        return new Response(JSON.stringify({ ok: false, error: "Không tồn tại người dùng này" }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+          status: 404,
+        })
+      }
+      const isActive = staff.account_status === "active"
+      const isUser = staff.role === "user"
+      const enabled = !!staff.link_enabled
+      if (!isActive) {
+        return new Response(JSON.stringify({ ok: false, error: "Tài khoản đã bị khóa hoặc không hoạt động" }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+          status: 423,
+        })
+      }
+      if (!isUser) {
+        return new Response(JSON.stringify({ ok: false, error: "Chỉ người dùng role=user mới dùng link trực tiếp" }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+          status: 403,
+        })
+      }
+      if (!enabled) {
+        return new Response(JSON.stringify({ ok: false, error: "Link chưa được bật cho người dùng này" }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+          status: 403,
+        })
+      }
+      const safeStaff = {
+        id: staff.id,
+        username: staff.username,
+        staff_name: staff.staff_name,
+        email: staff.email,
+        role: staff.role,
+        department: staff.department,
+        account_status: staff.account_status,
+      }
+      return new Response(JSON.stringify({ ok: true, data: safeStaff }), {
         headers: { "Content-Type": "application/json", ...corsHeaders },
         status: 200,
       })

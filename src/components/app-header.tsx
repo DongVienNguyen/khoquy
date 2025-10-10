@@ -61,10 +61,7 @@ const AppHeader: React.FC = () => {
 
   const go = (href: string) => router.push(href);
   const handleLogout = () => {
-    try {
-      window.localStorage.removeItem("loggedInStaff");
-    } catch {}
-    router.replace("/sign-in");
+    router.replace("/sign-out");
   };
 
   return (
