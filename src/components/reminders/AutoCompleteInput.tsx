@@ -20,9 +20,17 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState<number>(-1);
 
+  const normalize = (s: string) =>
+    (s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
   const filtered = useMemo(() => {
-    const q = (value || "").toLowerCase();
-    return (suggestions || []).filter((s) => s.toLowerCase().includes(q)).slice(0, 10);
+    const q = normalize(value || "");
+    if (!q) return [];
+    return (suggestions || [])
+      .filter((s) => normalize(s).includes(q))
+      .slice(0, 10);
   }, [value, suggestions]);
 
   useImperativeHandle(ref, () => ({
@@ -40,11 +48,14 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
             id={id}
             value={value}
             onChange={(e) => {
-              onChange(e.target.value);
-              setOpen(true);
+              const next = e.target.value;
+              onChange(next);
+              setOpen(Boolean(next.trim()));
               setHighlight(-1);
             }}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              if ((value || "").trim()) setOpen(true);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.preventDefault();
@@ -59,9 +70,12 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
                 e.preventDefault();
                 setHighlight((h) => Math.max(0, h - 1));
               } else if (e.key === "Enter" || (e.key === "Tab" && stayAfterTabSelect)) {
-                if (highlight >= 0 && filtered[highlight]) {
+                const pick = filtered[highlight >= 0 ? highlight : 0];
+                if (pick) {
                   e.preventDefault();
-                  onChange(filtered[highlight]);
+                  onChange(pick);
+                  // Giữ focus ở ô hiện tại nếu stayAfterTabSelect, còn Enter thì đóng gợi ý
+                  if (e.key === "Enter") setOpen(false);
                 }
               }
             }}
