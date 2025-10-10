@@ -138,10 +138,11 @@ export default function CRCRemindersPage() {
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Tải trực tiếp 3 bảng staff để tránh cache rỗng làm mất dữ liệu gợi ý
       const [ldp, cb, quy] = await Promise.all([
-        fetchWithCache("ldpcrc_staff", () => LDPCRCStaffAPI.list(), 300000),
-        fetchWithCache("cbcrc_staff", () => CBCRCStaffAPI.list(), 300000),
-        fetchWithCache("quycrc_staff", () => QUYCRCStaffAPI.list(), 300000),
+        LDPCRCStaffAPI.list(),
+        CBCRCStaffAPI.list(),
+        QUYCRCStaffAPI.list(),
       ]);
       setLdpcrcStaff(Array.isArray(ldp) ? ldp : []);
       setCbcrcStaff(Array.isArray(cb) ? cb : []);
