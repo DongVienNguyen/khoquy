@@ -747,7 +747,7 @@ export default function AssetEntryPage() {
 
             <div className="space-y-3">
               <Label className="flex items-center gap-2 text-sm font-medium">
-                <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS: (Qua )tuần khác mới cần chọn ngày)
+                <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS: (tuần khác mới cần chọn ngày)
               </Label>
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex items-center justify-center h-10 px-2 border rounded-md">
@@ -796,7 +796,7 @@ export default function AssetEntryPage() {
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:  (nhiều TS chọn nút AI nhập bằng hình):</Label>
+                  <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:  (nhiều TS chọn nút AI nhập bằng hình)</Label>
                   <Dialog open={isImageDialogOpen} onOpenChange={(v) => { setIsImageDialogOpen(v); if (!v) setPendingImages([]); }}>
                     <DialogTrigger asChild>
                       <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
