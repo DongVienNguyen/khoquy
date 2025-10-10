@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 type Json = Record<string, any>;
@@ -23,10 +24,9 @@ function err(message: string, status = 400) {
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response("ok", { headers: corsHeaders });
   }
 
-  // Optional: Require Authorization header but we don't verify here.
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const admin = createClient(supabaseUrl, serviceKey);
@@ -34,8 +34,7 @@ serve(async (req: Request) => {
   const body = await req.json().catch(() => ({} as Json));
   const action = String(body?.action || "");
 
-  // Helper: order by string "-created_date" or "created_date"
-  function applyOrder<T>(q: any, orderStr?: string, defaultKey = "created_date") {
+  function applyOrder(q: any, orderStr?: string, defaultKey = "created_date") {
     const raw = typeof orderStr === "string" && orderStr.length > 0 ? orderStr : `-${defaultKey}`;
     const desc = raw.startsWith("-");
     const key = desc ? raw.slice(1) : raw;
@@ -94,7 +93,6 @@ serve(async (req: Request) => {
     const id = String(body.id || "");
     const patch = (body.patch || {}) as Json;
     if (!id) return err("id is required");
-    // Fetch old
     const { data: old, error: e1 } = await admin.from("other_assets").select("*").eq("id", id).single();
     if (e1 || !old) return err(e1?.message || "Not found", 404);
 
@@ -113,7 +111,6 @@ serve(async (req: Request) => {
     const { data, error } = await admin.from("other_assets").update(upd).eq("id", id).select("*").single();
     if (error) return err(error.message, 500);
 
-    // Optionally write history if provided
     if (body.with_history) {
       const history: Json = {
         asset_id: id,
@@ -139,7 +136,6 @@ serve(async (req: Request) => {
     const { data: old, error: e1 } = await admin.from("other_assets").select("*").eq("id", id).single();
     if (e1 || !old) return err(e1?.message || "Not found", 404);
 
-    // Write history first
     const h: Json = {
       asset_id: id,
       asset_name: old.name,
