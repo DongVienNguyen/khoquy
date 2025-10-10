@@ -30,6 +30,7 @@ type SafeStaff = {
 };
 
 const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
+const ADMIN_CRUD_FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/admin-crud`;
 async function callAssetFunc(body: Record<string, any>) {
   try {
     const { data, error } = await supabase.functions.invoke("asset-transactions", {
@@ -43,6 +44,35 @@ async function callAssetFunc(body: Record<string, any>) {
   } catch {}
   try {
     const res = await fetch(FUNCTION_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_PUBLIC_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => null);
+    if (res.ok && json) return { ok: true, data: (json as any).data };
+    return { ok: false, error: (json as any)?.error || `HTTP ${res.status}` };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Failed to fetch" };
+  }
+}
+async function callAdminCrud(action: string, payload: Record<string, any>) {
+  const body = { action, ...payload };
+  try {
+    const { data, error } = await supabase.functions.invoke("admin-crud", {
+      body,
+      headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+    });
+    if (!error) {
+      const payload: any = data;
+      return { ok: true, data: payload?.data ?? payload };
+    }
+  } catch {}
+  try {
+    const res = await fetch(ADMIN_CRUD_FUNCTION_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -521,10 +551,10 @@ export default function ManagementPage() {
       } else {
         const table = entityConfig[selectedEntity].table;
         const chunks: string[][] = [];
-        for (let i = 0; i < selectedIds.length; i += 50) chunks.push(selectedIds.slice(i, i + 50));
+        for (let i = 0; i < selectedIds.length; i += 200) chunks.push(selectedIds.slice(i, i + 200));
         for (const batch of chunks) {
-          const { error } = await supabase.from(table).delete().in("id", batch);
-          if (error) throw error;
+          const res = await callAdminCrud("delete_many", { table, ids: batch });
+          if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể xóa");
           await sleep(10);
         }
       }
@@ -588,8 +618,8 @@ export default function ManagementPage() {
         const res = await callAssetFunc({ action: "hard_delete_transaction", id });
         if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể xóa");
       } else {
-        const { error } = await supabase.from(config.table).delete().eq("id", id);
-        if (error) throw error;
+        const res = await callAdminCrud("delete_record", { table: config.table, id });
+        if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể xóa");
       }
       setMessage({ type: "success", text: "Xóa thành công!" });
       await loadData();
@@ -668,12 +698,11 @@ export default function ManagementPage() {
         }
       } else {
         if (editingItem) {
-          const { error } = await supabase.from(config.table).update({ ...dataToSave, updated_date: new Date().toISOString() }).eq("id", editingItem.id);
-          if (error) throw error;
+          const res = await callAdminCrud("update_record", { table: config.table, id: editingItem.id, patch: { ...dataToSave } });
+          if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể cập nhật");
         } else {
-          const payload = { ...dataToSave, created_date: new Date().toISOString(), updated_date: new Date().toISOString() };
-          const { error } = await supabase.from(config.table).insert(payload);
-          if (error) throw error;
+          const res = await callAdminCrud("create_record", { table: config.table, record: { ...dataToSave } });
+          if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể tạo");
         }
       }
       setMessage({ type: "success", text: editingItem ? "Cập nhật thành công!" : "Thêm mới thành công!" });
@@ -785,8 +814,8 @@ export default function ManagementPage() {
           });
           if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Import thất bại");
         } else {
-          const { error } = await supabase.from(entityConfig[selectedEntity].table).insert(importRows);
-          if (error) throw error;
+          const res = await callAdminCrud("create_many", { table: entityConfig[selectedEntity].table, records: importRows });
+          if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Import thất bại");
         }
         setMessage({ type: "success", text: `Import thành công ${importRows.length} bản ghi!` });
         await loadData();
@@ -906,8 +935,8 @@ export default function ManagementPage() {
                 transactions: txs,
               });
             } else {
-              const { error } = await supabase.from(cfg.table).insert(batch);
-              if (error) throw error;
+              const res = await callAdminCrud("create_many", { table: cfg.table, records: batch });
+              if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể khôi phục batch");
             }
             done += batch.length;
             setRestoreProgress(Math.min(100, Math.round((done / totalToInsert) * 100)));
@@ -946,8 +975,8 @@ export default function ManagementPage() {
               transactions: txs,
             });
           } else {
-            const { error } = await supabase.from(cfg.table).insert(batch);
-            if (error) throw error;
+            const res = await callAdminCrud("create_many", { table: cfg.table, records: batch });
+            if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể khôi phục batch");
           }
           done += batch.length;
           setRestoreProgress(Math.min(100, Math.round((done / total) * 100)));
