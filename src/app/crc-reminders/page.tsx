@@ -449,7 +449,7 @@ export default function CRCRemindersPage() {
                       id="ldpcrc"
                       value={String(newReminder.ldpcrc || "")}
                       onChange={(value: string) => setNewReminder({ ...newReminder, ldpcrc: value })}
-                      suggestions={ldpcrcStaff.map(s => s.ten_nv)}
+                      suggestions={ldpcrcStaff.map(s => s.ten_nv).filter(Boolean)}
                       placeholder="Nhập tên LĐP duyệt CRC"
                       className="h-12"
                       onOpenSuggestions={ensureLDPCRCLoaded}
@@ -463,7 +463,7 @@ export default function CRCRemindersPage() {
                       id="cbcrc"
                       value={String(newReminder.cbcrc || "")}
                       onChange={(value: string) => setNewReminder({ ...newReminder, cbcrc: value })}
-                      suggestions={cbcrcStaff.map(s => s.ten_nv)}
+                      suggestions={cbcrcStaff.map(s => s.ten_nv).filter(Boolean)}
                       placeholder="Nhập tên CB làm CRC"
                       className="h-12"
                       onOpenSuggestions={ensureCBCRCLoaded}
@@ -477,7 +477,7 @@ export default function CRCRemindersPage() {
                       id="quycrc"
                       value={String(newReminder.quycrc || "")}
                       onChange={(value: string) => setNewReminder({ ...newReminder, quycrc: value })}
-                      suggestions={quycrcStaff.map(s => s.ten_nv)}
+                      suggestions={quycrcStaff.map(s => s.ten_nv).filter(Boolean)}
                       placeholder="Nhập tên Thủ quỹ duyệt CRC"
                       className="h-12"
                       onOpenSuggestions={ensureQUYCRCLoaded}
