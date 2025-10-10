@@ -416,7 +416,7 @@ export default function ManagementPage() {
         setData([]);
         return;
       }
-      // Prefer edge function for AssetTransaction & ProcessedNote & TakenAssetStatus
+      // Prefer edge function cho từng bảng
       let result: any[] = [];
       if (selectedEntity === "AssetTransaction") {
         const res = await callAssetFunc({ action: "list_range", start: "1900-01-01", end: "2100-12-31", include_deleted: true });
@@ -427,14 +427,15 @@ export default function ManagementPage() {
         if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể tải dữ liệu");
         result = Array.isArray(res.data) ? res.data : [];
       } else if (selectedEntity === "TakenAssetStatus") {
-        // Tải toàn bộ theo tuần hiện tại của admin (nếu cần), mặc định lấy tất cả để quản lý
         const { data, error } = await supabase.from("taken_asset_status").select("*").order("marked_at", { ascending: false });
         if (error) throw error;
         result = data || [];
       } else {
-        const { data, error } = await supabase.from(config.table).select("*").order(config.defaultSort?.replace("-", "") || "created_date", { ascending: !config.defaultSort?.startsWith("-") });
-        if (error) throw error;
-        result = data || [];
+        const orderBy = config.defaultSort?.replace("-", "") || "created_date";
+        const ascending = !config.defaultSort?.startsWith("-");
+        const res = await callAdminCrud("list_all", { table: config.table, orderBy, ascending });
+        if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể tải dữ liệu");
+        result = Array.isArray(res.data) ? res.data : [];
       }
       setData(result);
     } catch (e: any) {

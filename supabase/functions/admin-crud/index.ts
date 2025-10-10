@@ -63,6 +63,19 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: false, error: "Bảng không được phép." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
+    if (action === "list_all") {
+      const orderBy = typeof body?.orderBy === "string" ? body.orderBy : null
+      const ascending = body?.ascending !== undefined ? Boolean(body.ascending) : true
+      let query = supabase.from(table).select("*")
+      if (orderBy) {
+        // @ts-ignore - chain order only when provided
+        query = query.order(orderBy, { ascending })
+      }
+      const { data, error } = await query
+      if (error) throw error
+      return new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    }
+
     if (action === "create_record") {
       const record = body?.record || {}
       const payload = applyDateColumns(table, record, true)
