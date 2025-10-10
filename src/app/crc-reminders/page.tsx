@@ -721,15 +721,15 @@ export default function CRCRemindersPage() {
           const lines: string[] = [];
           if (sample.ldpcrc) {
             const s = findByName(ldpcrcStaff, sample.ldpcrc);
-            lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.ldpcrc}`);
+            lines.push(`Người nhận: ${s?.email ? `${s.email}.hvu@vietcombank.com.vn` : sample.ldpcrc}`);
           }
           if (sample.cbcrc) {
             const s = findByName(cbcrcStaff, sample.cbcrc);
-            lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.cbcrc}`);
+            lines.push(`Người nhận: ${s?.email ? `${s.email}.hvu@vietcombank.com.vn` : sample.cbcrc}`);
           }
           if (sample.quycrc) {
             const s = findByName(quycrcStaff, sample.quycrc);
-            lines.push(`Người nhận: ${s?.email ? `${s.email}@vietcombank.com.vn` : sample.quycrc}`);
+            lines.push(`Người nhận: ${s?.email ? `${s.email}.hvu@vietcombank.com.vn` : sample.quycrc}`);
           }
           return lines.join("<br/>");
         })()}

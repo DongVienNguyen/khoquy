@@ -30,7 +30,8 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
 
   const filtered = useMemo(() => {
     const q = normalize(value || "");
-    if (!q) return [];
+    // Khi chưa gõ gì, hiển thị top 10 gợi ý để người dùng chọn nhanh
+    if (!q) return (suggestions || []).slice(0, 10);
     const scored = (suggestions || []).map((s) => {
       const ns = normalize(s);
       const starts = ns.startsWith(q) || ns.split(/\s+/).some((w) => w.startsWith(q));
@@ -65,10 +66,9 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
           setHighlight(-1);
         }}
         onFocus={() => {
-          if ((value || "").trim()) {
-            setOpen(true);
-            onOpenSuggestions?.();
-          }
+          // Luôn mở dropdown khi focus để hiển thị danh sách gợi ý ban đầu
+          setOpen(true);
+          onOpenSuggestions?.();
         }}
         onBlur={() => {
           // đóng nhẹ nhàng khi blur ra ngoài
