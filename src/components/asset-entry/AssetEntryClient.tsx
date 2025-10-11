@@ -676,10 +676,14 @@ export default function AssetEntryClient() {
       .replace(RE_YEAR_TRUNC, "$1")
       .replace(RE_CODE_MAX, "$1");
 
+    // Lịch auto-focus dòng kế tiếp khi mã trở nên hợp lệ lần đầu
+    let scheduleNextFocusIndex: number | null = null;
+
     setMultipleAssets((prev) => {
       const next = [...prev];
       const wasEmptyBefore = (next[index] || "").trim() === "";
       if (next[index] === normalized) return prev; // tránh setState nếu không đổi
+      const wasValid = isAssetValid(next[index] || "");
       next[index] = normalized;
 
       // Auto-append chỉ khi cần
@@ -693,6 +697,12 @@ export default function AssetEntryClient() {
         while (next.length > index + 1 && next[next.length - 1].trim() === "") {
           next.pop();
         }
+      }
+
+      // Nếu vừa trở nên hợp lệ (từ chưa hợp lệ → hợp lệ) thì đặt lịch focus dòng kế tiếp
+      const nowValid = isAssetValid(normalized);
+      if (!wasValid && nowValid) {
+        scheduleNextFocusIndex = index + 1;
       }
 
       // Kích hoạt cuộn đúng 1 lần/ô khi gõ ký tự đầu tiên
@@ -721,7 +731,23 @@ export default function AssetEntryClient() {
 
       return next.length > 0 ? next : [""];
     });
-  }, [triggerScrollRoutine]);
+
+    // Sau khi state cập nhật: nếu cần thì focus dòng kế tiếp và auto-expand nếu đang ẩn
+    if (scheduleNextFocusIndex !== null) {
+      const nextIdx = scheduleNextFocusIndex;
+      // Nếu ô kế tiếp nằm ngoài 5 dòng hiển thị mặc định → mở rộng để hiển thị
+      if (nextIdx >= 5) {
+        setShowAllAssets(true);
+      }
+      setTimeout(() => {
+        const el = assetInputRefs.current[nextIdx];
+        if (el) {
+          try { el.focus(); } catch {}
+          triggerScrollRoutine(el);
+        }
+      }, 0);
+    }
+  }, [triggerScrollRoutine, isAssetValid, setShowAllAssets]);
 
   const addAssetField = useCallback(() => {
     setMultipleAssets((prev) => {

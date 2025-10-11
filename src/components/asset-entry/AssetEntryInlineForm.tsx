@@ -238,28 +238,44 @@ const AssetEntryInlineForm: React.FC = () => {
   }, [extractCodesFromText, handleBulkInsert]);
 
   const handleAssetChange = useCallback((index: number, value: string) => {
-    let newAssets = [...multipleAssets];
     const normalized = String(value).replace(/[,/\\]/g, ".");
-    newAssets[index] = normalized
-      .replace(/[^0-9.]/g, "")
-      .replace(/(\..*)\./g, "$1")
-      .replace(/(\.\d\d)\d+$/, "$1")
-      .replace(/(\d{4})\d+/, "$1");
-
-    if (newAssets[index] === multipleAssets[index]) {
-      setMultipleAssets((prev) => prev); // giữ nguyên nếu không đổi
-    } else {
-      if (newAssets[index].length >= 6 && newAssets.length === index + 1) {
-        newAssets.push("");
+    let scheduleNextFocusIndex: number | null = null;
+    setMultipleAssets((prev) => {
+      const next = [...prev];
+      const prevVal = next[index] || "";
+      const wasValid = isAssetValid(prevVal);
+      const updated = normalized
+        .replace(/[^0-9.]/g, "")
+        .replace(/(\..*)\./g, "$1")
+        .replace(/(\.\d\d)\d+$/, "$1")
+        .replace(/(\d{4})\d+/, "$1");
+      if (updated === prevVal) return prev;
+      next[index] = updated;
+      // Auto-append nếu đang ở cuối và đủ độ dài tối thiểu
+      if (updated.length >= 6 && next.length === index + 1) {
+        next.push("");
       }
-      if (newAssets[index].length < 6) {
-        while (newAssets.length > index + 1 && newAssets[newAssets.length - 1].trim() === "") {
-          newAssets.pop();
+      // Thu gọn đuôi rỗng khi quá ngắn
+      if (updated.length < 6) {
+        while (next.length > index + 1 && next[next.length - 1].trim() === "") {
+          next.pop();
         }
       }
-      setMultipleAssets(newAssets.length > 0 ? newAssets : [""]);
+      const nowValid = isAssetValid(updated);
+      if (!wasValid && nowValid) {
+        scheduleNextFocusIndex = index + 1;
+      }
+      return next.length > 0 ? next : [""];
+    });
+    if (scheduleNextFocusIndex !== null) {
+      const nextIdx = scheduleNextFocusIndex;
+      if (nextIdx >= 5) setShowAllAssets(true);
+      setTimeout(() => {
+        const el = assetInputRefs.current[nextIdx];
+        try { el?.focus(); } catch {}
+      }, 0);
     }
-  }, [multipleAssets]);
+  }, [isAssetValid]);
 
   const addAssetField = useCallback(() => setMultipleAssets((prev) => [...prev, ""]), []);
   const removeAssetField = useCallback((index: number) => setMultipleAssets((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [""])), []);
