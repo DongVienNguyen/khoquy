@@ -38,6 +38,73 @@ function todayYmdGmt7(): string {
   return `${y}-${m}-${d}`;
 }
 
+async function sendEmailResend(toList: string[], subject: string, html: string, text?: string) {
+  const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+  if (!RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY is not configured");
+  }
+  const payload = {
+    from: "onboarding@resend.dev", // dùng địa chỉ mặc định của Resend (có thể thay bằng domain đã verify)
+    to: toList,
+    subject,
+    html,
+    ...(text ? { text } : {}),
+  };
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const msg = await resp.text().catch(() => "");
+    throw new Error(`Resend error: ${resp.status} ${msg}`);
+  }
+  return await resp.json().catch(() => ({}));
+}
+
+function renderDefaultHtml(reminder: any) {
+  const safe = (s: any) => String(s ?? "").trim();
+  const loai = safe(reminder.loai_bt_crc);
+  const ngay = safe(reminder.ngay_thuc_hien);
+  const ldp = safe(reminder.ldpcrc);
+  const cb = safe(reminder.cbcrc);
+  const quy = safe(reminder.quycrc);
+  return `
+  <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #0f172a; line-height: 1.6;">
+    <h2 style="margin: 0 0 8px;">Nhắc duyệt CRC</h2>
+    <p style="margin: 0 0 12px;">Chứng từ CRC cần được duyệt theo quy định.</p>
+    <table style="border-collapse: collapse; width: 100%; max-width: 640px;">
+      <tbody>
+        <tr><td style="padding: 6px 0; width: 160px; color: #64748b;">Loại BT CRC</td><td style="padding: 6px 0;"><strong>${loai}</strong></td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;">Ngày thực hiện</td><td style="padding: 6px 0;">${ngay}</td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;">LĐPCRC</td><td style="padding: 6px 0;">${ldp || "-"}</td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;">CBCRC</td><td style="padding: 6px 0;">${cb || "-"}</td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;">QUYCRC</td><td style="padding: 6px 0;">${quy || "-"}</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top: 16px; font-size: 12px; color: #64748b;">Thời gian gửi: ${todayYmdGmt7()} (GMT+7)</p>
+  </div>
+  `;
+}
+
+function applyTemplate(template: string, reminder: any) {
+  const replacements: Record<string, string> = {
+    "{{loai_bt_crc}}": String(reminder.loai_bt_crc ?? ""),
+    "{{ngay_thuc_hien}}": String(reminder.ngay_thuc_hien ?? ""),
+    "{{ldpcrc}}": String(reminder.ldpcrc ?? ""),
+    "{{cbcrc}}": String(reminder.cbcrc ?? ""),
+    "{{quycrc}}": String(reminder.quycrc ?? ""),
+  };
+  let html = template || "";
+  for (const [key, val] of Object.entries(replacements)) {
+    html = html.split(key).join(val);
+  }
+  return html;
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -60,37 +127,26 @@ serve(async (req: Request) => {
     return ok(data);
   }
 
-  // Staff suggestions: return staff_name, username, email (if present)
+  // Staff suggestions
   if (action === "staff_suggestions") {
     const { data, error } = await admin.from("staff").select("staff_name, username, email").order("staff_name", { ascending: true });
     if (error) return err(error.message, 500);
     return ok(data || []);
   }
 
-  // New: list staff from specific CRC role tables
+  // CRC role staff lists
   if (action === "list_ldpcrc_staff") {
-    const { data, error } = await admin
-      .from("ldpcrc_staff")
-      .select("id, ten_nv, email")
-      .order("ten_nv", { ascending: true });
+    const { data, error } = await admin.from("ldpcrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
     if (error) return err(error.message, 500);
     return ok(data || []);
   }
-
   if (action === "list_cbcrc_staff") {
-    const { data, error } = await admin
-      .from("cbcrc_staff")
-      .select("id, ten_nv, email")
-      .order("ten_nv", { ascending: true });
+    const { data, error } = await admin.from("cbcrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
     if (error) return err(error.message, 500);
     return ok(data || []);
   }
-
   if (action === "list_quycrc_staff") {
-    const { data, error } = await admin
-      .from("quycrc_staff")
-      .select("id, ten_nv, email")
-      .order("ten_nv", { ascending: true });
+    const { data, error } = await admin.from("quycrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
     if (error) return err(error.message, 500);
     return ok(data || []);
   }
@@ -153,35 +209,48 @@ serve(async (req: Request) => {
     return ok({ success: true });
   }
 
-  // Helper: map name -> username via staff table (first match by staff_name)
-  async function findUsernameByName(name?: string | null): Promise<string | null> {
+  // Utilities
+  function norm(s: string) {
+    return (s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/g, "d")
+      .replace(/Đ/g, "d")
+      .trim();
+  }
+  async function emailForName(table: "ldpcrc_staff" | "cbcrc_staff" | "quycrc_staff", name?: string | null) {
     if (!name || !name.trim()) return null;
-    const { data, error } = await admin.from("staff").select("username, staff_name").eq("staff_name", name).limit(1);
+    const { data, error } = await admin.from(table).select("ten_nv, email").eq("ten_nv", name).limit(1);
     if (error) return null;
-    const row = data?.[0];
-    return row?.username || null;
+    const row = data?.[0] as { ten_nv?: string; email?: string } | undefined;
+    if (!row?.email) return null;
+    return `${row.email}.hvu@vietcombank.com.vn`;
   }
 
-  async function sendOne(reminder: any) {
-    // Insert notification(s)
-    const notifMessage = `Chứng từ CRC: ${reminder.loai_bt_crc} ngày ${reminder.ngay_thuc_hien} cần được duyệt đúng theo quy định.`;
-    const recipients: (string | null)[] = [
-      await findUsernameByName(reminder.ldpcrc),
-      await findUsernameByName(reminder.cbcrc),
-      await findUsernameByName(reminder.quycrc),
-    ].filter(Boolean) as string[];
-    if (recipients.length > 0) {
-      const notifs = recipients.map((u) => ({
-        title: `Nhắc nhở duyệt CRC: ${reminder.loai_bt_crc}`,
-        message: notifMessage,
-        recipient_username: u,
-        notification_type: "crc_reminder",
-        is_read: false,
-        related_data: { crc_type: reminder.loai_bt_crc, execution_date: reminder.ngay_thuc_hien },
-      }));
-      const { error: nErr } = await admin.from("notifications").insert(notifs);
-      if (nErr) console.warn("notif insert error:", nErr.message);
+  async function buildRecipients(reminder: any) {
+    const list: string[] = [];
+    const e1 = await emailForName("ldpcrc_staff", reminder.ldpcrc);
+    const e2 = await emailForName("cbcrc_staff", reminder.cbcrc);
+    const e3 = await emailForName("quycrc_staff", reminder.quycrc);
+    [e1, e2, e3].forEach((e) => { if (e) list.push(e); });
+    // lọc trùng
+    return Array.from(new Set(list));
+  }
+
+  async function sendOne(reminder: any, template?: string) {
+    // Recipients
+    const recipients = await buildRecipients(reminder);
+    if (recipients.length === 0) {
+      throw new Error("Không tìm thấy email người nhận từ LĐPCRC/CBCRC/QUYCRC");
     }
+
+    // Compose email
+    const subject = `Nhắc duyệt CRC: ${String(reminder.loai_bt_crc ?? "")}`;
+    const html = template ? applyTemplate(template, reminder) : renderDefaultHtml(reminder);
+
+    // Send email via Resend
+    await sendEmailResend(recipients, subject, html);
 
     // Move to sent table
     const sent = {
@@ -207,26 +276,35 @@ serve(async (req: Request) => {
 
   if (action === "send_one") {
     const id = String(body.id || "");
+    const template: string | undefined = body?.template;
     if (!id) return err("id is required");
     const { data: r, error } = await admin.from("crc_reminders").select("*").eq("id", id).single();
     if (error || !r) return err(error?.message || "Not found", 404);
-    await sendOne(r);
+    await sendOne(r, template);
     return ok({ success: true });
   }
 
   if (action === "send_batch_today") {
+    const template: string | undefined = body?.template;
     const ddmm = todayDdMmGmt7();
     const { data: rows, error } = await admin.from("crc_reminders").select("*").eq("ngay_thuc_hien", ddmm);
     if (error) return err(error.message, 500);
-    for (const r of rows || []) { await sendOne(r); }
-    return ok({ success: true, count: (rows || []).length });
+    let success = 0;
+    for (const r of rows || []) {
+      try { await sendOne(r, template); success++; } catch (e) { /* continue next */ }
+    }
+    return ok({ success: true, count: success });
   }
 
   if (action === "send_batch_all") {
+    const template: string | undefined = body?.template;
     const { data: rows, error } = await admin.from("crc_reminders").select("*");
     if (error) return err(error.message, 500);
-    for (const r of rows || []) { await sendOne(r); }
-    return ok({ success: true, count: (rows || []).length });
+    let success = 0;
+    for (const r of rows || []) {
+      try { await sendOne(r, template); success++; } catch (e) { /* continue next */ }
+    }
+    return ok({ success: true, count: success });
   }
 
   return err("Unknown action", 404);
