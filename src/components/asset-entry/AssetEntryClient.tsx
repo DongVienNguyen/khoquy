@@ -102,6 +102,7 @@ export default function AssetEntryClient() {
 
   const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const timeCheckTimerRef = useRef<number | null>(null);
+  const todayRef = useRef<HTMLDivElement | null>(null);
 
   const formatDateShort = React.useCallback((date: Date | null) => {
     if (!date) return "Chọn ngày";
@@ -177,12 +178,7 @@ export default function AssetEntryClient() {
     } catch {}
   }, [router, calculateDefaultValues]);
 
-  useEffect(() => {
-    if (message.type === "success" && message.text) {
-      const t = setTimeout(() => setMessage({ type: "", text: "" }), 4000);
-      return () => clearTimeout(t);
-    }
-  }, [message]);
+  // Giữ thông báo bền vững: không auto-clear nữa
 
   // Tạm dừng interval khi tab ẩn, khởi động lại khi visible
   useEffect(() => {
@@ -221,6 +217,40 @@ export default function AssetEntryClient() {
       document.removeEventListener("visibilitychange", onVisChange);
     };
   }, [currentStaff]);
+
+  // Auto scroll khi bàn phím mở (iOS Safari/Chrome + Android Chrome)
+  useEffect(() => {
+    const isFocusable = (el: Element | null) => {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    };
+    const scrollToToday = () => {
+      if (!todayRef.current) return;
+      const y = Math.max(0, todayRef.current.offsetTop - 12);
+      window.scrollTo({ top: y, behavior: "smooth" });
+    };
+    const onFocusIn = () => {
+      // chờ keyboard xuất hiện rồi cuộn
+      setTimeout(scrollToToday, 80);
+    };
+    const vv: any = typeof window !== "undefined" ? (window as any).visualViewport : null;
+    const onVVResize = () => {
+      if (isFocusable(document.activeElement)) {
+        setTimeout(scrollToToday, 50);
+      }
+    };
+    window.addEventListener("focusin", onFocusIn, { passive: true });
+    if (vv && typeof vv.addEventListener === "function") {
+      vv.addEventListener("resize", onVVResize, { passive: true });
+    }
+    return () => {
+      window.removeEventListener("focusin", onFocusIn);
+      if (vv && typeof vv.removeEventListener === "function") {
+        vv.removeEventListener("resize", onVVResize);
+      }
+    };
+  }, []);
 
   const requiresNoteDropdown = useMemo(() => ["CMT8", "NS", "ĐS", "LĐH"].includes(formData.room), [formData.room]);
 
@@ -336,7 +366,7 @@ export default function AssetEntryClient() {
     if (!validateAllAssets() || !currentStaff || !formData.transaction_date) return;
 
     setIsLoading(true);
-    setMessage({ type: "", text: "" });
+    // Giữ thông báo hiện tại cho đến khi có kết quả mới
 
     const txDate = getYmd(formData.transaction_date);
 
@@ -719,7 +749,7 @@ export default function AssetEntryClient() {
             )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
-              <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setMessage({ type: "", text: "" }); }} variant="outline">
+              <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); }} variant="outline">
                 Clear
               </Button>
               <Button type="submit" disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")} className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
@@ -826,7 +856,7 @@ export default function AssetEntryClient() {
           </Dialog>
         )}
 
-        <div className="rounded-lg bg-card border p-6 shadow-sm">
+        <div ref={todayRef} className="rounded-lg bg-card border p-6 shadow-sm">
           <button className="w-full flex items-center justify-between text-left" onClick={() => setListOpen((o) => !o)}>
             <span className="font-semibold">Thông báo đã gửi hôm nay</span>
             <span className="text-muted-foreground">{listOpen ? "Thu gọn" : "Mở"}</span>
