@@ -638,7 +638,7 @@ export default function AssetEntryClient() {
           firstTypeTriggeredRef.current.push(false);
         }
         const becameNonEmpty = wasEmptyBefore && normalized.trim() !== "";
-        if (becameNonEmpty && !prevTrig[index]) {
+        if (becameNonEmpty && !prevTrig[index] && !firstTypeTriggeredRef.current[index]) {
           // Ưu tiên cuộn theo đúng ô input đang gõ (nếu ref có), fallback activeElement
           const target = assetInputRefs.current[index] ?? (document.activeElement as HTMLElement | null);
           triggerScrollRoutine(target);

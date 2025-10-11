@@ -78,6 +78,10 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
               } else if (e.key === "Tab" && e.shiftKey) {
                 e.preventDefault();
                 onTabNavigate?.(index, "prev");
+              } else if (e.key === "Enter" && !e.shiftKey) {
+                // iOS keyboards thường dùng Enter thay cho Tab/Next
+                e.preventDefault();
+                onTabNavigate?.(index, "next");
               }
             }}
             onPaste={() => {
