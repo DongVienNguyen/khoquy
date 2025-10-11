@@ -88,19 +88,26 @@ serve(async (req) => {
       ? json
       : (json && Array.isArray(json?.data) ? json.data : []);
 
-    // Lọc NGÀY HÔM NAY
-    const todayItems = list.filter((it) => {
-      const td = it?.transaction_date;
-      if (!td) return false;
-      const tdStr = String(td).slice(0, 10);
-      return tdStr === todayStr;
+    // Tính mốc ngày hôm nay/hôm qua theo GMT+7
+    const todayStart = new Date(`${todayStr}T00:00:00+07:00`);
+    const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+    const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    const yesterdayStr = toDateStrGMT7(yesterdayStart);
+
+    // Lọc theo notified_at: chỉ giữ hôm nay và hôm qua (GMT+7)
+    const filteredItems = list.filter((it) => {
+      const na = it?.notified_at;
+      if (!na) return false;
+      const dayStr = toDateStrGMT7(new Date(na));
+      return dayStr === todayStr || dayStr === yesterdayStr;
     });
 
-    // Tải dữ liệu DB của NGÀY HÔM NAY
+    // Tải dữ liệu DB theo khoảng notified_at: từ hôm qua 00:00 đến ngày mai 00:00 (GMT+7)
     const { data: existingRows, error: selectErr } = await supabase
       .from("asset_transactions")
       .select("*")
-      .eq("transaction_date", todayStr);
+      .gte("notified_at", yesterdayStart.toISOString())
+      .lt("notified_at", tomorrowStart.toISOString());
 
     if (selectErr) throw selectErr;
 
@@ -122,7 +129,7 @@ serve(async (req) => {
     const inserts: any[] = [];
     const updates: { id: string; patch: any }[] = [];
 
-    for (const it of todayItems) {
+    for (const it of filteredItems) {
       const record = {
         transaction_date: String(it.transaction_date).slice(0, 10),
         parts_day: String(it.parts_day ?? "").trim(),
@@ -247,10 +254,10 @@ serve(async (req) => {
     const resBody = {
       date: todayStr,
       fetched: list.length || 0,
-      filteredToday: todayItems.length,
+      filteredToday: filteredItems.length, // hiện đại diện cho 2 ngày (hôm nay + hôm qua)
       inserted: insCount,
       updated: updCount,
-      skipped: todayItems.length - insCount - updCount,
+      skipped: filteredItems.length - insCount - updCount,
       durationMs: Date.now() - t0,
       status: "ok",
     };
