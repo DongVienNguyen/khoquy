@@ -15,10 +15,11 @@ type Props = {
   inputRef?: (el: HTMLInputElement | null) => void;
   onTabNavigate?: (index: number, direction: "next" | "prev") => void;
   showRemove: boolean;
+  onFirstType?: (index: number) => void;
 };
 
 const AssetCodeInputRow: React.FC<Props> = React.memo(
-  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove }) => {
+  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType }) => {
     return (
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -32,7 +33,15 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
             value={value}
             onChange={(e) => onChange(index, e.target.value)}
             ref={inputRef}
+            onBeforeInput={() => {
+              // Ký tự đầu tiên: kích hoạt cuộn
+              if (!value) onFirstType?.(index);
+            }}
             onKeyDown={(e) => {
+              // Ký tự đầu tiên (fallback): kích hoạt cuộn kể cả phím số/ký tự
+              if (!value && !e.ctrlKey && !e.metaKey && e.key.length === 1) {
+                onFirstType?.(index);
+              }
               if (e.key === "Tab" && !e.shiftKey) {
                 e.preventDefault();
                 onTabNavigate?.(index, "next");
@@ -40,6 +49,10 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
                 e.preventDefault();
                 onTabNavigate?.(index, "prev");
               }
+            }}
+            onPaste={() => {
+              // Lần đầu dán vào ô rỗng: cũng kích hoạt cuộn
+              if (!value) onFirstType?.(index);
             }}
             placeholder="Ví dụ: 259.24"
             className={`h-10 pr-9 font-mono text-center text-lg font-semibold ${value ? (isValid ? "border-green-300" : "border-red-300") : ""}`}

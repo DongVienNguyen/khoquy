@@ -280,6 +280,20 @@ export default function AssetEntryClient() {
     }, 800);
   }, []);
 
+  // Kích hoạt cuộn khi người dùng gõ ký tự đầu tiên trong một ô (kể cả số)
+  const handleFirstType = React.useCallback((index: number) => {
+    // Đánh dấu đã kích hoạt lần đầu cho ô đó
+    setFirstTypeTriggered((prev) => {
+      const next = prev.slice();
+      while (next.length <= index) next.push(false);
+      if (!next[index]) next[index] = true;
+      return next.length > 0 ? next : [true];
+    });
+    // Cuộn theo đúng ô input đang gõ
+    const target = assetInputRefs.current[index] ?? (document.activeElement as HTMLElement | null);
+    triggerScrollRoutine(target || undefined);
+  }, [triggerScrollRoutine]);
+
   // Auto scroll khi bàn phím mở: dùng triggerScrollRoutine để cuộn ngay lần đầu focus
   useEffect(() => {
     const onFocusIn = () => {
@@ -823,6 +837,7 @@ export default function AssetEntryClient() {
                         onAddRow={addAssetField}
                         onRemoveRow={removeAssetField}
                         inputRef={(el) => { assetInputRefs.current[idx] = el; }}
+                        onFirstType={handleFirstType}
                         onTabNavigate={(i, dir) => {
                           if (dir === "next") {
                             const next = i + 1;
@@ -832,13 +847,29 @@ export default function AssetEntryClient() {
                                 setFirstTypeTriggered((prevTrig) => [...prevTrig, false]);
                                 return arr;
                               });
-                              setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
+                              setTimeout(() => {
+                                const el = assetInputRefs.current[next];
+                                if (el) {
+                                  el.focus();
+                                  triggerScrollRoutine(el);
+                                }
+                              }, 0);
                             } else {
-                              assetInputRefs.current[next]?.focus();
+                              const el = assetInputRefs.current[next];
+                              if (el) {
+                                el.focus();
+                                triggerScrollRoutine(el);
+                              }
                             }
                           } else {
                             const prevIdx = i - 1;
-                            if (prevIdx >= 0) assetInputRefs.current[prevIdx]?.focus();
+                            if (prevIdx >= 0) {
+                              const el = assetInputRefs.current[prevIdx];
+                              if (el) {
+                                el.focus();
+                                triggerScrollRoutine(el);
+                              }
+                            }
                           }
                         }}
                         showRemove={multipleAssets.length > 1}
