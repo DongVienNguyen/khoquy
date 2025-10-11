@@ -162,6 +162,15 @@ export default function AssetEntryClient() {
   const [firstTypeTriggered, setFirstTypeTriggered] = useState<boolean[]>([false]);
   const firstTypeTriggeredRef = useRef<boolean[]>([false]);
 
+  // iOS needs a real user gesture to open keyboard, fallback overlay
+  const [showTapToType, setShowTapToType] = useState(false);
+  const isIOSRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      isIOSRef.current = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+  }, []);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -452,6 +461,25 @@ export default function AssetEntryClient() {
     triggerScrollRoutine(target || undefined);
   }, [triggerScrollRoutine]);
 
+  // Bắt thao tác chạm đầu tiên để bật bàn phím trên iOS
+  const handleUserTapFocus = React.useCallback(() => {
+    const el = assetInputRefs.current?.[0];
+    if (!el) { setShowTapToType(false); return; }
+    setShowTapToType(false);
+    try { el.focus({ preventScroll: true } as any); } catch {}
+    try { el.click?.(); } catch {}
+    try {
+      const v = el.value ?? "";
+      el.setSelectionRange?.(v.length, v.length);
+    } catch {}
+    // Cycle blur/focus một lần nữa để chắc chắn bật bàn phím
+    setTimeout(() => {
+      try { el.blur(); } catch {}
+      try { el.focus({ preventScroll: true } as any); } catch {}
+      triggerScrollRoutine(el);
+    }, 80);
+  }, [triggerScrollRoutine]);
+
   // Tự động focus ô nhập đầu tiên khi vào trang để bật bàn phím
   useEffect(() => {
     if (!isMounted) return;
@@ -475,8 +503,30 @@ export default function AssetEntryClient() {
     // Nhịp 2: rAF
     requestAnimationFrame(() => tryFocus({ preventScroll: true }));
     // Nhịp 3: thêm 200ms để vượt animation keyboard iOS
-    const t = setTimeout(() => tryFocus({ preventScroll: true }), 200);
-    return () => clearTimeout(t);
+    const t1 = setTimeout(() => tryFocus({ preventScroll: true }), 200);
+    // Nhịp 4: thêm 400ms (Android/iOS chậm)
+    const t2 = setTimeout(() => {
+      // blur/focus cycle để kích bàn phím trên vài thiết bị
+      try { el.blur(); } catch {}
+      tryFocus({ preventScroll: true });
+    }, 400);
+    // Nhịp 5: thêm 800ms (lần cuối trước khi hiển thị overlay iOS)
+    const t3 = setTimeout(() => tryFocus({ preventScroll: true }), 800);
+    // Sau 600ms, nếu vẫn chưa mở keyboard trên iOS → hiển thị overlay để bắt chạm
+    const tCheck = setTimeout(() => {
+      const initial = initialVVHeightRef.current || (vvRef.current?.height ?? window.innerHeight);
+      const currentH = vvRef.current?.height ?? window.innerHeight;
+      const decreasedEnough = initial - currentH >= keyboardOpenThreshold;
+      if (!decreasedEnough && isIOSRef.current) {
+        setShowTapToType(true);
+      }
+    }, 600);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(tCheck);
+    };
   }, [isMounted, triggerScrollRoutine]);
 
   const requiresNoteDropdown = useMemo(() => ["CMT8", "NS", "ĐS", "LĐH"].includes(formData.room), [formData.room]);
@@ -1112,68 +1162,17 @@ export default function AssetEntryClient() {
             </form>
           </div>
 
-          {isAiConfirmOpen && (
-            <Dialog open={isAiConfirmOpen} onOpenChange={setIsAiConfirmOpen}>
-              <DialogContent className="max-w-lg">
-                <DialogHeader>
-                  <DialogTitle>Xác nhận mã cần làm rõ</DialogTitle>
-                </DialogHeader>
-                {aiNeedsConfirm && Object.keys(aiNeedsConfirm.options).length > 0 ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      Một số mã có nhiều cách diễn giải năm. Vui lòng chọn chính xác cho từng mã:
-                    </p>
-                    <div className="space-y-2">
-                      {Object.entries(aiNeedsConfirm.options).map(([code, opts]) => (
-                        <div key={code} className="grid grid-cols-3 items-center gap-2">
-                          <Label className="col-span-1 text-sm">Mã {code}</Label>
-                          <div className="col-span-2">
-                            <Select
-                              value={aiNeedsConfirm.selections[code] || ""}
-                              onValueChange={(v) =>
-                                setAiNeedsConfirm((prev) =>
-                                  prev ? { options: prev.options, selections: { ...prev.selections, [code]: v } } : prev
-                                )
-                              }
-                            >
-                              <SelectTrigger className="h-10"><SelectValue placeholder="Chọn mã đúng" /></SelectTrigger>
-                              <SelectContent>
-                                {opts.map((o) => (
-                                  <SelectItem key={o} value={o}>{o}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex justify-end gap-2 pt-2">
-                      <Button variant="outline" onClick={() => setIsAiConfirmOpen(false)}>Để sau</Button>
-                      <Button
-                        className="bg-green-600 hover:bg-green-700"
-                        onClick={() => {
-                          if (!aiNeedsConfirm) return;
-                          const chosen = Object.values(aiNeedsConfirm.selections || {}).filter(Boolean);
-                          if (chosen.length > 0) {
-                            setMultipleAssets((prev) => {
-                              const existing = prev.filter((a) => a.trim());
-                              const merged = Array.from(new Set([...existing, ...chosen]));
-                              return merged.length > 0 ? merged : [""];
-                            });
-                            toast.success(`Đã thêm xác nhận cho ${chosen.length} mã.`);
-                          }
-                          setIsAiConfirmOpen(false);
-                        }}
-                      >
-                        Xác nhận & Thêm
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground">Không có mã cần xác nhận.</div>
-                )}
-              </DialogContent>
-            </Dialog>
+          {/* Overlay iOS: yêu cầu chạm để bật bàn phím nếu auto-focus không mở được */}
+          {showTapToType && (
+            <div
+              className="fixed inset-0 z-50 md:hidden bg-black/20"
+              onTouchStart={handleUserTapFocus}
+              onClick={handleUserTapFocus}
+            >
+              <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-white border rounded-full px-4 py-2 shadow text-sm text-slate-800">
+                Chạm để bắt đầu nhập
+              </div>
+            </div>
           )}
 
           <div ref={todayRef} className="rounded-lg bg-card border p-6 shadow-sm">
