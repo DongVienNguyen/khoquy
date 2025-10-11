@@ -106,6 +106,53 @@ export default function AssetEntryClient() {
 
   const [isMounted, setIsMounted] = useState(false);
 
+  // Neo cuộn & keyboard detection
+  const bottomBarRef = useRef<HTMLDivElement | null>(null);
+  const [bottomBarHeight, setBottomBarHeight] = useState<number>(0);
+  const [baselineMargin, setBaselineMargin] = useState<number>(16);
+  const initialVVHeightRef = useRef<number>(typeof window !== "undefined" ? ((window as any).visualViewport?.height ?? window.innerHeight) : 0);
+  const lastVVHeightRef = useRef<number>(initialVVHeightRef.current);
+  const keyboardOpenRef = useRef<boolean>(false);
+  const keyboardOpenThreshold = 120; // ngưỡng giảm chiều cao để coi là keyboard mở
+  const keyboardDebounceTimeoutRef = useRef<number | null>(null);
+  const keyboardRepeatTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Đo thanh bottom bar cố định ở mobile để cộng vào margin baseline
+  useEffect(() => {
+    const measure = () => {
+      const h = bottomBarRef.current?.getBoundingClientRect().height ?? 0;
+      setBottomBarHeight(h);
+      setBaselineMargin(16 + h); // 16px margin + chiều cao thanh dưới (nếu có)
+    };
+    measure();
+    window.addEventListener("resize", measure, { passive: true });
+    return () => {
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  // Hàm neo cuộn: đáy viewport áp sát đáy khung "Thông báo đã gửi hôm nay"
+  const scrollToTodayBottom = React.useCallback((smooth = false) => {
+    clearScrollTimers(); // tránh trùng timer cuộn input
+    const container = todayRef.current;
+    const vv = vvRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const absTop = window.pageYOffset + rect.top;
+    const absBottom = absTop + rect.height;
+    const viewportHeight = vv?.height ?? window.innerHeight;
+    // Mục tiêu: đáy viewport ~= đáy khung + baselineMargin
+    const targetY = Math.max(0, absBottom + baselineMargin - viewportHeight);
+    // Chặn biên: không vượt quá chiều cao tài liệu
+    const maxScroll = Math.max(0, document.documentElement.scrollHeight - viewportHeight);
+    const finalY = Math.min(targetY, maxScroll);
+    window.scrollTo({ top: finalY, behavior: smooth ? "smooth" : "auto" });
+  }, [baselineMargin]);
+
   // Auto-scroll infra: visualViewport & timers
   const vvRef = useRef<any>(typeof window !== "undefined" ? (window as any).visualViewport : null);
   const pollIdRef = useRef<number | null>(null);
@@ -300,17 +347,67 @@ export default function AssetEntryClient() {
   // Auto scroll khi bàn phím mở: dùng triggerScrollRoutine để cuộn ngay lần đầu focus
   useEffect(() => {
     const onFocusIn = () => {
-      if (isFocusable(document.activeElement)) {
-        triggerScrollRoutine(document.activeElement as HTMLElement);
+      const active = document.activeElement as HTMLElement | null;
+      if (isFocusable(active)) {
+        // Nếu keyboard đang/mới mở → neo baseline trước, rồi tinh chỉnh theo input một nhịp nhỏ
+        if (keyboardOpenRef.current) {
+          scrollToTodayBottom(false);
+          setTimeout(() => triggerScrollRoutine(active || undefined), 120);
+        } else {
+          triggerScrollRoutine(active || undefined);
+        }
+      }
+    };
+    const detectKeyboardOpen = (h: number) => {
+      const initial = initialVVHeightRef.current || (vvRef.current?.height ?? window.innerHeight);
+      const last = lastVVHeightRef.current;
+      lastVVHeightRef.current = h;
+      const decreasedEnough = initial - h >= keyboardOpenThreshold || last - h >= keyboardOpenThreshold;
+      const increasedEnough = h - initial >= keyboardOpenThreshold || h - last >= keyboardOpenThreshold;
+      if (decreasedEnough && !keyboardOpenRef.current) {
+        // opening → open: neo baseline 2–3 nhịp
+        keyboardOpenRef.current = true;
+        scrollToTodayBottom(false); // nhịp 1: tức thời
+        if (keyboardDebounceTimeoutRef.current) clearTimeout(keyboardDebounceTimeoutRef.current);
+        keyboardDebounceTimeoutRef.current = window.setTimeout(() => {
+          scrollToTodayBottom(true); // nhịp 2: chốt mượt
+        }, 180);
+        if (keyboardRepeatTimeoutRef.current) clearTimeout(keyboardRepeatTimeoutRef.current);
+        keyboardRepeatTimeoutRef.current = window.setTimeout(() => {
+          scrollToTodayBottom(true); // nhịp 3: nhắc lại nếu còn biến động
+        }, 380);
+      } else if (increasedEnough && keyboardOpenRef.current) {
+        // closing → closed
+        if (keyboardDebounceTimeoutRef.current) {
+          clearTimeout(keyboardDebounceTimeoutRef.current);
+          keyboardDebounceTimeoutRef.current = null;
+        }
+        if (keyboardRepeatTimeoutRef.current) {
+          clearTimeout(keyboardRepeatTimeoutRef.current);
+          keyboardRepeatTimeoutRef.current = null;
+        }
+        // delay nhỏ để tránh giật do animation
+        setTimeout(() => {
+          keyboardOpenRef.current = false;
+        }, 160);
       }
     };
     const onVVResize = () => {
-      if (isFocusable(document.activeElement)) {
+      const h = vvRef.current?.height ?? window.innerHeight;
+      detectKeyboardOpen(h);
+      // Khi keyboard mở: neo baseline nhẹ nhàng theo biến động
+      if (keyboardOpenRef.current) {
+        scrollToTodayBottom(false);
+      } else if (isFocusable(document.activeElement)) {
         triggerScrollRoutine(document.activeElement as HTMLElement);
       }
     };
     const onVVGeometryChange = () => {
-      if (isFocusable(document.activeElement)) {
+      const h = vvRef.current?.height ?? window.innerHeight;
+      detectKeyboardOpen(h);
+      if (keyboardOpenRef.current) {
+        scrollToTodayBottom(false);
+      } else if (isFocusable(document.activeElement)) {
         triggerScrollRoutine(document.activeElement as HTMLElement);
       }
     };
@@ -329,8 +426,24 @@ export default function AssetEntryClient() {
         vv.removeEventListener("resize", onVVResize);
         vv.removeEventListener("geometrychange", onVVGeometryChange);
       }
+      if (keyboardDebounceTimeoutRef.current) {
+        clearTimeout(keyboardDebounceTimeoutRef.current);
+        keyboardDebounceTimeoutRef.current = null;
+      }
+      if (keyboardRepeatTimeoutRef.current) {
+        clearTimeout(keyboardRepeatTimeoutRef.current);
+        keyboardRepeatTimeoutRef.current = null;
+      }
     };
-  }, [triggerScrollRoutine]);
+  }, [triggerScrollRoutine, scrollToTodayBottom]);
+
+  // Re-neo baseline khi toggle danh sách hôm nay trong lúc keyboard đang mở
+  useEffect(() => {
+    if (keyboardOpenRef.current) {
+      scrollToTodayBottom(true);
+      setTimeout(() => scrollToTodayBottom(true), 200);
+    }
+  }, [listOpen, scrollToTodayBottom]);
 
   // Buộc cuộn ngay lập tức theo ô input index (bỏ qua guard)
   const handleScrollNow = React.useCallback((index: number) => {
@@ -1049,7 +1162,7 @@ export default function AssetEntryClient() {
 
           {isMounted && (
             <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-              <div className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
+              <div ref={bottomBarRef} className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
                 <Button
                   type="button"
                   variant="outline"
