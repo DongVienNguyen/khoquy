@@ -19,6 +19,7 @@ import { FileText, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, Chev
 import { toast } from "sonner";
 import AssetEntryInlineForm from "@/components/asset-entry/AssetEntryInlineForm";
 import { edgeInvoke } from "@/lib/edge-invoke";
+import { DialogTrigger } from "@/components/ui/dialog";
 
 type SafeStaff = {
   id: string;
@@ -723,6 +724,8 @@ export default function DailyReportPage() {
     </RadioGroup>
   );
 
+  const [isAssetEntryOpen, setIsAssetEntryOpen] = useState(false);
+
   return (
     <div className="p-4 md:p-8">
       {!mounted ? (
@@ -896,17 +899,20 @@ export default function DailyReportPage() {
                     <CardTitle>{headerDateDisplay}</CardTitle>
                     <CardDescription>Dấu (*) TS đã được nhắn hơn một lần trong tuần</CardDescription>
                   </div>
-                  {/* Đưa nút + Nhập TS vào khung gom nhóm */}
-                  <Dialog open={false} onOpenChange={() => {}}>
-                    <Button
-                      onClick={() => {
-                        const evt = new Event("open-asset-entry-dialog");
-                        try { window.dispatchEvent(evt); } catch {}
-                      }}
-                      className="bg-green-600 hover:bg-green-700 text-white gap-2"
-                    >
-                      <Plus className="w-4 h-4" /> Nhập TS
-                    </Button>
+                  <Dialog open={isAssetEntryOpen} onOpenChange={setIsAssetEntryOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="bg-green-600 hover:bg-green-700 text-white gap-2">
+                        <Plus className="w-4 h-4" /> Nhập TS
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-3xl">
+                      <DialogHeader>
+                        <DialogTitle>Nhập thông báo lấy TS</DialogTitle>
+                      </DialogHeader>
+                      <div>
+                        <AssetEntryInlineForm />
+                      </div>
+                    </DialogContent>
                   </Dialog>
                 </div>
               </CardHeader>

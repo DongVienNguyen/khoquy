@@ -718,7 +718,7 @@ export default function AssetEntryClient() {
               </Alert>
             )}
 
-            <div className="hidden md:flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2">
               <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setMessage({ type: "", text: "" }); }} variant="outline">
                 Clear
               </Button>
