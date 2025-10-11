@@ -3,10 +3,8 @@
 import React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Edit3, Trash2, RefreshCcw, Download } from "lucide-react";
+import { Edit3, Trash2, RefreshCcw } from "lucide-react";
 import { supabase, SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/client";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 
 type SafeStaff = {
   id: string;
@@ -34,22 +32,34 @@ type AssetTx = {
   updated_date: string;
 };
 
-const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
-
-const ROOMS = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"] as const;
-const TYPES = ["Xuất kho", "Mượn TS", "Thay bìa"] as const;
-
-async function callAssetFunc(body: Record<string, any>) {
+// Helper: đọc staff từ localStorage
+function getLoggedInStaff(): { username?: string } | null {
   try {
-    const { data, error } = await supabase.functions.invoke("asset-transactions", { body });
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem("loggedInStaff") : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Helper: gọi edge function asset-transactions (kèm fallback fetch)
+const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
+async function callAssetFunc(body: Record<string, any>): Promise<{ ok: boolean; data?: any; error?: any }> {
+  try {
+    const { data, error } = await supabase.functions.invoke("asset-transactions", {
+      body,
+      headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+    });
     if (!error) {
-      // Chuẩn hóa payload (có thể trả về { data } hoặc mảng trực tiếp)
-      const payload = data as any;
+      const payload: any = data;
       const normalized = payload && typeof payload === "object" && "data" in payload ? payload.data : payload;
       return { ok: true, data: normalized };
     }
   } catch {
-    // fallback sang fetch nếu invoke lỗi
+    // ignore and fallback
   }
   try {
     const res = await fetch(FUNCTION_URL, {
@@ -63,46 +73,26 @@ async function callAssetFunc(body: Record<string, any>) {
     });
     const json = await res.json().catch(() => null);
     if (res.ok && json) return { ok: true, data: (json as any).data };
-    return { ok: false, error: (json as any)?.error || `HTTP ${res.status}` };
+    return { ok: false, error: json?.error || `HTTP ${res.status}` };
   } catch (err: any) {
     return { ok: false, error: err?.message || "Failed to fetch" };
   }
 }
 
-function getLoggedInStaff(): SafeStaff | null {
-  try {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem("loggedInStaff") : null;
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.id === "string") return parsed as SafeStaff;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function gmt7TodayYMD() {
+// Helper: trả về yyyy-mm-dd của hôm nay theo GMT+7
+function gmt7TodayYMD(): string {
   const now = new Date();
   const gmt7 = new Date(now.getTime() + 7 * 3600 * 1000);
-  const y = gmt7.getUTCFullYear();
-  const m = String(gmt7.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(gmt7.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  const yyyy = gmt7.getUTCFullYear();
+  const mm = String(gmt7.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(gmt7.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 const MyTodaySubmissions: React.FC = () => {
   const [rows, setRows] = React.useState<AssetTx[]>([]);
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
   const staff = React.useMemo(() => getLoggedInStaff(), []);
-  const [selectedRoom, setSelectedRoom] = React.useState<string>("all");
-  const [selectedType, setSelectedType] = React.useState<string>("all");
-  const [autoRefresh, setAutoRefresh] = React.useState<boolean>(() => {
-    try { return localStorage.getItem("today_auto_refresh") === "true"; } catch { return false; }
-  });
-
-  React.useEffect(() => {
-    try { localStorage.setItem("today_auto_refresh", autoRefresh ? "true" : "false"); } catch {}
-  }, [autoRefresh]);
 
   const loadToday = React.useCallback(async () => {
     if (!staff) return;
@@ -131,14 +121,6 @@ const MyTodaySubmissions: React.FC = () => {
   }, [staff]);
 
   React.useEffect(() => {
-    if (!autoRefresh) return;
-    const id = setInterval(() => {
-      if (!document.hidden) loadToday();
-    }, 60000);
-    return () => clearInterval(id);
-  }, [autoRefresh, loadToday]);
-
-  React.useEffect(() => {
     loadToday();
   }, [loadToday]);
 
@@ -147,49 +129,6 @@ const MyTodaySubmissions: React.FC = () => {
     window.addEventListener("asset:submitted", onSubmitted as any);
     return () => window.removeEventListener("asset:submitted", onSubmitted as any);
   }, [loadToday]);
-
-  const filteredRows = React.useMemo(() => {
-    let list = rows;
-    if (selectedRoom !== "all") list = list.filter((r) => r.room === selectedRoom);
-    if (selectedType !== "all") list = list.filter((r) => r.transaction_type === selectedType);
-    return list;
-  }, [rows, selectedRoom, selectedType]);
-
-  const exportCSV = React.useCallback(() => {
-    if (!filteredRows.length) {
-      toast.info("Không có dữ liệu để xuất.");
-      return;
-    }
-    const esc = (s: any) => {
-      const v = String(s ?? "");
-      const w = v.replace(/"/g, '""');
-      return /[",\n\r]/.test(w) ? `"${w}"` : w;
-    };
-    const header = ["Phòng","Năm TS","Mã TS","Loại","Ngày","Buổi","Ghi chú","CB","Time nhắn"];
-    const lines: string[] = [header.join(",")];
-    for (const r of filteredRows) {
-      lines.push([
-        esc(r.room),
-        esc(r.asset_year),
-        esc(r.asset_code),
-        esc(r.transaction_type),
-        esc(r.transaction_date),
-        esc(r.parts_day),
-        esc(r.note ?? ""),
-        esc(r.staff_code),
-        esc(r.notified_at),
-      ].join(","));
-    }
-    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `MyToday_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [filteredRows]);
 
   const updateNote = React.useCallback(
     async (row: AssetTx) => {
@@ -240,37 +179,6 @@ const MyTodaySubmissions: React.FC = () => {
             <Button onClick={loadToday} variant="outline" className="h-9" disabled={isLoading}>
               <RefreshCcw className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`} /> Làm mới
             </Button>
-            <Button onClick={exportCSV} variant="outline" className="h-9">
-              <Download className="w-4 h-4 mr-2" /> Xuất CSV
-            </Button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div className="space-y-1">
-            <span className="text-sm text-slate-600">Phòng</span>
-            <Select value={selectedRoom} onValueChange={setSelectedRoom}>
-              <SelectTrigger className="h-9"><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả</SelectItem>
-                {ROOMS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <span className="text-sm text-slate-600">Loại</span>
-            <Select value={selectedType} onValueChange={setSelectedType}>
-              <SelectTrigger className="h-9"><SelectValue placeholder="Chọn loại" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả</SelectItem>
-                {TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-end gap-2">
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
-              Auto refresh 60s
-            </label>
           </div>
         </div>
       </div>
@@ -290,14 +198,14 @@ const MyTodaySubmissions: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredRows.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
                 <td className="py-3 px-3 text-muted-foreground" colSpan={8}>
                   {isLoading ? "Đang tải..." : "Chưa có giao dịch nào hôm nay."}
                 </td>
               </tr>
             ) : (
-              filteredRows.map((r) => (
+              rows.map((r) => (
                 <tr key={r.id} className="border-b">
                   <td className="py-2 px-3">{r.room}</td>
                   <td className="py-2 px-3">{r.asset_year}</td>

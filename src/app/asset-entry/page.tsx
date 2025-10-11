@@ -835,8 +835,8 @@ export default function AssetEntryPage() {
                   <Dialog open={isImageDialogOpen} onOpenChange={(v) => { setIsImageDialogOpen(v); if (!v) setPendingImages([]); }}>
                     <DialogTrigger asChild>
                       <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1">
-                        <Camera className="w-5 h-5" />
-                        <span className="text-sm font-semibold">AI</span>
+                        <Camera className="w-6 h-6" />
+                        <span className="text-base font-semibold">AI</span>
                       </Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-md">
@@ -944,7 +944,7 @@ export default function AssetEntryPage() {
                             }
                           }}
                           placeholder="Ví dụ: 259.24"
-                          className={`h-10 pr-9 font-mono text-center ${val ? (valid ? "border-green-300" : "border-red-300") : ""}`}
+                          className={`h-10 pr-9 font-mono text-center text-lg font-semibold ${val ? (valid ? "border-green-300" : "border-red-300") : ""}`}
                         />
                         {val && (
                           <div className="absolute right-2 top-1/2 -translate-y-1/2">
