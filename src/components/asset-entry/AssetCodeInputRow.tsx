@@ -19,28 +19,25 @@ type Props = {
   autoFocus?: boolean;
   enterKeyHint?: "next" | "done";
   isLast?: boolean;
+  onPasteText?: (index: number, text: string) => boolean;
 };
 
 const AssetCodeInputRow: React.FC<Props> = React.memo(
-  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, autoFocus, enterKeyHint, isLast }) => {
+  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, autoFocus, enterKeyHint, isLast, onPasteText }) => {
     const localInputRef = React.useRef<HTMLInputElement | null>(null);
     
-    // Auto focus khi được yêu cầu (dành cho ô đầu tiên khi vào trang)
+    // Auto focus when requested
     React.useEffect(() => {
       if (!autoFocus) return;
       const el = localInputRef.current;
       if (!el) return;
-      // Thử nhiều nhịp để tăng khả năng bật bàn phím (tối ưu iOS/Android)
       const tryFocus = (opts?: FocusOptions) => {
         try { el.focus(opts as any); } catch {}
         try { el.click?.(); } catch {}
         try { const v = el.value ?? ""; el.setSelectionRange?.(v.length, v.length); } catch {}
       };
-      // Nhịp 1: ngay lập tức (không mượt, preventScroll để tránh nhảy)
       tryFocus({ preventScroll: true });
-      // Nhịp 2: sau rAF
       requestAnimationFrame(() => tryFocus({ preventScroll: true }));
-      // Nhịp 3: sau 200ms để vượt animation bàn phím iOS
       const t = setTimeout(() => tryFocus({ preventScroll: true }), 200);
       return () => clearTimeout(t);
     }, [autoFocus]);
@@ -64,11 +61,9 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
               inputRef?.(el || null);
             }}
             onBeforeInput={() => {
-              // Ký tự đầu tiên: kích hoạt cuộn
               if (!value) onFirstType?.(index);
             }}
             onKeyDown={(e) => {
-              // Ký tự đầu tiên (fallback): kích hoạt cuộn kể cả phím số/ký tự
               if (!value && !e.ctrlKey && !e.metaKey && e.key.length === 1) {
                 onFirstType?.(index);
               }
@@ -79,23 +74,26 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
                 e.preventDefault();
                 onTabNavigate?.(index, "prev");
               } else if (e.key === "Enter" && !e.shiftKey) {
-                // iOS keyboards thường dùng Enter: nếu không phải ô cuối -> Next, nếu là cuối -> Done (blur)
                 e.preventDefault();
                 if (enterKeyHint === "next" && !isLast) {
                   onTabNavigate?.(index, "next");
                 } else {
-                  // Done: không điều hướng, đóng bàn phím nhẹ nhàng
                   localInputRef.current?.blur();
                 }
               } else if (e.key === "Enter" && e.shiftKey) {
-                // Shift+Enter: quay về dòng trước
                 e.preventDefault();
                 onTabNavigate?.(index, "prev");
               }
             }}
-            onPaste={() => {
-              // Lần đầu dán vào ô rỗng: cũng kích hoạt cuộn
-              if (!value) onFirstType?.(index);
+            onPaste={(e) => {
+              const txt = e.clipboardData?.getData("text") ?? "";
+              const handled = onPasteText ? onPasteText(index, txt) : false;
+              if (handled) {
+                e.preventDefault();
+                onFirstType?.(index);
+              } else {
+                if (!value) onFirstType?.(index);
+              }
             }}
             placeholder="Ví dụ: 259.24"
             className={`h-10 pr-9 font-mono text-center text-lg font-semibold ${value ? (isValid ? "border-green-300" : "border-red-300") : ""}`}

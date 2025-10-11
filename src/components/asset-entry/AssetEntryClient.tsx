@@ -596,6 +596,78 @@ export default function AssetEntryClient() {
     return parsed.asset_year >= 20 && parsed.asset_year <= 99;
   }, [parseAssetCode]);
 
+  // Parse multiple codes from pasted text (supports '1234.24' and long digit strings like scanner output)
+  const extractCodesFromText = useCallback((text: string): string[] => {
+    const out: string[] = [];
+    if (!text) return out;
+    const t = String(text);
+    // 1) Find explicit patterns like 1234.24
+    const dotRe = /(?<!\d)(\d{1,4})\.(\d{2})(?!\d)/g;
+    let m: RegExpExecArray | null;
+    while ((m = dotRe.exec(t)) !== null) {
+      out.push(`${m[1]}.${m[2]}`);
+    }
+    // 2) From long digit sequences, infer last 2 digits as year and preceding up to 4 as code
+    const numRe = /(\d{5,})/g;
+    while ((m = numRe.exec(t)) !== null) {
+      const digits = m[1];
+      const year = digits.slice(-2);
+      const code = digits.slice(-6, -2).replace(/^0+/, "") || digits.slice(-6, -2); // drop leading zeros softly
+      const candidate = `${code}.${year}`;
+      out.push(candidate);
+    }
+    // Normalize, dedupe, and validate
+    const uniq = Array.from(new Set(out))
+      .map((s) => s.trim())
+      .filter((s) => isAssetValid(s));
+    return uniq;
+  }, [isAssetValid]);
+
+  const handleBulkInsert = useCallback((startIndex: number, codes: string[]) => {
+    if (!codes || codes.length === 0) return;
+    setMultipleAssets((prev) => {
+      const next = [...prev];
+      // Ensure capacity
+      while (next.length < startIndex + codes.length) next.push("");
+      // Insert codes starting at startIndex
+      for (let i = 0; i < codes.length; i++) {
+        next[startIndex + i] = codes[i];
+      }
+      // Ensure trailing empty row
+      if (next[next.length - 1].trim() !== "") next.push("");
+      return next;
+    });
+    // Sync firstTypeTriggered guards
+    setFirstTypeTriggered((prev) => {
+      const arr = [...prev];
+      while (arr.length < startIndex + codes.length) arr.push(false);
+      return arr;
+    });
+    while (firstTypeTriggeredRef.current.length < startIndex + codes.length) {
+      firstTypeTriggeredRef.current.push(false);
+    }
+    // Focus last inserted row
+    setTimeout(() => {
+      const lastIdx = startIndex + codes.length - 1;
+      const el = assetInputRefs.current[lastIdx];
+      if (el) {
+        el.focus();
+        triggerScrollRoutine(el);
+      }
+    }, 0);
+    toast.success(`Pasted ${codes.length} asset code${codes.length > 1 ? "s" : ""}.`);
+  }, [triggerScrollRoutine]);
+
+  const handlePasteText = useCallback((index: number, text: string): boolean => {
+    const codes = extractCodesFromText(text);
+    if (codes.length > 1) {
+      handleBulkInsert(index, codes);
+      return true;
+    }
+    // For single code, let default paste proceed (keeps native behavior)
+    return false;
+  }, [extractCodesFromText, handleBulkInsert]);
+
   const handleAssetChange = useCallback((index: number, value: string) => {
     const normalized = String(value)
       .replace(RE_COMMAS_SLASHES, ".")
@@ -1109,6 +1181,7 @@ export default function AssetEntryClient() {
                         // Hiển thị Next nếu còn dòng phía sau (kể cả dòng đang ẩn khi thu gọn)
                         enterKeyHint={idx < multipleAssets.length - 1 ? "next" : "done"}
                         isLast={isLast}
+                        onPasteText={handlePasteText}
                         onTabNavigate={(i, dir) => {
                           if (dir === "next") {
                             const next = i + 1;
@@ -1132,7 +1205,6 @@ export default function AssetEntryClient() {
                               const visibleCountNow = showAllAssets ? multipleAssets.length : Math.min(multipleAssets.length, 5);
                               if (!showAllAssets && next >= visibleCountNow) {
                                 setShowAllAssets(true);
-                                // chờ UI mở rộng rồi focus
                                 setTimeout(() => {
                                   const el = assetInputRefs.current[next];
                                   if (el) {
