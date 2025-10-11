@@ -24,6 +24,7 @@ const LinkSignIn: React.FC<{ staff: SafeStaff }> = ({ staff }) => {
         `linkUser=${encodeURIComponent(staff.username)}`,
         "path=/",
         "SameSite=Lax",
+        "Max-Age=604800", // 7 ngày
       ];
       if (typeof window !== "undefined" && window.location.protocol === "https:") {
         cookieParts.push("Secure");

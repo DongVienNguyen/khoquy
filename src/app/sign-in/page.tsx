@@ -68,6 +68,27 @@ export default function SignInPage() {
   const [showForm, setShowForm] = useState(true);
   const checkTimer = useRef<number | null>(null);
 
+  // Thêm helper đọc cookie và tự động chuyển hướng nếu đã có phiên
+  const getCookie = (name: string) => {
+    if (typeof document === "undefined") return "";
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop()!.split(";").shift() || "";
+    return "";
+  };
+
+  useEffect(() => {
+    try {
+      const role = getCookie("staffRole");
+      const raw = window.localStorage.getItem("loggedInStaff");
+      if (role && raw) {
+        const staff = JSON.parse(raw) as SafeStaff;
+        const target = staff?.department === "NQ" ? "/daily-report" : "/asset-entry";
+        router.replace(target);
+      }
+    } catch {}
+  }, [router]);
+
   // Seed admin account once
   useEffect(() => {
     const runSeed = async () => {
@@ -153,7 +174,7 @@ export default function SignInPage() {
         localStorage.setItem("loggedInStaff", JSON.stringify(staff));
         // Set cookie cho middleware
         try {
-          const cookieBase = ["path=/", "SameSite=Lax"];
+          const cookieBase = ["path=/", "SameSite=Lax", "Max-Age=604800"]; // 7 ngày
           if (typeof window !== "undefined" && window.location.protocol === "https:") cookieBase.push("Secure");
           document.cookie = [`staffRole=${encodeURIComponent(staff.role)}`, ...cookieBase].join("; ");
           document.cookie = [`staffDept=${encodeURIComponent(staff.department || "")}`, ...cookieBase].join("; ");
