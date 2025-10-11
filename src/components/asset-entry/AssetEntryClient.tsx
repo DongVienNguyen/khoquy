@@ -106,6 +106,13 @@ export default function AssetEntryClient() {
 
   const [isMounted, setIsMounted] = useState(false);
 
+  // Auto-scroll infra: visualViewport & timers
+  const vvRef = useRef<any>(typeof window !== "undefined" ? (window as any).visualViewport : null);
+  const pollIdRef = useRef<number | null>(null);
+  const settleTimeoutRef = useRef<number | null>(null);
+  // Mỗi ô nhập chỉ kích hoạt cuộn 1 lần khi gõ ký tự đầu tiên
+  const [firstTypeTriggered, setFirstTypeTriggered] = useState<boolean[]>([false]);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -224,93 +231,80 @@ export default function AssetEntryClient() {
     };
   }, [currentStaff]);
 
-  // Auto scroll khi bàn phím mở (iOS Safari/Chrome + Android Chrome)
+  // Helper xác định phần tử có focus là input/textarea/select
+  const isFocusable = (el: Element | null) => {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  };
+  const clearScrollTimers = () => {
+    if (pollIdRef.current) {
+      clearInterval(pollIdRef.current);
+      pollIdRef.current = null;
+    }
+    if (settleTimeoutRef.current) {
+      clearTimeout(settleTimeoutRef.current);
+      settleTimeoutRef.current = null;
+    }
+  };
+  const scrollToTodayBottomFit = (smooth = true) => {
+    if (!todayRef.current) return;
+    const rect = todayRef.current.getBoundingClientRect();
+    const absTop = window.pageYOffset + rect.top;
+    const absBottom = absTop + rect.height;
+    const viewportHeight = vvRef.current?.height ?? window.innerHeight;
+    const margin = 8;
+    const targetY = Math.max(0, absBottom - (viewportHeight - margin));
+    window.scrollTo({ top: targetY, behavior: smooth ? "smooth" : "auto" });
+  };
+  const triggerScrollRoutine = React.useCallback(() => {
+    clearScrollTimers();
+    // Cuộn ngay lập tức để đảm bảo đẩy trang lên ngay lần đầu
+    scrollToTodayBottomFit(false);
+    const initialHeight = vvRef.current?.height ?? window.innerHeight;
+    let lastHeight = initialHeight;
+    // Poll để bắt khoảnh khắc bàn phím đổi chiều cao, cuộn lại ngay
+    pollIdRef.current = window.setInterval(() => {
+      const h = vvRef.current?.height ?? window.innerHeight;
+      if (Math.abs(h - lastHeight) > 1 || Math.abs(h - initialHeight) > 1) {
+        lastHeight = h;
+        scrollToTodayBottomFit(false);
+      }
+    }, 60);
+    // Sau khi ổn định, chốt vị trí bằng cuộn mượt
+    settleTimeoutRef.current = window.setTimeout(() => {
+      clearScrollTimers();
+      scrollToTodayBottomFit(true);
+      setTimeout(() => scrollToTodayBottomFit(true), 200);
+    }, 800);
+  }, []);
+
+  // Auto scroll khi bàn phím mở: dùng triggerScrollRoutine để cuộn ngay lần đầu focus
   useEffect(() => {
-    const isFocusable = (el: Element | null) => {
-      if (!el) return false;
-      const tag = el.tagName;
-      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-    };
-
-    const vv: any = typeof window !== "undefined" ? (window as any).visualViewport : null;
-    let pollId: number | null = null;
-    let settleTimeoutId: number | null = null;
-
-    const clearTimers = () => {
-      if (pollId) {
-        clearInterval(pollId);
-        pollId = null;
-      }
-      if (settleTimeoutId) {
-        clearTimeout(settleTimeoutId);
-        settleTimeoutId = null;
-      }
-    };
-
-    const scrollToTodayBottomFit = (smooth = true) => {
-      if (!todayRef.current) return;
-      const rect = todayRef.current.getBoundingClientRect();
-      const absTop = window.pageYOffset + rect.top;
-      const absBottom = absTop + rect.height;
-      const viewportHeight = vv?.height ?? window.innerHeight;
-      const margin = 8; // chừa khoảng trắng nhỏ
-      const targetY = Math.max(0, absBottom - (viewportHeight - margin));
-      window.scrollTo({ top: targetY, behavior: smooth ? "smooth" : "auto" });
-    };
-
-    const waitForKeyboardThenScroll = () => {
-      clearTimers();
-
-      // Cuộn ngay lập tức (không smooth) để đảm bảo lần đầu focus đã đẩy trang lên
-      scrollToTodayBottomFit(false);
-
-      // Poll chiều cao viewport để phát hiện bàn phím mở/đóng rồi cuộn lại
-      const initialHeight = vv?.height ?? window.innerHeight;
-      let lastHeight = initialHeight;
-      pollId = window.setInterval(() => {
-        const h = vv?.height ?? window.innerHeight;
-        if (Math.abs(h - lastHeight) > 1 || Math.abs(h - initialHeight) > 1) {
-          lastHeight = h;
-          // bàn phím vừa thay đổi => cuộn lại ngay (không smooth để bắt kịp)
-          scrollToTodayBottomFit(false);
-        }
-      }, 60);
-
-      // Sau khi bàn phím ổn định, chốt vị trí bằng cuộn mượt
-      settleTimeoutId = window.setTimeout(() => {
-        clearTimers();
-        scrollToTodayBottomFit(true);
-        setTimeout(() => scrollToTodayBottomFit(true), 200);
-      }, 800);
-    };
-
     const onFocusIn = () => {
       if (isFocusable(document.activeElement)) {
-        waitForKeyboardThenScroll();
+        triggerScrollRoutine();
       }
     };
-
     const onVVResize = () => {
       if (isFocusable(document.activeElement)) {
-        waitForKeyboardThenScroll();
+        triggerScrollRoutine();
       }
     };
-
     const onVVGeometryChange = () => {
       if (isFocusable(document.activeElement)) {
-        waitForKeyboardThenScroll();
+        triggerScrollRoutine();
       }
     };
-
     window.addEventListener("focusin", onFocusIn, { passive: true });
     window.addEventListener("resize", onVVResize, { passive: true });
+    const vv = vvRef.current;
     if (vv && typeof vv.addEventListener === "function") {
       vv.addEventListener("resize", onVVResize, { passive: true });
       vv.addEventListener("geometrychange", onVVGeometryChange, { passive: true });
     }
-
     return () => {
-      clearTimers();
+      clearScrollTimers();
       window.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("resize", onVVResize);
       if (vv && typeof vv.removeEventListener === "function") {
@@ -318,7 +312,7 @@ export default function AssetEntryClient() {
         vv.removeEventListener("geometrychange", onVVGeometryChange);
       }
     };
-  }, []);
+  }, [triggerScrollRoutine]);
 
   const requiresNoteDropdown = useMemo(() => ["CMT8", "NS", "ĐS", "LĐH"].includes(formData.room), [formData.room]);
 
@@ -338,7 +332,8 @@ export default function AssetEntryClient() {
   }, [parseAssetCode]);
 
   const handleAssetChange = useCallback((index: number, value: string) => {
-    const normalized = String(value).replace(RE_COMMAS_SLASHES, ".")
+    const normalized = String(value)
+      .replace(RE_COMMAS_SLASHES, ".")
       .replace(RE_NON_NUM_DOT, "")
       .replace(RE_SECOND_DOT, "$1")
       .replace(RE_YEAR_TRUNC, "$1")
@@ -346,24 +341,68 @@ export default function AssetEntryClient() {
 
     setMultipleAssets((prev) => {
       const next = [...prev];
+      const wasEmptyBefore = (next[index] || "").trim() === "";
       if (next[index] === normalized) return prev; // tránh setState nếu không đổi
       next[index] = normalized;
 
       // Auto-append chỉ khi cần
+      let appended = false;
       if (normalized.length >= 6 && next.length === index + 1) {
         next.push("");
+        appended = true;
       }
+      // Thu gọn nếu đang rỗng
       if (normalized.length < 6) {
         while (next.length > index + 1 && next[next.length - 1].trim() === "") {
           next.pop();
         }
       }
+
+      // Cập nhật trigger-first-type theo chiều dài mới và kích hoạt cuộn 1 lần/ô
+      setFirstTypeTriggered((prevTrig) => {
+        let trigNext = prevTrig.slice();
+        if (appended && prevTrig.length < next.length) {
+          trigNext = [...prevTrig, false];
+        }
+        // Kích hoạt nếu từ rỗng -> có ký tự lần đầu
+        const becameNonEmpty = wasEmptyBefore && normalized.trim() !== "";
+        if (becameNonEmpty && !prevTrig[index]) {
+          triggerScrollRoutine();
+          trigNext[index] = true;
+        }
+        // Đồng bộ độ dài nếu đã pop bớt
+        if (trigNext.length > next.length) {
+          trigNext = trigNext.slice(0, next.length);
+        }
+        return trigNext.length > 0 ? trigNext : [false];
+      });
+
       return next.length > 0 ? next : [""];
+    });
+  }, [triggerScrollRoutine]);
+
+  const addAssetField = useCallback(() => {
+    setMultipleAssets((prev) => {
+      const next = [...prev, ""];
+      setFirstTypeTriggered((prevTrig) => [...prevTrig, false]);
+      return next;
     });
   }, []);
 
-  const addAssetField = useCallback(() => setMultipleAssets((prev) => [...prev, ""]), []);
-  const removeAssetField = useCallback((index: number) => setMultipleAssets((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [""])), []);
+  const removeAssetField = useCallback((index: number) => {
+    setMultipleAssets((prev) => {
+      if (prev.length > 1) {
+        const next = prev.filter((_, i) => i !== index);
+        setFirstTypeTriggered((prevTrig) => {
+          const arr = prevTrig.filter((_, i) => i !== index);
+          return arr.length > 0 ? arr : [false];
+        });
+        return next;
+      }
+      setFirstTypeTriggered([false]);
+      return [""];
+    });
+  }, []);
 
   const handleRoomChange = useCallback((selectedRoom: string) => {
     setFormData((prev) => ({
@@ -496,6 +535,7 @@ export default function AssetEntryClient() {
 
     setFormData(calculateDefaultValues(currentStaff));
     setMultipleAssets([""]);
+    setFirstTypeTriggered([false]);
     setIsLoading(false);
 
     try {
@@ -786,7 +826,11 @@ export default function AssetEntryClient() {
                           if (dir === "next") {
                             const next = i + 1;
                             if (next >= multipleAssets.length) {
-                              setMultipleAssets((prev) => [...prev, ""]);
+                              setMultipleAssets((prev) => {
+                                const arr = [...prev, ""];
+                                setFirstTypeTriggered((prevTrig) => [...prevTrig, false]);
+                                return arr;
+                              });
                               setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
                             } else {
                               assetInputRefs.current[next]?.focus();
@@ -828,7 +872,7 @@ export default function AssetEntryClient() {
               )}
 
               <div className="flex items-center justify-end gap-2 pt-2">
-                <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); }} variant="outline">
+                <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setFirstTypeTriggered([false]); }} variant="outline">
                   Clear
                 </Button>
                 <Button type="submit" disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")} className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
@@ -960,6 +1004,7 @@ export default function AssetEntryClient() {
             onClick={() => {
               setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData);
               setMultipleAssets([""]);
+              setFirstTypeTriggered([false]);
             }}
           >
             Clear
