@@ -17,10 +17,11 @@ type Props = {
   showRemove: boolean;
   onFirstType?: (index: number) => void;
   onScrollNow?: (index: number) => void;
+  autoFocus?: boolean;
 };
 
 const AssetCodeInputRow: React.FC<Props> = React.memo(
-  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, onScrollNow }) => {
+  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, onScrollNow, autoFocus }) => {
     const localInputRef = React.useRef<HTMLInputElement | null>(null);
     
     // Khi value vừa có ký tự đầu và icon đỏ lần đầu xuất hiện -> kích hoạt cuộn
@@ -42,7 +43,27 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
         }
       }
     }, [value, isValid, index, onFirstType, onScrollNow]);
-    
+
+    // Auto focus khi được yêu cầu (dành cho ô đầu tiên khi vào trang)
+    React.useEffect(() => {
+      if (!autoFocus) return;
+      const el = localInputRef.current;
+      if (!el) return;
+      // Thử nhiều nhịp để tăng khả năng bật bàn phím (tối ưu iOS/Android)
+      const tryFocus = (opts?: FocusOptions) => {
+        try { el.focus(opts as any); } catch {}
+        try { el.click?.(); } catch {}
+        try { const v = el.value ?? ""; el.setSelectionRange?.(v.length, v.length); } catch {}
+      };
+      // Nhịp 1: ngay lập tức (không mượt, preventScroll để tránh nhảy)
+      tryFocus({ preventScroll: true });
+      // Nhịp 2: sau rAF
+      requestAnimationFrame(() => tryFocus({ preventScroll: true }));
+      // Nhịp 3: sau 200ms để vượt animation bàn phím iOS
+      const t = setTimeout(() => tryFocus({ preventScroll: true }), 200);
+      return () => clearTimeout(t);
+    }, [autoFocus]);
+
     return (
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -53,6 +74,7 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
             pattern="[0-9.,]*"
             autoComplete="off"
             autoCorrect="off"
+            autoFocus={autoFocus}
             value={value}
             onChange={(e) => onChange(index, e.target.value)}
             ref={(el) => {

@@ -101,6 +101,7 @@ export default function AssetEntryClient() {
   const [aiNeedsConfirm, setAiNeedsConfirm] = useState<{ options: Record<string, string[]>; selections: Record<string, string> } | null>(null);
 
   const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const attemptedAutofocusRef = useRef<boolean>(false);
   const timeCheckTimerRef = useRef<number | null>(null);
   const todayRef = useRef<HTMLDivElement | null>(null);
 
@@ -450,6 +451,33 @@ export default function AssetEntryClient() {
     const target = assetInputRefs.current[index] ?? (document.activeElement as HTMLElement | null);
     triggerScrollRoutine(target || undefined);
   }, [triggerScrollRoutine]);
+
+  // Tự động focus ô nhập đầu tiên khi vào trang để bật bàn phím
+  useEffect(() => {
+    if (!isMounted) return;
+    if (attemptedAutofocusRef.current) return;
+    // Chỉ autofoucs nếu trang asset-entry đã mount và có ô đầu tiên
+    const el = assetInputRefs.current?.[0];
+    if (!el) return;
+    attemptedAutofocusRef.current = true;
+    const tryFocus = (opts?: FocusOptions) => {
+      try { el.focus(opts as any); } catch {}
+      try { el.click?.(); } catch {}
+      try {
+        const v = el.value ?? "";
+        el.setSelectionRange?.(v.length, v.length);
+      } catch {}
+      // Cuộn tinh chỉnh để tránh bị che nếu keyboard mở
+      triggerScrollRoutine(el);
+    };
+    // Nhịp 1: ngay khi mount
+    tryFocus({ preventScroll: true });
+    // Nhịp 2: rAF
+    requestAnimationFrame(() => tryFocus({ preventScroll: true }));
+    // Nhịp 3: thêm 200ms để vượt animation keyboard iOS
+    const t = setTimeout(() => tryFocus({ preventScroll: true }), 200);
+    return () => clearTimeout(t);
+  }, [isMounted, triggerScrollRoutine]);
 
   const requiresNoteDropdown = useMemo(() => ["CMT8", "NS", "ĐS", "LĐH"].includes(formData.room), [formData.room]);
 
@@ -972,6 +1000,7 @@ export default function AssetEntryClient() {
                         inputRef={(el) => { assetInputRefs.current[idx] = el; }}
                         onFirstType={handleFirstType}
                         onScrollNow={handleScrollNow}
+                        autoFocus={idx === 0}
                         onTabNavigate={(i, dir) => {
                           if (dir === "next") {
                             const next = i + 1;
