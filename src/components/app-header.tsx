@@ -8,13 +8,10 @@ import {
   ChevronDown,
   Bell,
   FileText,
-  Clock,
-  Timer,
   ClipboardCheck,
   BarChart3,
   Archive,
   Database,
-  Bug,
   LogOut,
 } from "lucide-react";
 import {
@@ -112,12 +109,6 @@ const AppHeader: React.FC = () => {
                 {!isNQUser && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled>
-                      <Timer className="mr-2" /> Theo dõi TS gửi tạm
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled>
-                      <Clock className="mr-2" /> Nhắc tài sản đến hạn
-                    </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => go("/crc-reminders")}>
                       <ClipboardCheck className="mr-2" /> Nhắc duyệt CRC
                     </DropdownMenuItem>
@@ -126,9 +117,6 @@ const AppHeader: React.FC = () => {
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => go("/management")}>
                       <Database className="mr-2" /> Quản lý dữ liệu
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled>
-                      <Bug className="mr-2" /> Báo lỗi ứng dụng
                     </DropdownMenuItem>
                   </>
                 )}

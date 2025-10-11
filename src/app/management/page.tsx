@@ -175,6 +175,12 @@ const entityConfig: Record<string, EntityConfigItem> = {
       { key: "staff_code", label: "Mã nhân viên", type: "text" },
       { key: "note", label: "Ghi chú", type: "text" },
       { key: "is_deleted", label: "Đã xóa mềm", type: "select", options: ["true", "false"] },
+      { key: "notified_at", label: "Đã nhắn (GMT+7)", type: "datetime-local" },
+      { key: "created_date", label: "Tạo lúc", type: "datetime-local" },
+      { key: "updated_date", label: "Cập nhật lúc", type: "datetime-local" },
+      { key: "deleted_at", label: "Xóa lúc", type: "datetime-local" },
+      { key: "deleted_by", label: "Xóa bởi", type: "text" },
+      { key: "change_logs", label: "Log thay đổi", type: "json" },
     ],
   },
   ProcessedNote: {
@@ -188,6 +194,10 @@ const entityConfig: Record<string, EntityConfigItem> = {
       { key: "staff_code", label: "Mã nhân viên", type: "text" },
       { key: "is_done", label: "Đã xong", type: "select", options: ["true", "false"] },
       { key: "mail_to_nv", label: "Mail đến NV", type: "text" },
+      { key: "created_by", label: "Tạo bởi", type: "text" },
+      { key: "created_date", label: "Tạo lúc", type: "datetime-local" },
+      { key: "updated_date", label: "Cập nhật lúc", type: "datetime-local" },
+      { key: "done_at", label: "Hoàn tất lúc", type: "datetime-local" },
     ],
   },
   TakenAssetStatus: {
@@ -199,6 +209,9 @@ const entityConfig: Record<string, EntityConfigItem> = {
       { key: "user_username", label: "Username", type: "text" },
       { key: "week_year", label: "Tuần-Năm", type: "text" },
       { key: "marked_at", label: "Thời gian đánh dấu", type: "datetime-local" },
+      { key: "created_by", label: "Tạo bởi", type: "text" },
+      { key: "created_date", label: "Tạo lúc", type: "datetime-local" },
+      { key: "updated_date", label: "Cập nhật lúc", type: "datetime-local" },
     ],
   },
   EmailUser: {
@@ -211,6 +224,8 @@ const entityConfig: Record<string, EntityConfigItem> = {
       { key: "full_name", label: "Tên đầy đủ", type: "text" },
       { key: "last_email_sent", label: "Email cuối (GMT+7)", type: "datetime-local" },
       { key: "last_notification_sent", label: "Thông báo cuối (GMT+7)", type: "datetime-local" },
+      { key: "created_date", label: "Tạo lúc", type: "datetime-local" },
+      { key: "updated_date", label: "Cập nhật lúc", type: "datetime-local" },
     ],
   },
   Notification: {
@@ -224,6 +239,7 @@ const entityConfig: Record<string, EntityConfigItem> = {
       { key: "notification_type", label: "Loại thông báo", type: "select", options: ["asset_reminder", "crc_reminder", "general"] },
       { key: "is_read", label: "Đã đọc", type: "select", options: ["true", "false"] },
       { key: "related_data", label: "Dữ liệu liên quan", type: "json" },
+      { key: "created_at", label: "Tạo lúc", type: "datetime-local" },
     ],
   },
   Staff: {
