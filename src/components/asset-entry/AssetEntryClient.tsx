@@ -470,12 +470,6 @@ export default function AssetEntryClient() {
     }
   }, [listOpen, scrollToTodayBottom]);
 
-  // Buộc cuộn ngay lập tức theo ô input index (bỏ qua guard)
-  const handleScrollNow = React.useCallback((index: number) => {
-    const target = assetInputRefs.current[index] ?? (document.activeElement as HTMLElement | null);
-    triggerScrollRoutine(target || undefined);
-  }, [triggerScrollRoutine]);
-
   // Bắt thao tác chạm đầu tiên để bật bàn phím trên iOS
   const handleUserTapFocus = React.useCallback(() => {
     const el = assetInputRefs.current?.[0];
@@ -1098,6 +1092,8 @@ export default function AssetEntryClient() {
 
                   {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
                     const valid = isAssetValid(val);
+                    const visibleCount = showAllAssets ? multipleAssets.length : Math.min(multipleAssets.length, 5);
+                    const isLast = idx === visibleCount - 1;
                     return (
                       <AssetCodeInputRow
                         key={idx}
@@ -1109,9 +1105,9 @@ export default function AssetEntryClient() {
                         onRemoveRow={removeAssetField}
                         inputRef={(el) => { assetInputRefs.current[idx] = el; }}
                         onFirstType={handleFirstType}
-                        onScrollNow={handleScrollNow}
                         autoFocus={idx === 0}
                         enterKeyHint={idx < (showAllAssets ? multipleAssets.length : Math.min(multipleAssets.length, 5)) - 1 ? "next" : "done"}
+                        isLast={isLast}
                         onTabNavigate={(i, dir) => {
                           if (dir === "next") {
                             const next = i + 1;

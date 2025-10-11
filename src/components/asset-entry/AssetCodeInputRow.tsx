@@ -16,13 +16,13 @@ type Props = {
   onTabNavigate?: (index: number, direction: "next" | "prev") => void;
   showRemove: boolean;
   onFirstType?: (index: number) => void;
-  onScrollNow?: (index: number) => void;
   autoFocus?: boolean;
   enterKeyHint?: "next" | "done";
+  isLast?: boolean;
 };
 
 const AssetCodeInputRow: React.FC<Props> = React.memo(
-  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, onScrollNow, autoFocus, enterKeyHint }) => {
+  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, autoFocus, enterKeyHint, isLast }) => {
     const localInputRef = React.useRef<HTMLInputElement | null>(null);
     
     // Auto focus khi được yêu cầu (dành cho ô đầu tiên khi vào trang)
@@ -79,9 +79,14 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
                 e.preventDefault();
                 onTabNavigate?.(index, "prev");
               } else if (e.key === "Enter" && !e.shiftKey) {
-                // iOS keyboards thường dùng Enter thay cho Tab/Next
+                // iOS keyboards thường dùng Enter: nếu không phải ô cuối -> Next, nếu là cuối -> Done (blur)
                 e.preventDefault();
-                onTabNavigate?.(index, "next");
+                if (enterKeyHint === "next" && !isLast) {
+                  onTabNavigate?.(index, "next");
+                } else {
+                  // Done: không điều hướng, đóng bàn phím nhẹ nhàng
+                  localInputRef.current?.blur();
+                }
               }
             }}
             onPaste={() => {
