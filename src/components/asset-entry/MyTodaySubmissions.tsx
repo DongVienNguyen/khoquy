@@ -173,7 +173,7 @@ const MyTodaySubmissions: React.FC = () => {
       <div className="flex flex-col gap-3 mb-3">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Hiển thị các giao dịch bạn đã tạo trong ngày (GMT+7), chưa xóa.
+            Các TS đã nhắn trong ngày, chưa xóa.
           </p>
           <div className="flex items-center gap-2">
             <Button onClick={loadToday} variant="outline" className="h-9" disabled={isLoading}>
