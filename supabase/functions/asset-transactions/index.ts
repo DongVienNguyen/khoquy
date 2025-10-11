@@ -38,73 +38,6 @@ function gmt7WeekRangeUtc(date: Date): [string, string] {
   return [startUtc.toISOString(), endUtc.toISOString()]
 }
 
-async function notifyAdminsAndUser(room: string, parts_day: string, transaction_date: string, count: number, codes: string[], submitterUsername: string, submitterName?: string) {
-  const { data: admins, error: staffErr } = await supabase
-    .from("staff")
-    .select("username, staff_name")
-    .eq("role", "admin")
-  if (staffErr) throw staffErr
-
-  const titleForAdmin = `Thông báo mới từ ${submitterName || submitterUsername}`
-  const msgForAdmin = `${submitterName || submitterUsername} đã gửi ${count} TS cho ${room} (${parts_day} - ${transaction_date}). Chi tiết: ${codes.slice(0, 5).join(", ")}${count > 5 ? `, ... (+${count - 5})` : ""}`
-  const titleForUser = "Đã ghi nhận thông báo của bạn"
-  const msgForUser = `Hệ thống đã lưu ${count} TS cho ${room} (${parts_day} - ${transaction_date}). Chi tiết: ${codes.slice(0, 5).join(", ")}${count > 5 ? `, ... (+${count - 5})` : ""}`
-
-  const adminNotifs = (admins || []).map((a) => ({
-    title: titleForAdmin,
-    message: msgForAdmin,
-    recipient_username: a.username,
-    notification_type: "asset_reminder",
-    is_read: false,
-    related_data: { room, parts_day, transaction_date, count, codes },
-  }))
-  if (adminNotifs.length > 0) {
-    const { error: nErr } = await supabase.from("notifications").insert(adminNotifs)
-    if (nErr) throw nErr
-  }
-
-  const { error: uErr } = await supabase.from("notifications").insert({
-    title: titleForUser,
-    message: msgForUser,
-    recipient_username: submitterUsername,
-    notification_type: "asset_reminder",
-    is_read: false,
-    related_data: { room, parts_day, transaction_date, count, codes },
-  })
-  if (uErr) throw uErr
-}
-
-async function upsertEmailUser(username: string, email: string | null, full_name: string | null, whenIso: string) {
-  const payload = {
-    username,
-    email: email || null,
-    full_name: full_name || username,
-    last_notification_sent: whenIso,
-    last_email_sent: whenIso,
-    updated_date: nowIso(),
-  }
-  const { data: existing, error: selErr } = await supabase
-    .from("email_users")
-    .select("id")
-    .eq("username", username)
-    .limit(1)
-  if (selErr) throw selErr
-
-  if (existing && existing.length > 0) {
-    const targetId = existing[0].id
-    const { error: updErr } = await supabase
-      .from("email_users")
-      .update(payload)
-      .eq("id", targetId)
-    if (updErr) throw updErr
-  } else {
-    const { error: insErr } = await supabase
-      .from("email_users")
-      .insert({ ...payload, created_date: nowIso() })
-    if (insErr) throw insErr
-  }
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders })
@@ -195,25 +128,8 @@ serve(async (req) => {
         }
       }
 
-      // Side-effects: thông báo + cập nhật email_users
-      try {
-        const codes = (created || []).map((c) => `${c.asset_code}.${c.asset_year}`)
-        if (created && created.length > 0) {
-          const first = created[0]
-          await notifyAdminsAndUser(
-            first.room,
-            first.parts_day,
-            first.transaction_date,
-            created.length,
-            codes,
-            staff_username,
-            staff_name || undefined
-          )
-          await upsertEmailUser(staff_username, staff_email, staff_name, notifiedAt)
-        }
-      } catch (sideErr) {
-        console.error("Side-effects failed (notifications/email_users):", sideErr)
-      }
+      // UI-only: KHÔNG gửi/lưu thông báo tới bảng notifications nữa
+      // (Không thực hiện notifyAdminsAndUser hoặc upsertEmailUser)
 
       return new Response(JSON.stringify({ ok: true, data: created }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
