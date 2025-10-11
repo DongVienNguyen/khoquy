@@ -722,6 +722,7 @@ export default function DailyReportPage() {
   );
 
   const [isAssetEntryOpen, setIsAssetEntryOpen] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   return (
     <div className="p-4 md:p-8">
@@ -778,68 +779,70 @@ export default function DailyReportPage() {
 
           {/* Hàng trên: Bộ lọc */}
           <div className="grid grid-cols-1 gap-6" id="main-content-section">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Filter className="w-4 h-4" /> Bộ lọc danh sách cần xem
-                </CardTitle>
-                <CardDescription>Chọn khoảng hiển thị phù hợp</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <QuickFilter />
-                {filterType === "custom" && (
-                  <div className="space-y-3">
-                    <Label className="flex items-center gap-2">
-                      <CalendarIcon className="w-4 h-4" /> Khoảng ngày
-                    </Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start">
-                            {format(new Date(customFilters.start), "dd/MM/yyyy")}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="p-0">
-                          <Calendar
-                            mode="single"
-                            selected={new Date(customFilters.start)}
-                            onSelect={(d) => d && setCustomFilters((p) => ({ ...p, start: format(d, "yyyy-MM-dd") }))}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start">
-                            {format(new Date(customFilters.end), "dd/MM/yyyy")}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="p-0">
-                          <Calendar
-                            mode="single"
-                            selected={new Date(customFilters.end)}
-                            onSelect={(d) => d && setCustomFilters((p) => ({ ...p, end: format(d, "yyyy-MM-dd") }))}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
+            <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <Filter className="w-4 h-4" />
+                  <span className="font-medium">Bộ lọc danh sách cần xem</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[700px] max-w-[95vw] p-4">
+                <div className="space-y-4">
+                  <QuickFilter />
+                  {filterType === "custom" && (
+                    <div className="space-y-3">
+                      <Label className="flex items-center gap-2">
+                        <CalendarIcon className="w-4 h-4" /> Khoảng ngày
+                      </Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-full justify-start">
+                              {format(new Date(customFilters.start), "dd/MM/yyyy")}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="p-0">
+                            <Calendar
+                              mode="single"
+                              selected={new Date(customFilters.start)}
+                              onSelect={(d) => d && setCustomFilters((p) => ({ ...p, start: format(d, "yyyy-MM-dd") }))}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-full justify-start">
+                              {format(new Date(customFilters.end), "dd/MM/yyyy")}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="p-0">
+                            <Calendar
+                              mode="single"
+                              selected={new Date(customFilters.end)}
+                              onSelect={(d) => d && setCustomFilters((p) => ({ ...p, end: format(d, "yyyy-MM-dd") }))}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <Label>Buổi</Label>
+                      <Select
+                        value={customFilters.parts_day}
+                        onValueChange={(v) => setCustomFilters((p) => ({ ...p, parts_day: v as any }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Chọn buổi" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Cả ngày</SelectItem>
+                          <SelectItem value="Sáng">Sáng</SelectItem>
+                          <SelectItem value="Chiều">Chiều</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <Label>Buổi</Label>
-                    <Select
-                      value={customFilters.parts_day}
-                      onValueChange={(v) => setCustomFilters((p) => ({ ...p, parts_day: v as any }))}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Chọn buổi" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Cả ngày</SelectItem>
-                        <SelectItem value="Sáng">Sáng</SelectItem>
-                        <SelectItem value="Chiều">Chiều</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Khung gom nhóm tài sản + hành động + ghi chú */}
@@ -852,11 +855,6 @@ export default function DailyReportPage() {
                     <CardDescription>Dấu (*) TS đã được nhắn hơn một lần trong tuần</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
-                    {canManageDailyReport ? (
-                      <Button onClick={() => setIsNotesDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
-                        Thêm ghi chú
-                      </Button>
-                    ) : null}
                     <Dialog open={isAssetEntryOpen} onOpenChange={setIsAssetEntryOpen}>
                       <DialogTrigger asChild>
                         <Button className="bg-green-600 hover:bg-green-700 text-white gap-2">
