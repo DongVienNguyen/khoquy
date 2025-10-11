@@ -310,7 +310,7 @@ export default function BorrowReportPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `BaoCaoMuonTS_${format(new Date(), "yyyyMMdd_HHmmss")}.csv`;
+    a.download = `BaoCaoMuonTS_${format(new Date(dateRange.start), "yyyyMMdd")}-${format(new Date(dateRange.end), "yyyyMMdd")}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -378,6 +378,92 @@ export default function BorrowReportPage() {
               Xuất PDF
             </Button>
           </div>
+        </div>
+
+        {/* Bộ lọc thời gian */}
+        <div className="mt-4">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-full md:w-auto justify-start gap-2">
+                <Filter className="w-4 h-4" />
+                <span className="font-medium">Bộ lọc thời gian</span>
+                <span className="text-xs text-slate-500">
+                  ({format(new Date(dateRange.start), "dd/MM/yyyy")} - {format(new Date(dateRange.end), "dd/MM/yyyy")})
+                </span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[700px] max-w-[95vw] p-4">
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <CalendarIcon className="w-4 h-4" /> Từ ngày
+                    </Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start">
+                          {format(new Date(dateRange.start), "dd/MM/yyyy")}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={new Date(dateRange.start)}
+                          onSelect={(d) => {
+                            if (!d) return;
+                            const s = format(d, "yyyy-MM-dd");
+                            setDateRange((prev) => {
+                              const end = prev.end;
+                              const sDate = new Date(s);
+                              const eDate = new Date(end);
+                              return { start: s, end: sDate > eDate ? s : end };
+                            });
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <CalendarIcon className="w-4 h-4" /> Đến ngày
+                    </Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start">
+                          {format(new Date(dateRange.end), "dd/MM/yyyy")}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="p-0" align="end">
+                        <Calendar
+                          mode="single"
+                          selected={new Date(dateRange.end)}
+                          onSelect={(d) => {
+                            if (!d) return;
+                            const e = format(d, "yyyy-MM-dd");
+                            setDateRange((prev) => {
+                              const start = prev.start;
+                              const sDate = new Date(start);
+                              const eDate = new Date(e);
+                              return { start: eDate < sDate ? e : start, end: e };
+                            });
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="secondary" className="text-slate-700" onClick={() => setQuickRange("7d")}>7 ngày</Button>
+                  <Button variant="secondary" className="text-slate-700" onClick={() => setQuickRange("30d")}>30 ngày</Button>
+                  <Button variant="secondary" className="text-slate-700" onClick={() => setQuickRange("mtd")}>Tháng này</Button>
+                  <Button variant="secondary" className="text-slate-700" onClick={() => setQuickRange("ytd")}>Năm nay</Button>
+                  <Button variant="ghost" onClick={clearFilters}>Đặt lại</Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
@@ -459,7 +545,7 @@ export default function BorrowReportPage() {
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
               variant="outline"
-              className="bg白 hover:bg-slate-50 text-slate-600 shadow-sm"
+              className="bg-white hover:bg-slate-50 text-slate-600 shadow-sm"
             >
               <ChevronLeft className="w-4 h-4 mr-2" /> Trước
             </Button>
