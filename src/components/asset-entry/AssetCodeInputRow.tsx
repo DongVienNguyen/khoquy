@@ -21,16 +21,23 @@ type Props = {
 
 const AssetCodeInputRow: React.FC<Props> = React.memo(
   ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, onScrollNow }) => {
+    const localInputRef = React.useRef<HTMLInputElement | null>(null);
+    
     // Khi value vừa có ký tự đầu và icon đỏ lần đầu xuất hiện -> kích hoạt cuộn
     const firstInvalidShownRef = React.useRef(false);
     React.useEffect(() => {
       if (!firstInvalidShownRef.current && value && value.trim() !== "" && !isValid) {
         firstInvalidShownRef.current = true;
-        // Buộc cuộn ngay lập tức, bỏ qua guard của parent
+        // Đảm bảo input đang focus để scroll chính xác
+        const el = localInputRef.current;
+        try { el?.focus({ preventScroll: true } as any); } catch {}
+        // Buộc cuộn: rAF để đợi DOM/viewport ổn định (keyboad open), rồi thêm 1 lần sau 200ms
         if (onScrollNow) {
-          // Delay 1 tick để DOM ổn định trước khi cuộn
-          setTimeout(() => onScrollNow(index), 0);
+          requestAnimationFrame(() => onScrollNow(index));
+          setTimeout(() => onScrollNow(index), 200);
         } else {
+          // Fallback nếu không có onScrollNow: cuộn mượt tới giữa
+          el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
           onFirstType?.(index);
         }
       }
@@ -48,7 +55,10 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
             autoCorrect="off"
             value={value}
             onChange={(e) => onChange(index, e.target.value)}
-            ref={inputRef}
+            ref={(el) => {
+              localInputRef.current = el;
+              inputRef?.(el || null);
+            }}
             onBeforeInput={() => {
               // Ký tự đầu tiên: kích hoạt cuộn
               if (!value) onFirstType?.(index);
