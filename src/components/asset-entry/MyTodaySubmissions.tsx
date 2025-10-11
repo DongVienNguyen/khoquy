@@ -4,7 +4,7 @@ import React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Edit3, Trash2, RefreshCcw } from "lucide-react";
-import { supabase, SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/client";
+import { SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/env";
 
 type SafeStaff = {
   id: string;
@@ -49,6 +49,7 @@ function getLoggedInStaff(): { username?: string } | null {
 const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
 async function callAssetFunc(body: Record<string, any>): Promise<{ ok: boolean; data?: any; error?: any }> {
   try {
+    const { supabase } = await import("@/lib/supabase/client");
     const { data, error } = await supabase.functions.invoke("asset-transactions", {
       body,
       headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
