@@ -87,6 +87,10 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
                   // Done: không điều hướng, đóng bàn phím nhẹ nhàng
                   localInputRef.current?.blur();
                 }
+              } else if (e.key === "Enter" && e.shiftKey) {
+                // Shift+Enter: quay về dòng trước
+                e.preventDefault();
+                onTabNavigate?.(index, "prev");
               }
             }}
             onPaste={() => {

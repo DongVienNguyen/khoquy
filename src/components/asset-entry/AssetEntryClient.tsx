@@ -1106,7 +1106,8 @@ export default function AssetEntryClient() {
                         inputRef={(el) => { assetInputRefs.current[idx] = el; }}
                         onFirstType={handleFirstType}
                         autoFocus={idx === 0}
-                        enterKeyHint={idx < (showAllAssets ? multipleAssets.length : Math.min(multipleAssets.length, 5)) - 1 ? "next" : "done"}
+                        // Hiển thị Next nếu còn dòng phía sau (kể cả dòng đang ẩn khi thu gọn)
+                        enterKeyHint={idx < multipleAssets.length - 1 ? "next" : "done"}
                         isLast={isLast}
                         onTabNavigate={(i, dir) => {
                           if (dir === "next") {
@@ -1127,10 +1128,24 @@ export default function AssetEntryClient() {
                                 }
                               }, 0);
                             } else {
-                              const el = assetInputRefs.current[next];
-                              if (el) {
-                                el.focus();
-                                triggerScrollRoutine(el);
+                              // Nếu đang ở cuối phần hiển thị và còn dòng ẩn → tự mở rộng để thấy dòng kế tiếp
+                              const visibleCountNow = showAllAssets ? multipleAssets.length : Math.min(multipleAssets.length, 5);
+                              if (!showAllAssets && next >= visibleCountNow) {
+                                setShowAllAssets(true);
+                                // chờ UI mở rộng rồi focus
+                                setTimeout(() => {
+                                  const el = assetInputRefs.current[next];
+                                  if (el) {
+                                    el.focus();
+                                    triggerScrollRoutine(el);
+                                  }
+                                }, 0);
+                              } else {
+                                const el = assetInputRefs.current[next];
+                                if (el) {
+                                  el.focus();
+                                  triggerScrollRoutine(el);
+                                }
                               }
                             }
                           } else {
