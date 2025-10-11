@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { supabase, SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/client";
 import { 
   Package, Building2 as Building, Camera, Upload, CheckCircle, AlertCircle, 
   Plus, Minus, ChevronDown, ChevronUp, CalendarDays as CalendarIcon, Loader2 
@@ -19,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
+import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 
 type SafeStaff = {
   id: string;
@@ -41,38 +41,6 @@ function getLoggedInStaff(): SafeStaff | null {
     return null;
   } catch {
     return null;
-  }
-}
-
-const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
-
-async function callAssetFunc(body: Record<string, any>) {
-  try {
-    const { data, error } = await supabase.functions.invoke("asset-transactions", {
-      body,
-      headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
-    });
-    if (!error) {
-      const payload: any = data;
-      const normalized = payload && typeof payload === "object" && "data" in payload ? payload.data : payload;
-      return { ok: true, data: normalized };
-    }
-  } catch {}
-  try {
-    const res = await fetch(FUNCTION_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_PUBLIC_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const json = await res.json().catch(() => null);
-    if (res.ok && json) return { ok: true, data: (json as any).data };
-    return { ok: false, error: json?.error || `HTTP ${res.status}` };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "Failed to fetch" };
   }
 }
 
@@ -228,15 +196,19 @@ const AssetEntryInlineForm: React.FC = () => {
       .replace(/(\.\d\d)\d+$/, "$1")
       .replace(/(\d{4})\d+/, "$1");
 
-    if (newAssets[index].length >= 6 && newAssets.length === index + 1) {
-      newAssets.push("");
-    }
-    if (newAssets[index].length < 6) {
-      while (newAssets.length > index + 1 && newAssets[newAssets.length - 1].trim() === "") {
-        newAssets.pop();
+    if (newAssets[index] === multipleAssets[index]) {
+      setMultipleAssets((prev) => prev); // giữ nguyên nếu không đổi
+    } else {
+      if (newAssets[index].length >= 6 && newAssets.length === index + 1) {
+        newAssets.push("");
       }
+      if (newAssets[index].length < 6) {
+        while (newAssets.length > index + 1 && newAssets[newAssets.length - 1].trim() === "") {
+          newAssets.pop();
+        }
+      }
+      setMultipleAssets(newAssets.length > 0 ? newAssets : [""]);
     }
-    setMultipleAssets(newAssets.length > 0 ? newAssets : [""]);
   }, [multipleAssets]);
 
   const addAssetField = useCallback(() => setMultipleAssets((prev) => [...prev, ""]), []);
@@ -251,7 +223,6 @@ const AssetEntryInlineForm: React.FC = () => {
     }));
   }, [getDefaultPartsDay]);
 
-  const getUtcNowIso = useCallback(() => new Date().toISOString(), []);
   const getYmd = useCallback((d: Date) => {
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -266,7 +237,7 @@ const AssetEntryInlineForm: React.FC = () => {
       return false;
     }
     for (const asset of filled) {
-      if (!validateAssetFormat(asset)) {
+      if (!validateAssetFormat(asset.trim())) {
         setMessage({ type: "error", text: `Định dạng không đúng: ${asset}. Vui lòng nhập theo [Mã TS].[Năm TS]` });
         return false;
       }
@@ -296,6 +267,12 @@ const AssetEntryInlineForm: React.FC = () => {
     setIsConfirmOpen(true);
   }, [isRestrictedTime, currentStaff, validateAllAssets]);
 
+  function simpleHash(str: string): string {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+    return "k" + Math.abs(h).toString(36);
+  }
+
   const performSubmit = useCallback(async () => {
     setIsConfirmOpen(false);
     if (isRestrictedTime && currentStaff?.role !== "admin") {
@@ -307,7 +284,6 @@ const AssetEntryInlineForm: React.FC = () => {
     setIsLoading(true);
     setMessage({ type: "", text: "" });
 
-    const notifiedAt = getUtcNowIso();
     const txDate = getYmd(formData.transaction_date);
 
     const normalizedType =
@@ -328,7 +304,6 @@ const AssetEntryInlineForm: React.FC = () => {
         asset_year: parsed.asset_year,
         asset_code: parsed.asset_code,
         note: formData.note || null,
-        notified_at: notifiedAt,
       };
       if (!requiresNoteDropdown && formData.room !== "QLN") {
         delete payload.note;
@@ -336,19 +311,23 @@ const AssetEntryInlineForm: React.FC = () => {
       return payload;
     });
 
-    const result = await callAssetFunc({
+    const codesForKey = transactions.map((t) => `${t.asset_code}.${t.asset_year}`).sort().join(",");
+    const idemKey = simpleHash(`${currentStaff.username}|${formData.room}|${formData.parts_day}|${txDate}|${codesForKey}`);
+
+    const result = await edgeInvoke<any[]>("asset-transactions", {
       action: "create",
       staff_username: currentStaff.username,
       staff_email: currentStaff.email,
       staff_name: currentStaff.staff_name,
       transactions,
+      idempotency_key: idemKey,
     });
 
     if (!result.ok) {
       setIsLoading(false);
-      const errText = typeof result.error === "string" ? result.error : "Không thể gửi dữ liệu.";
-      toast.error(errText);
-      setMessage({ type: "error", text: errText });
+      const msg = friendlyErrorMessage(result.error);
+      toast.error(msg);
+      setMessage({ type: "error", text: msg });
       return;
     }
 
@@ -371,7 +350,7 @@ const AssetEntryInlineForm: React.FC = () => {
       window.dispatchEvent(new Event("asset:submitted"));
       window.dispatchEvent(new Event("notifications:refresh"));
     } catch {}
-  }, [isRestrictedTime, currentStaff, formData, multipleAssets, requiresNoteDropdown, getUtcNowIso, getYmd, parseAssetCode, calculateDefaultValues]);
+  }, [isRestrictedTime, currentStaff, formData, multipleAssets, requiresNoteDropdown, getYmd, parseAssetCode, calculateDefaultValues, validateAllAssets]);
 
   const compressImageToDataUrl = (file: File, maxDim = 1600, quality = 0.75): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -440,18 +419,18 @@ const AssetEntryInlineForm: React.FC = () => {
       }
 
       setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang phân tích bằng AI..." });
-      const { data, error } = await supabase.functions.invoke("ai-extract-asset-codes", {
-        body: { images, rate_limit_key: currentStaff?.username || "anon" },
-        headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+      const { data, error } = await edgeInvoke<any>("ai-extract-asset-codes", {
+        images,
+        rate_limit_key: currentStaff?.username || "anon",
       });
 
-      if (error) {
+      if (!data && error) {
         setAiStatus({ stage: "error", progress: 0, total: files.length, detail: "AI lỗi khi phân tích hình ảnh." });
-        setMessage({ type: "error", text: error.message || "AI lỗi khi phân tích hình ảnh." });
+        setMessage({ type: "error", text: friendlyErrorMessage(error) });
         return;
       }
 
-      const payload: any = data?.data ?? data;
+      const payload: any = (data && (data as any).data) ? (data as any).data : data;
       const meta = payload?.meta || {};
       const abVariant = meta?.ab_variant || "";
       const modelName = meta?.model || "";
