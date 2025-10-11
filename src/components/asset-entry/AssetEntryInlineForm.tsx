@@ -188,6 +188,55 @@ const AssetEntryInlineForm: React.FC = () => {
     return parsed.asset_year >= 20 && parsed.asset_year <= 99;
   }, [validateAssetFormat, parseAssetCode]);
 
+  // Phân tích mã từ text: hỗ trợ "1234.24" và cả chuỗi số dài kiểu scanner
+  const extractCodesFromText = useCallback((text: string): string[] => {
+    const out: string[] = [];
+    if (!text) return out;
+    const t = String(text);
+    // 1) Bắt mẫu có dấu chấm như 1234.24
+    const dotRe = /(?<!\d)(\d{1,4})\.(\d{2})(?!\d)/g;
+    let m: RegExpExecArray | null;
+    while ((m = dotRe.exec(t)) !== null) {
+      out.push(`${m[1]}.${m[2]}`);
+    }
+    // 2) Từ chuỗi số dài, tách 2 số cuối là năm, tối đa 4 số trước là mã
+    const numRe = /(\d{5,})/g;
+    while ((m = numRe.exec(t)) !== null) {
+      const digits = m[1];
+      const year = digits.slice(-2);
+      const code = digits.slice(-6, -2).replace(/^0+/, "") || digits.slice(-6, -2);
+      out.push(`${code}.${year}`);
+    }
+    // Chuẩn hóa, loại trùng, validate
+    return Array.from(new Set(out)).map((s) => s.trim()).filter((s) => isAssetValid(s));
+  }, [isAssetValid]);
+
+  const handleBulkInsert = useCallback((startIndex: number, codes: string[]) => {
+    if (!codes || codes.length === 0) return;
+    setMultipleAssets((prev) => {
+      const next = [...prev];
+      while (next.length < startIndex + codes.length) next.push("");
+      for (let i = 0; i < codes.length; i++) next[startIndex + i] = codes[i];
+      if (next[next.length - 1].trim() !== "") next.push("");
+      return next;
+    });
+    setTimeout(() => {
+      const lastIdx = startIndex + codes.length - 1;
+      const el = assetInputRefs.current[lastIdx];
+      try { el?.focus(); } catch {}
+    }, 0);
+    toast.success(`Đã dán ${codes.length} mã tài sản.`);
+  }, []);
+
+  const handlePasteText = useCallback((index: number, text: string): boolean => {
+    const codes = extractCodesFromText(text);
+    if (codes.length > 1) {
+      handleBulkInsert(index, codes);
+      return true;
+    }
+    return false;
+  }, [extractCodesFromText, handleBulkInsert]);
+
   const handleAssetChange = useCallback((index: number, value: string) => {
     let newAssets = [...multipleAssets];
     const normalized = String(value).replace(/[,/\\]/g, ".");
@@ -740,6 +789,8 @@ const AssetEntryInlineForm: React.FC = () => {
 
                 {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
                   const valid = isAssetValid(val);
+                  const visibleCount = showAllAssets ? multipleAssets.length : Math.min(multipleAssets.length, 5);
+                  const isLast = idx === visibleCount - 1;
                   return (
                     <AssetCodeInputRow
                       key={idx}
@@ -750,6 +801,11 @@ const AssetEntryInlineForm: React.FC = () => {
                       onAddRow={addAssetField}
                       onRemoveRow={removeAssetField}
                       inputRef={(el) => { assetInputRefs.current[idx] = el; }}
+                      autoFocus={idx === 0}
+                      // Hiển thị Next nếu còn dòng phía sau (kể cả dòng ẩn)
+                      enterKeyHint={idx < multipleAssets.length - 1 ? "next" : "done"}
+                      isLast={isLast}
+                      onPasteText={handlePasteText}
                       onTabNavigate={(i, dir) => {
                         if (dir === "next") {
                           const next = i + 1;
@@ -757,7 +813,14 @@ const AssetEntryInlineForm: React.FC = () => {
                             setMultipleAssets((prev) => [...prev, ""]);
                             setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
                           } else {
-                            assetInputRefs.current[next]?.focus();
+                            // Nếu đang ở cuối phần hiển thị và còn dòng ẩn → tự mở rộng để thấy dòng kế tiếp
+                            const visibleNow = showAllAssets ? multipleAssets.length : Math.min(multipleAssets.length, 5);
+                            if (!showAllAssets && next >= visibleNow) {
+                              setShowAllAssets(true);
+                              setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
+                            } else {
+                              assetInputRefs.current[next]?.focus();
+                            }
                           }
                         } else {
                           const prevIdx = i - 1;

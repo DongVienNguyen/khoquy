@@ -64,6 +64,7 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
               if (!value) onFirstType?.(index);
             }}
             onKeyDown={(e) => {
+              // Ký tự đầu tiên (fallback): kích hoạt cuộn kể cả phím số/ký tự
               if (!value && !e.ctrlKey && !e.metaKey && e.key.length === 1) {
                 onFirstType?.(index);
               }
@@ -74,13 +75,20 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
                 e.preventDefault();
                 onTabNavigate?.(index, "prev");
               } else if (e.key === "Enter" && !e.shiftKey) {
+                // iOS keyboards thường dùng Enter: nếu không phải ô cuối -> Next, nếu là cuối -> Done (blur)
                 e.preventDefault();
                 if (enterKeyHint === "next" && !isLast) {
                   onTabNavigate?.(index, "next");
                 } else {
+                  // Done: không điều hướng, đóng bàn phím nhẹ nhàng
                   localInputRef.current?.blur();
                 }
               } else if (e.key === "Enter" && e.shiftKey) {
+                // Shift+Enter: quay về dòng trước
+                e.preventDefault();
+                onTabNavigate?.(index, "prev");
+              } else if (e.key === "Backspace" && !value) {
+                // Ô rỗng + Backspace: chuyển về dòng trước cho nhanh
                 e.preventDefault();
                 onTabNavigate?.(index, "prev");
               }
