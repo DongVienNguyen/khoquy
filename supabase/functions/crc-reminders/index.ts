@@ -39,13 +39,26 @@ function todayYmdGmt7(): string {
   return `${y}-${m}-${d}`;
 }
 
+function isValidEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const e = email.trim();
+  if (e.includes(":")) return false; // reject app: or other prefixes
+  // minimal format check
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
 async function sendEmailResend(toList: string[], subject: string, html: string, text?: string) {
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+  const RESEND_FROM = Deno.env.get("RESEND_FROM");
   if (!RESEND_API_KEY) {
     throw new Error("RESEND_API_KEY is not configured");
   }
+  if (!isValidEmail(RESEND_FROM)) {
+    throw new Error("RESEND_FROM is invalid. Please set RESEND_FROM to a verified sender email like 'crc-reminders@caremylife.me' (no 'app:' or ':').");
+  }
+
   const payload = {
-    from: "onboarding@resend.dev",
+    from: `CareMyLife <${RESEND_FROM}>`,
     to: toList,
     subject,
     html,
