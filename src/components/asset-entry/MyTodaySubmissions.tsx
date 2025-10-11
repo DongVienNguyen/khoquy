@@ -4,7 +4,7 @@ import React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Edit3, Trash2, RefreshCcw } from "lucide-react";
-import { SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/env";
+import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 
 type SafeStaff = {
   id: string;
@@ -32,7 +32,6 @@ type AssetTx = {
   updated_date: string;
 };
 
-// Helper: đọc staff từ localStorage
 function getLoggedInStaff(): { username?: string } | null {
   try {
     const raw = typeof window !== "undefined" ? window.localStorage.getItem("loggedInStaff") : null;
@@ -45,42 +44,6 @@ function getLoggedInStaff(): { username?: string } | null {
   }
 }
 
-// Helper: gọi edge function asset-transactions (kèm fallback fetch)
-const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
-async function callAssetFunc(body: Record<string, any>): Promise<{ ok: boolean; data?: any; error?: any }> {
-  try {
-    const { supabase } = await import("@/lib/supabase/client");
-    const { data, error } = await supabase.functions.invoke("asset-transactions", {
-      body,
-      headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
-    });
-    if (!error) {
-      const payload: any = data;
-      const normalized = payload && typeof payload === "object" && "data" in payload ? payload.data : payload;
-      return { ok: true, data: normalized };
-    }
-  } catch {
-    // ignore and fallback
-  }
-  try {
-    const res = await fetch(FUNCTION_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_PUBLIC_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const json = await res.json().catch(() => null);
-    if (res.ok && json) return { ok: true, data: (json as any).data };
-    return { ok: false, error: json?.error || `HTTP ${res.status}` };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "Failed to fetch" };
-  }
-}
-
-// Helper: trả về yyyy-mm-dd của hôm nay theo GMT+7
 function gmt7TodayYMD(): string {
   const now = new Date();
   const gmt7 = new Date(now.getTime() + 7 * 3600 * 1000);
@@ -99,9 +62,9 @@ const MyTodaySubmissions: React.FC = () => {
     if (!staff) return;
     setIsLoading(true);
     try {
-      const res = await callAssetFunc({ action: "list_mine_today", staff_username: staff.username });
+      const res = await edgeInvoke<AssetTx[]>("asset-transactions", { action: "list_mine_today", staff_username: staff.username });
       if (!res.ok) {
-        toast.error(typeof res.error === "string" ? res.error : "Không thể tải danh sách hôm nay");
+        toast.error(friendlyErrorMessage(res.error));
         setRows([]);
         return;
       }
@@ -135,14 +98,14 @@ const MyTodaySubmissions: React.FC = () => {
     async (row: AssetTx) => {
       const newNote = prompt("Nhập ghi chú mới", row.note ?? "") ?? null;
       if (newNote === null) return;
-      const res = await callAssetFunc({
+      const res = await edgeInvoke("asset-transactions", {
         action: "update_note",
         id: row.id,
         note: newNote,
         editor_username: staff?.username || "",
       });
       if (!res.ok) {
-        toast.error(typeof res.error === "string" ? res.error : "Không thể cập nhật ghi chú");
+        toast.error(friendlyErrorMessage(res.error));
         return;
       }
       toast.success("Đã cập nhật ghi chú");
@@ -154,13 +117,13 @@ const MyTodaySubmissions: React.FC = () => {
   const removeTransaction = React.useCallback(
     async (id: string) => {
       if (!confirm("Bạn có chắc chắn muốn xóa (mềm) giao dịch này?")) return;
-      const res = await callAssetFunc({
+      const res = await edgeInvoke("asset-transactions", {
         action: "soft_delete",
         id,
         deleted_by: staff?.username || "",
       });
       if (!res.ok) {
-        toast.error(typeof res.error === "string" ? res.error : "Không thể xóa");
+        toast.error(friendlyErrorMessage(res.error));
         return;
       }
       toast.success("Đã xóa (mềm)");

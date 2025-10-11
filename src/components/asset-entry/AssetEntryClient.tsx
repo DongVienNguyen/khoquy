@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState, Suspense, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -14,28 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { CheckedState } from "@radix-ui/react-checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/env";
-
-const MyTodaySubmissionsLazy = dynamic(() => import("@/components/asset-entry/MyTodaySubmissions"), {
-  ssr: false,
-  loading: () => <div className="mt-4 text-sm text-muted-foreground">Đang tải danh sách của bạn...</div>,
-});
-const DatePickerLazy = dynamic(() => import("@/components/asset-entry/DatePickerLazy"), {
-  ssr: false,
-  loading: () => (
-    <div className="h-10 flex items-center justify-center border rounded-md text-sm text-muted-foreground">
-      Đang tải lịch...
-    </div>
-  ),
-});
-const AssetEntryAIDialogLazy = dynamic(() => import("@/components/asset-entry/AssetEntryAIDialogLazy"), {
-  ssr: false,
-  loading: () => <div className="text-sm text-muted-foreground">Đang tải AI...</div>,
-});
+import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 
 type SafeStaff = {
   id: string;
@@ -63,7 +45,14 @@ type AssetTx = {
   updated_date: string;
 };
 
+// Hoist hằng số & regex
 const ROOMS = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"] as const;
+const ASSET_REGEX = /^\d{1,4}\.\d{2}$/;
+const RE_COMMAS_SLASHES = /[,/\\]/g;
+const RE_NON_NUM_DOT = /[^0-9.]/g;
+const RE_SECOND_DOT = /(\..*)\./g;
+const RE_YEAR_TRUNC = /(\.\d\d)\d+$/;
+const RE_CODE_MAX = /(\d{4})\d+/;
 
 function getLoggedInStaff(): SafeStaff | null {
   try {
@@ -74,43 +63,6 @@ function getLoggedInStaff(): SafeStaff | null {
     return null;
   } catch {
     return null;
-  }
-}
-
-const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/asset-transactions`;
-
-async function callAssetFunc(body: Record<string, any>) {
-  try {
-    const { supabase } = await import("@/lib/supabase/client");
-    const { data, error } = await supabase.functions.invoke("asset-transactions", {
-      body,
-      headers: {
-        Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
-      },
-    });
-    if (!error) {
-      const payload: any = data;
-      const normalized = payload && typeof payload === "object" && "data" in payload ? payload.data : payload;
-      return { ok: true, data: normalized };
-    }
-  } catch {
-    // ignore
-  }
-  try {
-    const res = await fetch(FUNCTION_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_PUBLIC_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const json = await res.json().catch(() => null);
-    if (res.ok && json) return { ok: true, data: (json as any).data };
-    return { ok: false, error: (json as any)?.error || `HTTP ${res.status}` };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "Failed to fetch" };
   }
 }
 
@@ -142,13 +94,14 @@ export default function AssetEntryClient() {
   const [isRestrictedTime, setIsRestrictedTime] = useState(false);
 
   const [listOpen, setListOpen] = useState<boolean>(false);
-
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
   const [isAiConfirmOpen, setIsAiConfirmOpen] = useState(false);
   const [aiNeedsConfirm, setAiNeedsConfirm] = useState<{ options: Record<string, string[]>; selections: Record<string, string> } | null>(null);
 
   const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const timeCheckTimerRef = useRef<number | null>(null);
+
   const formatDateShort = React.useCallback((date: Date | null) => {
     if (!date) return "Chọn ngày";
     const d = new Date(date);
@@ -230,6 +183,7 @@ export default function AssetEntryClient() {
     }
   }, [message]);
 
+  // Tạm dừng interval khi tab ẩn, khởi động lại khi visible
   useEffect(() => {
     const checkTime = () => {
       const now = new Date();
@@ -242,14 +196,34 @@ export default function AssetEntryClient() {
         setIsRestrictedTime((totalMin >= 465 && totalMin <= 485) || (totalMin >= 765 && totalMin <= 785));
       }
     };
-    checkTime();
-    const id = setInterval(checkTime, 60000);
-    return () => clearInterval(id);
+    const startTimer = () => {
+      if (timeCheckTimerRef.current) return;
+      checkTime();
+      timeCheckTimerRef.current = window.setInterval(checkTime, 60000);
+    };
+    const stopTimer = () => {
+      if (timeCheckTimerRef.current) {
+        clearInterval(timeCheckTimerRef.current);
+        timeCheckTimerRef.current = null;
+      }
+    };
+
+    const onVisChange = () => {
+      if (document.hidden) stopTimer();
+      else startTimer();
+    };
+
+    startTimer();
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => {
+      stopTimer();
+      document.removeEventListener("visibilitychange", onVisChange);
+    };
   }, [currentStaff]);
 
   const requiresNoteDropdown = useMemo(() => ["CMT8", "NS", "ĐS", "LĐH"].includes(formData.room), [formData.room]);
 
-  const validateAssetFormat = useCallback((value: string) => /^\d{1,4}\.\d{2}$/.test(value.trim()), []);
+  const validateAssetFormat = useCallback((value: string) => ASSET_REGEX.test(value.trim()), []);
   const parseAssetCode = useCallback((value: string) => {
     if (!validateAssetFormat(value)) return null;
     const [code, year] = value.split(".");
@@ -258,31 +232,36 @@ export default function AssetEntryClient() {
   const isAssetValid = useCallback((value: string) => {
     const v = (value || "").trim();
     if (!v) return false;
-    if (!validateAssetFormat(v)) return false;
+    if (!ASSET_REGEX.test(v)) return false;
     const parsed = parseAssetCode(v);
     if (!parsed) return false;
     return parsed.asset_year >= 20 && parsed.asset_year <= 99;
-  }, [validateAssetFormat, parseAssetCode]);
+  }, [parseAssetCode]);
 
   const handleAssetChange = useCallback((index: number, value: string) => {
-    let newAssets = [...multipleAssets];
-    const normalized = String(value).replace(/[,/\\]/g, ".");
-    newAssets[index] = normalized
-      .replace(/[^0-9.]/g, "")
-      .replace(/(\..*)\./g, "$1")
-      .replace(/(\.\d\d)\d+$/, "$1")
-      .replace(/(\d{4})\d+/, "$1");
+    const normalized = String(value).replace(RE_COMMAS_SLASHES, ".")
+      .replace(RE_NON_NUM_DOT, "")
+      .replace(RE_SECOND_DOT, "$1")
+      .replace(RE_YEAR_TRUNC, "$1")
+      .replace(RE_CODE_MAX, "$1");
 
-    if (newAssets[index].length >= 6 && newAssets.length === index + 1) {
-      newAssets.push("");
-    }
-    if (newAssets[index].length < 6) {
-      while (newAssets.length > index + 1 && newAssets[newAssets.length - 1].trim() === "") {
-        newAssets.pop();
+    setMultipleAssets((prev) => {
+      const next = [...prev];
+      if (next[index] === normalized) return prev; // tránh setState nếu không đổi
+      next[index] = normalized;
+
+      // Auto-append chỉ khi cần
+      if (normalized.length >= 6 && next.length === index + 1) {
+        next.push("");
       }
-    }
-    setMultipleAssets(newAssets.length > 0 ? newAssets : [""]);
-  }, [multipleAssets]);
+      if (normalized.length < 6) {
+        while (next.length > index + 1 && next[next.length - 1].trim() === "") {
+          next.pop();
+        }
+      }
+      return next.length > 0 ? next : [""];
+    });
+  }, []);
 
   const addAssetField = useCallback(() => setMultipleAssets((prev) => [...prev, ""]), []);
   const removeAssetField = useCallback((index: number) => setMultipleAssets((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [""])), []);
@@ -311,7 +290,7 @@ export default function AssetEntryClient() {
       return false;
     }
     for (const asset of filled) {
-      if (!validateAssetFormat(asset)) {
+      if (!ASSET_REGEX.test(asset.trim())) {
         setMessage({ type: "error", text: `Định dạng không đúng: ${asset}. Vui lòng nhập theo [Mã TS].[Năm TS]` });
         return false;
       }
@@ -322,7 +301,7 @@ export default function AssetEntryClient() {
       }
     }
     return true;
-  }, [multipleAssets, validateAssetFormat, parseAssetCode]);
+  }, [multipleAssets, parseAssetCode]);
 
   const isFormValid = useMemo(() => {
     const basicValid = !!formData.room && !!formData.transaction_date && !!formData.parts_day && !!formData.transaction_type;
@@ -341,6 +320,12 @@ export default function AssetEntryClient() {
     setIsConfirmOpen(true);
   }, [isRestrictedTime, currentStaff, validateAllAssets]);
 
+  function simpleHash(str: string): string {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+    return "k" + Math.abs(h).toString(36);
+  }
+
   const performSubmit = useCallback(async () => {
     setIsConfirmOpen(false);
     if (isRestrictedTime && currentStaff?.role !== "admin") {
@@ -352,7 +337,6 @@ export default function AssetEntryClient() {
     setIsLoading(true);
     setMessage({ type: "", text: "" });
 
-    const notifiedAt = getUtcNowIso();
     const txDate = getYmd(formData.transaction_date);
 
     const normalizedType =
@@ -373,7 +357,7 @@ export default function AssetEntryClient() {
         asset_year: parsed.asset_year,
         asset_code: parsed.asset_code,
         note: formData.note || null,
-        notified_at: notifiedAt,
+        // notified_at do server set để ổn định thời gian
       };
       if (!requiresNoteDropdown && formData.room !== "QLN") {
         delete payload.note;
@@ -381,19 +365,22 @@ export default function AssetEntryClient() {
       return payload;
     });
 
-    const result = await callAssetFunc({
+    const codesForKey = transactions.map((t) => `${t.asset_code}.${t.asset_year}`).sort().join(",");
+    const idemKey = simpleHash(`${currentStaff.username}|${formData.room}|${formData.parts_day}|${txDate}|${codesForKey}`);
+
+    const result = await edgeInvoke<AssetTx[]>("asset-transactions", {
       action: "create",
       staff_username: currentStaff.username,
       staff_email: currentStaff.email,
       staff_name: currentStaff.staff_name,
       transactions,
+      idempotency_key: idemKey,
     });
 
     if (!result.ok) {
       setIsLoading(false);
-      const errText = typeof result.error === "string" ? result.error : "Không thể gửi dữ liệu.";
-      toast.error(errText);
-      setMessage({ type: "error", text: errText });
+      toast.error(friendlyErrorMessage(result.error));
+      setMessage({ type: "error", text: friendlyErrorMessage(result.error) });
       return;
     }
 
@@ -416,28 +403,23 @@ export default function AssetEntryClient() {
       window.dispatchEvent(new Event("asset:submitted"));
       window.dispatchEvent(new Event("notifications:refresh"));
     } catch {}
-
-  }, [isRestrictedTime, currentStaff, formData, multipleAssets, requiresNoteDropdown, getUtcNowIso, getYmd, parseAssetCode, calculateDefaultValues]);
+  }, [isRestrictedTime, currentStaff, formData, multipleAssets, requiresNoteDropdown, getYmd, parseAssetCode, calculateDefaultValues, validateAllAssets]);
 
   const fetchMyToday = useCallback(async () => {
     const staff = currentStaff;
     if (!staff) return;
-    const res = await callAssetFunc({ action: "list_mine_today", staff_username: staff.username });
+    const res = await edgeInvoke<AssetTx[]>("asset-transactions", { action: "list_mine_today", staff_username: staff.username });
     if (!res.ok) {
-      toast.error(typeof res.error === "string" ? res.error : "Không thể tải danh sách hôm nay");
+      toast.error(friendlyErrorMessage(res.error));
       return;
     }
+    // hiển thị ở component con, đây chỉ để trigger refresh
     const rows = (res.data as AssetTx[]) || [];
     const now = new Date();
     const gmt7Now = new Date(now.getTime() + 7 * 3600 * 1000);
     const todayStr = `${gmt7Now.getUTCFullYear()}-${String(gmt7Now.getUTCMonth() + 1).padStart(2, "0")}-${String(gmt7Now.getUTCDate()).padStart(2, "0")}`;
-    const todayOnly = rows.filter((t) => {
-      const dt = new Date(t.notified_at);
-      const gmt7 = new Date(dt.getTime() + 7 * 3600 * 1000);
-      const ymd = `${gmt7.getUTCFullYear()}-${String(gmt7.getUTCMonth() + 1).padStart(2, "0")}-${String(gmt7.getUTCDate()).padStart(2, "0")}`;
-      return ymd === todayStr;
-    });
-    // trang này chỉ dùng để chủ động refresh sau submit; phần hiển thị nằm ở component con
+    void rows;
+    void todayStr;
   }, [currentStaff]);
 
   useEffect(() => {
@@ -449,27 +431,27 @@ export default function AssetEntryClient() {
   const updateNote = useCallback(async (row: AssetTx) => {
     const newNote = prompt("Nhập ghi chú mới", row.note ?? "") ?? null;
     if (newNote === null) return;
-    const res = await callAssetFunc({
+    const res = await edgeInvoke("asset-transactions", {
       action: "update_note",
       id: row.id,
       note: newNote,
       editor_username: currentStaff?.username || "",
     });
     if (!res.ok) {
-      toast.error(typeof res.error === "string" ? res.error : "Không thể cập nhật ghi chú");
+      toast.error(friendlyErrorMessage(res.error));
       return;
     }
     toast.success("Đã cập nhật ghi chú");
   }, [currentStaff]);
 
   const removeTransaction = useCallback(async (id: string) => {
-    const res = await callAssetFunc({
+    const res = await edgeInvoke("asset-transactions", {
       action: "soft_delete",
       id,
       deleted_by: currentStaff?.username || "",
     });
     if (!res.ok) {
-      toast.error(typeof res.error === "string" ? res.error : "Không thể xóa");
+      toast.error(friendlyErrorMessage(res.error));
       return;
     }
     toast.success("Đã xóa (mềm)");
@@ -477,6 +459,23 @@ export default function AssetEntryClient() {
 
   const [datePickerMounted, setDatePickerMounted] = useState(false);
   const [aiMounted, setAiMounted] = useState(false);
+
+  const MyTodaySubmissionsLazy = dynamic(() => import("@/components/asset-entry/MyTodaySubmissions"), {
+    ssr: false,
+    loading: () => <div className="mt-4 text-sm text-muted-foreground">Đang tải danh sách của bạn...</div>,
+  });
+  const DatePickerLazy = dynamic(() => import("@/components/asset-entry/DatePickerLazy"), {
+    ssr: false,
+    loading: () => (
+      <div className="h-10 flex items-center justify-center border rounded-md text-sm text-muted-foreground">
+        Đang tải lịch...
+      </div>
+    ),
+  });
+  const AssetEntryAIDialogLazy = dynamic(() => import("@/components/asset-entry/AssetEntryAIDialogLazy"), {
+    ssr: false,
+    loading: () => <div className="text-sm text-muted-foreground">Đang tải AI...</div>,
+  });
 
   return (
     <div className="w-full">
@@ -638,7 +637,6 @@ export default function AssetEntryClient() {
 
                   {!aiMounted ? (
                     <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1" onClick={() => setAiMounted(true)}>
-                      {/* Placeholder trigger: Camera icon + AI text enlarged */}
                       <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M3 8a4 4 0 0 1 4-4h2l2-2h4l2 2h2a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" />
                         <circle cx="12" cy="13" r="4" />

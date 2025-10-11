@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
@@ -22,15 +22,22 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   const currentCaches = [PRECACHE, RUNTIME];
   event.waitUntil(
-    caches.keys().then((cacheNames) => 
-      Promise.all(
+    (async () => {
+      // Bật navigation preload nếu hỗ trợ
+      if (self.registration && self.registration.navigationPreload) {
+        try {
+          await self.registration.navigationPreload.enable();
+        } catch (_e) {}
+      }
+      const cacheNames = await caches.keys();
+      await Promise.all(
         cacheNames.map((cacheName) => {
           if (!currentCaches.includes(cacheName)) {
             return caches.delete(cacheName);
           }
         })
-      )
-    )
+      );
+    })()
   );
 });
 
@@ -44,11 +51,17 @@ self.addEventListener('fetch', (event) => {
   // Bypass Supabase và API Next
   if (url.origin.includes('supabase.co') || url.pathname.startsWith('/api')) return;
 
-  // Navigation: ưu tiên mạng, fallback offline.html
+  // Navigation: ưu tiên preload/network, fallback offline.html
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(() => caches.match('/offline.html'))
-    );
+    event.respondWith((async () => {
+      try {
+        const preload = event.preloadResponse ? await event.preloadResponse : null;
+        if (preload) return preload;
+        return await fetch(request);
+      } catch (_e) {
+        return await caches.match('/offline.html');
+      }
+    })());
     return;
   }
 

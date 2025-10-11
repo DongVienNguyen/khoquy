@@ -1,3 +1,4 @@
+/* eslint-disable */
 // @ts-nocheck
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0"
@@ -19,7 +20,6 @@ function nowIso() {
 // GMT+7 helpers
 function gmt7DayRangeUtcFor(ymd: string): [string, string] {
   const [y, m, d] = ymd.split("-").map((x) => parseInt(x, 10))
-  // Construct a GMT+7 day start/end then convert back to UTC
   const startGmt7 = new Date(Date.UTC(y, (m - 1), d, 0, 0, 0))
   const endGmt7 = new Date(Date.UTC(y, (m - 1), d, 24, 0, 0))
   const startUtc = new Date(startGmt7.getTime() - 7 * 60 * 60 * 1000)
@@ -28,7 +28,6 @@ function gmt7DayRangeUtcFor(ymd: string): [string, string] {
 }
 
 function gmt7WeekRangeUtc(date: Date): [string, string] {
-  // Week starts Monday
   const gmt7 = new Date(date.getTime() + 7 * 3600 * 1000)
   const dow = gmt7.getUTCDay()
   const diffToMonday = (dow + 6) % 7
@@ -84,7 +83,6 @@ async function upsertEmailUser(username: string, email: string | null, full_name
     last_email_sent: whenIso,
     updated_date: nowIso(),
   }
-  // Kiểm tra có record theo username chưa, nếu có -> update, nếu chưa -> insert
   const { data: existing, error: selErr } = await supabase
     .from("email_users")
     .select("id")
@@ -120,19 +118,54 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     const action = String(body?.action || "")
 
-    // CREATE transactions (from AssetEntry)
+    // CREATE transactions (from AssetEntry) với idempotency_key
     if (action === "create") {
       const staff_username: string = String(body?.staff_username || "")
       const staff_email: string | null = body?.staff_email ? String(body.staff_email) : null
       const staff_name: string | null = body?.staff_name ? String(body.staff_name) : null
+      const idempotency_key: string | null = body?.idempotency_key ? String(body.idempotency_key) : null
       const transactions: any[] = Array.isArray(body?.transactions) ? body.transactions : []
       if (!staff_username || transactions.length === 0) {
         return new Response(JSON.stringify({ ok: false, error: "Thiếu dữ liệu người dùng hoặc danh sách giao dịch." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } })
       }
 
+      // Nếu có idempotency_key và đã tồn tại => trả về các bản ghi tương ứng trong ngày
+      if (idempotency_key) {
+        const { data: idemExisting, error: idemErr } = await supabase
+          .from("idempotency_keys")
+          .select("key, saved_at")
+          .eq("key", idempotency_key)
+          .limit(1)
+        if (idemErr) throw idemErr
+
+        if (idemExisting && idemExisting.length > 0) {
+          // Tìm các bản ghi đã tạo trùng logic
+          const first = transactions[0]
+          const txDate = String(first.transaction_date)
+          const room = String(first.room)
+          const parts_day = String(first.parts_day)
+          const codesSet = new Set((transactions || []).map((t: any) => `${t.asset_code}.${t.asset_year}`))
+
+          const { data: maybeRows, error: selTxErr } = await supabase
+            .from("asset_transactions")
+            .select("*")
+            .eq("staff_code", staff_username)
+            .eq("transaction_date", txDate)
+            .eq("room", room)
+            .eq("parts_day", parts_day)
+            .eq("is_deleted", false)
+            .order("created_date", { ascending: false })
+          if (selTxErr) throw selTxErr
+
+          const filtered = (maybeRows || []).filter((t: any) => codesSet.has(`${t.asset_code}.${t.asset_year}`))
+          return new Response(JSON.stringify({ ok: true, data: filtered }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+        }
+      }
+
+      const notifiedAt = nowIso()
       const rows = transactions.map((t) => ({
-        created_date: nowIso(),
-        updated_date: nowIso(),
+        created_date: notifiedAt,
+        updated_date: notifiedAt,
         created_by: staff_email || staff_username,
         transaction_date: t.transaction_date,
         parts_day: t.parts_day,
@@ -142,7 +175,7 @@ serve(async (req) => {
         asset_code: t.asset_code,
         staff_code: staff_username,
         note: t.note ?? null,
-        notified_at: t.notified_at,
+        notified_at: notifiedAt, // server set
         is_deleted: false,
         change_logs: [],
       }))
@@ -150,8 +183,19 @@ serve(async (req) => {
       const { data: created, error: insErr } = await supabase.from("asset_transactions").insert(rows).select("*")
       if (insErr) throw insErr
 
+      // Ghi idempotency_key nếu có
+      if (idempotency_key) {
+        const { error: idemInsErr } = await supabase.from("idempotency_keys").insert({
+          key: idempotency_key,
+          saved_at: notifiedAt,
+        })
+        // nếu lỗi (trùng), bỏ qua để không ảnh hưởng kết quả chính
+        if (idemInsErr) {
+          console.log("idempotency insert err:", idemInsErr)
+        }
+      }
+
       // Side-effects: thông báo + cập nhật email_users
-      // Nếu thất bại, chỉ log và KHÔNG làm hỏng kết quả lưu
       try {
         const codes = (created || []).map((c) => `${c.asset_code}.${c.asset_year}`)
         if (created && created.length > 0) {
@@ -165,11 +209,10 @@ serve(async (req) => {
             staff_username,
             staff_name || undefined
           )
-          await upsertEmailUser(staff_username, staff_email, staff_name, nowIso())
+          await upsertEmailUser(staff_username, staff_email, staff_name, notifiedAt)
         }
       } catch (sideErr) {
         console.error("Side-effects failed (notifications/email_users):", sideErr)
-        // Không throw để không làm hỏng việc lưu chính
       }
 
       return new Response(JSON.stringify({ ok: true, data: created }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
@@ -182,7 +225,7 @@ serve(async (req) => {
         return new Response(JSON.stringify({ ok: false, error: "Thiếu username" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } })
       }
       const today = new Date()
-      const [startIso, endIso] = gmt7WeekRangeUtc(today) // use week range for robust "today in GMT+7" via notified_at bounds
+      const [startIso, endIso] = gmt7WeekRangeUtc(today)
       const { data, error } = await supabase
         .from("asset_transactions")
         .select("*")
@@ -256,12 +299,11 @@ serve(async (req) => {
         .order("asset_year", { ascending: true })
         .order("asset_code", { ascending: true })
       if (error) throw error
-      // client sẽ tự lọc theo parts_day và is_deleted nếu cần
       const filtered = (data || []).filter((t: any) => (include_deleted ? true : !t.is_deleted)).filter((t: any) => (parts_day ? t.parts_day === parts_day : true))
       return new Response(JSON.stringify({ ok: true, data: filtered }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
-    // NOTES: list/create/update/delete/mark_done (DailyReport)
+    // NOTES
     if (action === "list_notes") {
       const { data, error } = await supabase.from("processed_notes").select("*").eq("is_done", false).order("created_date", { ascending: false })
       if (error) throw error
@@ -312,7 +354,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, data: data && data[0] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
-    // TAKEN STATUS: list/toggle (DailyReport)
+    // TAKEN STATUS
     if (action === "list_taken_status") {
       const user_username: string = String(body?.user_username || "")
       const week_year: string = String(body?.week_year || "")
@@ -358,7 +400,7 @@ serve(async (req) => {
       }
     }
 
-    // UPDATE transaction (DailyReport edit dialog)
+    // UPDATE transaction
     if (action === "update_transaction") {
       const id: string = String(body?.id || "")
       const patch: any = body?.patch || {}
@@ -390,7 +432,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, data: data && data[0] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
-    // HARD delete (Admin only on client side guard)
+    // HARD delete
     if (action === "hard_delete_transaction") {
       const id: string = String(body?.id || "")
       if (!id) {

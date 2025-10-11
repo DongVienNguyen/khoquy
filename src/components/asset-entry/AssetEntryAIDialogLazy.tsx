@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Upload, Camera, Loader2 } from "lucide-react";
-import { SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/env";
+import { SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/env";
+import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 
 type SafeStaff = {
   id: string;
@@ -28,6 +29,24 @@ type Props = {
 
 type AiStatus = { stage: string; progress: number; total: number; detail: string };
 
+function pickCompressionTarget(file?: File): { dim: number; quality: number } {
+  const mem = (navigator as any).deviceMemory as number | undefined;
+  const isLow = mem && mem <= 4;
+  // Nếu file lớn > 6MB, giảm thêm
+  const large = file && typeof file.size === "number" && file.size > 6 * 1024 * 1024;
+  if (isLow || large) return { dim: 1200, quality: 0.6 };
+  return { dim: 1600, quality: 0.75 };
+}
+
+async function blobToDataURL(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Không đọc được blob"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 const AssetEntryAIDialogLazy: React.FC<Props> = ({
   isAssetValid,
   setMultipleAssets,
@@ -42,37 +61,55 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   const [aiStatus, setAiStatus] = React.useState<AiStatus>({ stage: "", progress: 0, total: 0, detail: "" });
   const AI_MAX_IMAGES = 10;
 
-  const compressImageToDataUrl = (file: File, maxDim = 1600, quality = 0.75): Promise<string> =>
+  const compressImageToDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
+      const imgReader = new FileReader();
+      imgReader.onload = () => {
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
+          const { dim, quality } = pickCompressionTarget(file);
           const canvas = document.createElement("canvas");
-          let { width, height } = img as HTMLImageElement;
-          const scale = Math.min(1, maxDim / Math.max(width, height));
+          let width = (img as HTMLImageElement).width;
+          let height = (img as HTMLImageElement).height;
+          const scale = Math.min(1, dim / Math.max(width, height));
           width = Math.max(1, Math.round(width * scale));
           height = Math.max(1, Math.round(height * scale));
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext("2d");
           if (!ctx) {
-            resolve(String(reader.result));
+            resolve(String(imgReader.result));
             return;
           }
           ctx.drawImage(img, 0, 0, width, height);
+
+          if (canvas.toBlob) {
+            canvas.toBlob(async (blob) => {
+              try {
+                if (!blob) {
+                  resolve(canvas.toDataURL("image/jpeg", quality));
+                  return;
+                }
+                const dataUrl = await blobToDataURL(blob);
+                resolve(dataUrl);
+              } catch {
+                resolve(canvas.toDataURL("image/jpeg", quality));
+              }
+            }, "image/jpeg", quality);
+            return;
+          }
           try {
             const dataUrl = canvas.toDataURL("image/jpeg", quality);
             resolve(dataUrl);
           } catch {
-            resolve(String(reader.result));
+            resolve(String(imgReader.result));
           }
         };
-        img.onerror = () => resolve(String(reader.result));
-        img.src = String(reader.result);
+        img.onerror = () => resolve(String(imgReader.result));
+        img.src = String(imgReader.result);
       };
-      reader.onerror = () => reject(new Error("Không đọc được file"));
-      reader.readAsDataURL(file);
+      imgReader.onerror = () => reject(new Error("Không đọc được file"));
+      imgReader.readAsDataURL(file);
     });
 
   const addPendingFiles = React.useCallback((files: File[]) => {
@@ -150,26 +187,25 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
       for (const file of files) {
         index += 1;
         setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang tối ưu ảnh ${index}/${files.length}...` });
-        const dataUrl = await compressImageToDataUrl(file, 1600, 0.75);
+        const dataUrl = await compressImageToDataUrl(file);
         images.push(dataUrl);
         setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã nạp ${index}/${files.length} ảnh` });
       }
 
       setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang phân tích bằng AI..." });
 
-      const { supabase } = await import("@/lib/supabase/client");
-      const { data, error } = await supabase.functions.invoke("ai-extract-asset-codes", {
-        body: { images, rate_limit_key: currentStaff?.username || "anon" },
-        headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+      const { data, error } = await edgeInvoke<any>("ai-extract-asset-codes", {
+        images,
+        rate_limit_key: currentStaff?.username || "anon",
       });
 
-      if (error) {
+      if (!data && error) {
         setAiStatus({ stage: "error", progress: 0, total: files.length, detail: "AI lỗi khi phân tích hình ảnh." });
-        setMessage({ type: "error", text: error.message || "AI lỗi khi phân tích hình ảnh." });
+        setMessage({ type: "error", text: friendlyErrorMessage(error) });
         return;
       }
 
-      const payload: any = data?.data ?? data;
+      const payload: any = (data && (data as any).data) ? (data as any).data : data;
       const meta = payload?.meta || {};
       const abVariant = meta?.ab_variant || "";
       const modelName = meta?.model || "";
