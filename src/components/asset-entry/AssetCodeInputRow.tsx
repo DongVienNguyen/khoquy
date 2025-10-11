@@ -16,18 +16,25 @@ type Props = {
   onTabNavigate?: (index: number, direction: "next" | "prev") => void;
   showRemove: boolean;
   onFirstType?: (index: number) => void;
+  onScrollNow?: (index: number) => void;
 };
 
 const AssetCodeInputRow: React.FC<Props> = React.memo(
-  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType }) => {
+  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, onScrollNow }) => {
     // Khi value vừa có ký tự đầu và icon đỏ lần đầu xuất hiện -> kích hoạt cuộn
     const firstInvalidShownRef = React.useRef(false);
     React.useEffect(() => {
       if (!firstInvalidShownRef.current && value && value.trim() !== "" && !isValid) {
         firstInvalidShownRef.current = true;
-        onFirstType?.(index);
+        // Buộc cuộn ngay lập tức, bỏ qua guard của parent
+        if (onScrollNow) {
+          // Delay 1 tick để DOM ổn định trước khi cuộn
+          setTimeout(() => onScrollNow(index), 0);
+        } else {
+          onFirstType?.(index);
+        }
       }
-    }, [value, isValid, index, onFirstType]);
+    }, [value, isValid, index, onFirstType, onScrollNow]);
     
     return (
       <div className="flex items-center gap-2">

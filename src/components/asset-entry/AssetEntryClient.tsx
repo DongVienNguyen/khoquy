@@ -332,6 +332,12 @@ export default function AssetEntryClient() {
     };
   }, [triggerScrollRoutine]);
 
+  // Buộc cuộn ngay lập tức theo ô input index (bỏ qua guard)
+  const handleScrollNow = React.useCallback((index: number) => {
+    const target = assetInputRefs.current[index] ?? (document.activeElement as HTMLElement | null);
+    triggerScrollRoutine(target || undefined);
+  }, [triggerScrollRoutine]);
+
   const requiresNoteDropdown = useMemo(() => ["CMT8", "NS", "ĐS", "LĐH"].includes(formData.room), [formData.room]);
 
   const validateAssetFormat = useCallback((value: string) => ASSET_REGEX.test(value.trim()), []);
@@ -852,6 +858,7 @@ export default function AssetEntryClient() {
                         onRemoveRow={removeAssetField}
                         inputRef={(el) => { assetInputRefs.current[idx] = el; }}
                         onFirstType={handleFirstType}
+                        onScrollNow={handleScrollNow}
                         onTabNavigate={(i, dir) => {
                           if (dir === "next") {
                             const next = i + 1;
