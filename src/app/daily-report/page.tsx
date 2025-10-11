@@ -16,9 +16,10 @@ import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
-import { FileText, Download, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, ChevronRight, Plus, CheckCircle, Edit, Trash2, RefreshCw } from "lucide-react";
+import { FileText, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, ChevronRight, Plus, CheckCircle, Edit, Trash2, RefreshCw, Download } from "lucide-react";
 import { toast } from "sonner";
 import { SonnerToaster } from "@/components/ui/sonner";
+import AssetEntryInlineForm from "@/components/asset-entry/AssetEntryInlineForm";
 
 type SafeStaff = {
   id: string;
@@ -188,6 +189,7 @@ export default function DailyReportPage() {
   const hasInitializedFilter = useRef(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const [isAssetEntryDialogOpen, setIsAssetEntryDialogOpen] = useState(false);
 
   // Refs để giữ state ổn định cho backgroundRefresh/loadAllTransactions
   const isFetchingDataRef = useRef(false);
@@ -791,13 +793,6 @@ export default function DailyReportPage() {
     loadProcessedNotes();
   }, [canManageDailyReport, loadProcessedNotes]);
 
-  const exportToPDF = async () => {
-    setIsExporting(true);
-    await new Promise((r) => setTimeout(r, 500));
-    window.print();
-    setIsExporting(false);
-  };
-
   const exportFilteredCSV = useCallback(() => {
     if (!filteredTransactions.length) {
       toast.info("Không có dữ liệu để xuất.");
@@ -903,9 +898,8 @@ export default function DailyReportPage() {
               <Download className="w-4 h-4 mr-2" />
               Xuất CSV
             </Button>
-            <Button onClick={exportToPDF} disabled={isExporting} className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-lg shadow-green-500/25">
-              <Download className="w-4 h-4 mr-2" />
-              {isExporting ? "Đang xuất..." : "Xuất PDF"}
+            <Button onClick={() => setIsAssetEntryDialogOpen(true)} className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-lg shadow-green-500/25">
+              Nhập TB TS
             </Button>
             <Button onClick={() => setShowGrouped(!showGrouped)} variant="outline" className="bg-white hover:bg-purple-50 border-purple-600 text-purple-600 shadow-lg shadow-purple-500/10">
               <ListTree className="w-4 h-4 mr-2" />
@@ -1004,6 +998,18 @@ export default function DailyReportPage() {
               <Button variant="outline" onClick={() => setIsMobileFilterOpen(false)}>Đóng</Button>
               <Button onClick={() => setIsMobileFilterOpen(false)} className="bg-blue-600 hover:bg-blue-700">Áp dụng</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Asset Entry Inline Dialog */}
+      <Dialog open={isAssetEntryDialogOpen} onOpenChange={setIsAssetEntryDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Nhập Thông báo lấy TS</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[80vh] overflow-y-auto">
+            <AssetEntryInlineForm />
           </div>
         </DialogContent>
       </Dialog>
