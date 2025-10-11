@@ -10,12 +10,12 @@ export type QUYCRCStaffItem = {
 
 export const QUYCRCStaffAPI = {
   async list(): Promise<QUYCRCStaffItem[]> {
-    const { data, error } = await supabase
-      .from("quycrc_staff")
-      .select("id, ten_nv, email")
-      .order("ten_nv", { ascending: true });
+    const { data, error } = await supabase.functions.invoke("crc-reminders", {
+      body: { action: "list_quycrc_staff" },
+    });
     if (error) throw error;
-    return Array.isArray(data) ? (data as QUYCRCStaffItem[]) : [];
+    const rows = (data?.data ?? []) as QUYCRCStaffItem[];
+    return Array.isArray(rows) ? rows : [];
   },
 };
 

@@ -67,6 +67,34 @@ serve(async (req: Request) => {
     return ok(data || []);
   }
 
+  // New: list staff from specific CRC role tables
+  if (action === "list_ldpcrc_staff") {
+    const { data, error } = await admin
+      .from("ldpcrc_staff")
+      .select("id, ten_nv, email")
+      .order("ten_nv", { ascending: true });
+    if (error) return err(error.message, 500);
+    return ok(data || []);
+  }
+
+  if (action === "list_cbcrc_staff") {
+    const { data, error } = await admin
+      .from("cbcrc_staff")
+      .select("id, ten_nv, email")
+      .order("ten_nv", { ascending: true });
+    if (error) return err(error.message, 500);
+    return ok(data || []);
+  }
+
+  if (action === "list_quycrc_staff") {
+    const { data, error } = await admin
+      .from("quycrc_staff")
+      .select("id, ten_nv, email")
+      .order("ten_nv", { ascending: true });
+    if (error) return err(error.message, 500);
+    return ok(data || []);
+  }
+
   // Create / update / delete
   if (action === "create_reminder") {
     const r = body.reminder as Json | undefined;

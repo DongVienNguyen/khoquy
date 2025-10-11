@@ -10,12 +10,12 @@ export type CBCRCStaffItem = {
 
 export const CBCRCStaffAPI = {
   async list(): Promise<CBCRCStaffItem[]> {
-    const { data, error } = await supabase
-      .from("cbcrc_staff")
-      .select("id, ten_nv, email")
-      .order("ten_nv", { ascending: true });
+    const { data, error } = await supabase.functions.invoke("crc-reminders", {
+      body: { action: "list_cbcrc_staff" },
+    });
     if (error) throw error;
-    return Array.isArray(data) ? (data as CBCRCStaffItem[]) : [];
+    const rows = (data?.data ?? []) as CBCRCStaffItem[];
+    return Array.isArray(rows) ? rows : [];
   },
 };
 

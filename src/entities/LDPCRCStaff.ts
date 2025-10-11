@@ -10,12 +10,12 @@ export type LDPCRCStaffItem = {
 
 export const LDPCRCStaffAPI = {
   async list(): Promise<LDPCRCStaffItem[]> {
-    const { data, error } = await supabase
-      .from("ldpcrc_staff")
-      .select("id, ten_nv, email")
-      .order("ten_nv", { ascending: true });
+    const { data, error } = await supabase.functions.invoke("crc-reminders", {
+      body: { action: "list_ldpcrc_staff" },
+    });
     if (error) throw error;
-    return Array.isArray(data) ? (data as LDPCRCStaffItem[]) : [];
+    const rows = (data?.data ?? []) as LDPCRCStaffItem[];
+    return Array.isArray(rows) ? rows : [];
   },
 };
 
