@@ -231,51 +231,86 @@ export default function AssetEntryClient() {
       const tag = el.tagName;
       return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
     };
-    const scrollToTodayBottomFit = () => {
+
+    const vv: any = typeof window !== "undefined" ? (window as any).visualViewport : null;
+    let pollId: number | null = null;
+    let settleTimeoutId: number | null = null;
+
+    const clearTimers = () => {
+      if (pollId) {
+        clearInterval(pollId);
+        pollId = null;
+      }
+      if (settleTimeoutId) {
+        clearTimeout(settleTimeoutId);
+        settleTimeoutId = null;
+      }
+    };
+
+    const scrollToTodayBottomFit = (smooth = true) => {
       if (!todayRef.current) return;
-      const vv = typeof window !== "undefined" ? (window as any).visualViewport : null;
       const rect = todayRef.current.getBoundingClientRect();
       const absTop = window.pageYOffset + rect.top;
       const absBottom = absTop + rect.height;
       const viewportHeight = vv?.height ?? window.innerHeight;
-      const margin = 8;
+      const margin = 8; // chừa khoảng trắng nhỏ
       const targetY = Math.max(0, absBottom - (viewportHeight - margin));
-      window.scrollTo({ top: targetY, behavior: "smooth" });
+      window.scrollTo({ top: targetY, behavior: smooth ? "smooth" : "auto" });
     };
-    const scheduleSettledScroll = () => {
-      // Cuộn ngay và lặp lại để bắt kịp thời điểm bàn phím hoàn tất mở
-      scrollToTodayBottomFit();
-      setTimeout(scrollToTodayBottomFit, 160);
-      setTimeout(scrollToTodayBottomFit, 320);
+
+    const waitForKeyboardThenScroll = () => {
+      clearTimers();
+
+      // Cuộn ngay lập tức (không smooth) để đảm bảo lần đầu focus đã đẩy trang lên
+      scrollToTodayBottomFit(false);
+
+      // Poll chiều cao viewport để phát hiện bàn phím mở/đóng rồi cuộn lại
+      const initialHeight = vv?.height ?? window.innerHeight;
+      let lastHeight = initialHeight;
+      pollId = window.setInterval(() => {
+        const h = vv?.height ?? window.innerHeight;
+        if (Math.abs(h - lastHeight) > 1 || Math.abs(h - initialHeight) > 1) {
+          lastHeight = h;
+          // bàn phím vừa thay đổi => cuộn lại ngay (không smooth để bắt kịp)
+          scrollToTodayBottomFit(false);
+        }
+      }, 60);
+
+      // Sau khi bàn phím ổn định, chốt vị trí bằng cuộn mượt
+      settleTimeoutId = window.setTimeout(() => {
+        clearTimers();
+        scrollToTodayBottomFit(true);
+        setTimeout(() => scrollToTodayBottomFit(true), 200);
+      }, 800);
     };
+
     const onFocusIn = () => {
       if (isFocusable(document.activeElement)) {
-        // Cuộn ngay lần đầu và lặp lại để đảm bảo sát mép dưới
-        scheduleSettledScroll();
+        waitForKeyboardThenScroll();
       }
     };
-    const vv: any = typeof window !== "undefined" ? (window as any).visualViewport : null;
+
     const onVVResize = () => {
-      // Khi chiều cao viewport thay đổi do bàn phím, căn lại vị trí
       if (isFocusable(document.activeElement)) {
-        // Phản ứng nhanh khi keyboard thay đổi chiều cao
-        scheduleSettledScroll();
+        waitForKeyboardThenScroll();
       }
     };
+
     const onVVGeometryChange = () => {
       if (isFocusable(document.activeElement)) {
-        scheduleSettledScroll();
+        waitForKeyboardThenScroll();
       }
     };
+
     window.addEventListener("focusin", onFocusIn, { passive: true });
-    // fallback khi một số trình duyệt không bắn focusin đúng lúc
     window.addEventListener("resize", onVVResize, { passive: true });
     if (vv && typeof vv.addEventListener === "function") {
       vv.addEventListener("resize", onVVResize, { passive: true });
-      // iOS Safari thường bắn geometrychange thay vì resize
       vv.addEventListener("geometrychange", onVVGeometryChange, { passive: true });
     }
+
     return () => {
+      clearTimers();
       window.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("resize", onVVResize);
       if (vv && typeof vv.removeEventListener === "function") {
