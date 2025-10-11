@@ -91,6 +91,32 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
                 // Ô rỗng + Backspace: chuyển về dòng trước cho nhanh
                 e.preventDefault();
                 onTabNavigate?.(index, "prev");
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                onTabNavigate?.(index, "prev");
+              } else if (e.key === "ArrowDown") {
+                e.preventDefault();
+                onTabNavigate?.(index, "next");
+              } else if (e.key === "ArrowLeft") {
+                const el = localInputRef.current;
+                if (el) {
+                  const selStart = el.selectionStart ?? 0;
+                  const selEnd = el.selectionEnd ?? 0;
+                  if (selStart === 0 && selEnd === 0) {
+                    e.preventDefault();
+                    onTabNavigate?.(index, "prev");
+                  }
+                }
+              } else if (e.key === "ArrowRight") {
+                const el = localInputRef.current;
+                if (el) {
+                  const selStart = el.selectionStart ?? value.length;
+                  const selEnd = el.selectionEnd ?? value.length;
+                  if (selStart === value.length && selEnd === value.length) {
+                    e.preventDefault();
+                    onTabNavigate?.(index, "next");
+                  }
+                }
               }
             }}
             onPaste={(e) => {
