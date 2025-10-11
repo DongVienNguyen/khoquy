@@ -20,7 +20,7 @@ export async function edgeInvoke<T = any>(functionName: string, body: Record<str
     try {
       json = await res.json();
     } catch {
-      // Nếu không parse được JSON
+      // Không parse được JSON
       if (res.ok) {
         return { ok: true, data: undefined };
       }
@@ -61,11 +61,24 @@ export async function edgeInvoke<T = any>(functionName: string, body: Record<str
 
 export function friendlyErrorMessage(err?: EdgeError): string {
   if (!err) return "Có lỗi xảy ra, vui lòng thử lại.";
-  const tip =
-    err.code === "NET-ERR"
-      ? "Kiểm tra kết nối mạng và thử lại sau 30s."
-      : err.code === "SERVER-ERR"
-      ? "Máy chủ đang bận, thử lại sau."
-      : "Thử lại sau hoặc liên hệ quản trị.";
-  return `[${err.code}] ${err.message}. ${tip}`;
+  // Suy diễn loại lỗi thân thiện
+  let friendlyCode: "NET-ERR" | "SERVER-ERR" | "PARSE-ERR" | "RATE-LIMIT" | "VALIDATION" = err.code;
+  if (err.code === "SERVER-ERR") {
+    if (err.status === 429) friendlyCode = "RATE-LIMIT";
+    else if (err.status === 400) friendlyCode = "VALIDATION";
+  }
+  // Gợi ý thao tác phù hợp
+  let tip = "Thử lại sau hoặc liên hệ quản trị.";
+  if (friendlyCode === "NET-ERR") {
+    tip = "Kiểm tra kết nối mạng và thử lại sau 30s.";
+  } else if (friendlyCode === "SERVER-ERR") {
+    tip = "Máy chủ đang bận, thử lại sau.";
+  } else if (friendlyCode === "PARSE-ERR") {
+    tip = "Thử lại sau hoặc tải lại trang.";
+  } else if (friendlyCode === "RATE-LIMIT") {
+    tip = "Giảm ảnh xuống ≤ 5 tấm, hoặc thử lại sau 30s.";
+  } else if (friendlyCode === "VALIDATION") {
+    tip = "Kiểm tra định dạng mã TS (vd: 259.24) và thử lại.";
+  }
+  return `[${friendlyCode}] ${err.message}. ${tip}`;
 }
