@@ -157,6 +157,13 @@ export default function AssetEntryClient() {
     };
   }, []);
 
+  // Re-measure when sticky toggles (keyboardOpenUI) to keep baseline accurate on iOS
+  useEffect(() => {
+    const h = bottomBarRef.current?.getBoundingClientRect().height ?? 0;
+    setBottomBarHeight(h);
+    setBaselineMargin(16 + h);
+  }, [keyboardOpenUI]);
+
   // Hàm neo cuộn: đáy viewport áp sát đáy khung "Thông báo đã gửi hôm nay"
   const scrollToTodayBottom = React.useCallback((smooth = false) => {
     clearScrollTimers(); // tránh trùng timer cuộn input
@@ -492,6 +499,47 @@ export default function AssetEntryClient() {
   useEffect(() => {
     if (!isMounted) return;
     if (attemptedAutofocusRef.current) return;
+    // Guard: chỉ autofocus khi tab đang hiển thị để tránh overlay sai khi tab ẩn
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      const onVis = () => {
+        if (document.visibilityState === "visible") {
+          document.removeEventListener("visibilitychange", onVis);
+          const el2 = assetInputRefs.current?.[0];
+          if (!el2) return;
+          attemptedAutofocusRef.current = true;
+          try { el2.focus({ preventScroll: true } as any); } catch {}
+          try { el2.click?.(); } catch {}
+          try {
+            const v = el2.value ?? "";
+            el2.setSelectionRange?.(v.length, v.length);
+          } catch {}
+          triggerScrollRoutine(el2);
+          requestAnimationFrame(() => {
+            try { el2.focus({ preventScroll: true } as any); } catch {}
+          });
+          const t2 = setTimeout(() => {
+            try { el2.blur(); } catch {}
+            try { el2.focus({ preventScroll: true } as any); } catch {}
+            triggerScrollRoutine(el2);
+          }, 400);
+          const tCheck = setTimeout(() => {
+            const initial = initialVVHeightRef.current || (vvRef.current?.height ?? window.innerHeight);
+            const currentH = vvRef.current?.height ?? window.innerHeight;
+            const decreasedEnough = initial - currentH >= keyboardOpenThreshold;
+            if (!decreasedEnough && isIOSRef.current) {
+              setShowTapToType(true);
+            }
+          }, 600);
+          // cleanup timers if needed
+          return () => {
+            clearTimeout(t2);
+            clearTimeout(tCheck);
+          };
+        }
+      };
+      document.addEventListener("visibilitychange", onVis);
+      return;
+    }
     // Chỉ autofoucs nếu trang asset-entry đã mount và có ô đầu tiên
     const el = assetInputRefs.current?.[0];
     if (!el) return;
@@ -920,10 +968,11 @@ export default function AssetEntryClient() {
                       placeholder="Ghi chú (tùy chọn)"
                       value={formData.note}
                       onChange={(e) => setFormData((p) => ({ ...p, note: e.target.value }))}
+                      className="text-base"
                     />
                   ) : requiresNoteDropdown ? (
                     <Select value={formData.note} onValueChange={(v) => setFormData((p) => ({ ...p, note: v }))}>
-                      <SelectTrigger className="h-10"><SelectValue placeholder="Chọn ghi chú" /></SelectTrigger>
+                      <SelectTrigger className="h-10 text-base"><SelectValue placeholder="Chọn ghi chú" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Ship PGD">Ship PGD</SelectItem>
                         <SelectItem value="Lấy ở CN">Lấy ở CN</SelectItem>
