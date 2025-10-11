@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,7 +19,6 @@ import { FileText, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, Chev
 import { toast } from "sonner";
 import AssetEntryInlineForm from "@/components/asset-entry/AssetEntryInlineForm";
 import { edgeInvoke } from "@/lib/edge-invoke";
-import { DialogTrigger } from "@/components/ui/dialog";
 
 type SafeStaff = {
   id: string;
@@ -64,7 +63,8 @@ type ProcessedNote = {
   mail_to_nv: string | null;
 };
 
-const ROOMS = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"] as const;
+// Bổ sung NQ ở đầu và làm mặc định
+const ROOMS = ["NQ", "QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"] as const;
 
 function getLoggedInStaff(): SafeStaff | null {
   try {
@@ -134,17 +134,14 @@ export default function DailyReportPage() {
   const ITEMS_PER_PAGE = 30;
 
   const [isNotesDialogOpen, setIsNotesDialogOpen] = useState(false);
-  const [noteFormData, setNoteFormData] = useState<{ room: string; operation_type: string; content: string; mail_to_nv: string; }>({
-    room: "QLN",
-    operation_type: "Khác",
+  const [noteFormData, setNoteFormData] = useState<{ room: string; content: string; }>({
+    room: "NQ",
     content: "",
-    mail_to_nv: "",
   });
   const [editingNote, setEditingNote] = useState<ProcessedNote | null>(null);
   const [isEditNoteDialogOpen, setIsEditNoteDialogOpen] = useState(false);
-  const [editNoteFormData, setEditNoteFormData] = useState<{ room: string; operation_type: string; content: string; }>({
-    room: "",
-    operation_type: "",
+  const [editNoteFormData, setEditNoteFormData] = useState<{ room: string; content: string; }>({
+    room: "NQ",
     content: "",
   });
 
@@ -406,7 +403,7 @@ export default function DailyReportPage() {
   const startOfCurrentWeek = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
   const endOfCurrentWeek = useMemo(() => endOfWeek(new Date(), { weekStartsOn: 1 }), []);
 
-  // Gom nhóm chỉ tài sản (không đưa ghi chú vào đây nữa)
+  // Gom nhóm chỉ tài sản
   const groupedRows = useMemo(() => {
     const txs = filteredTransactions;
     if (!showGrouped) return [];
@@ -427,7 +424,7 @@ export default function DailyReportPage() {
       groupedByRoom[t.room].push(t);
     });
 
-    const roomOrder = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"];
+    const roomOrder = ["NQ", "QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"];
     const sortedRooms = Object.keys(groupedByRoom).sort((a, b) => {
       const ia = roomOrder.indexOf(a);
       const ib = roomOrder.indexOf(b);
@@ -566,7 +563,7 @@ export default function DailyReportPage() {
     loadAllTransactions(false);
   }, [editingTransaction, editFormData, currentStaff?.username, isAdmin, canActOnTransaction, loadAllTransactions]);
 
-  // Thêm hàm xóa giao dịch (sửa lỗi TS2552)
+  // Xóa giao dịch
   const handleDeleteTransaction = useCallback(async (transactionId: string) => {
     const t = allTransactions.find((x) => x.id === transactionId);
     if (!t) return;
@@ -611,10 +608,10 @@ export default function DailyReportPage() {
       note: {
         created_by: currentStaff?.email || null,
         room: noteFormData.room,
-        operation_type: noteFormData.operation_type,
+        operation_type: "Khác", // mặc định
         content: noteFormData.content,
         staff_code: currentStaff?.username || "unknown",
-        mail_to_nv: noteFormData.mail_to_nv || null,
+        mail_to_nv: null,
       },
     });
     if (!res.ok) {
@@ -622,7 +619,7 @@ export default function DailyReportPage() {
       return;
     }
     toast.success("Đã tạo ghi chú");
-    setNoteFormData({ room: "QLN", operation_type: "Khác", content: "", mail_to_nv: "" });
+    setNoteFormData({ room: "NQ", content: "" });
     setIsNotesDialogOpen(false);
     loadProcessedNotes();
   }, [canManageDailyReport, noteFormData, currentStaff, loadProcessedNotes]);
@@ -630,7 +627,7 @@ export default function DailyReportPage() {
   const handleEditNote = useCallback((note: ProcessedNote) => {
     if (!canManageDailyReport) return;
     setEditingNote(note);
-    setEditNoteFormData({ room: note.room, operation_type: note.operation_type, content: note.content });
+    setEditNoteFormData({ room: note.room, content: note.content });
     setIsEditNoteDialogOpen(true);
   }, [canManageDailyReport]);
 
@@ -639,7 +636,7 @@ export default function DailyReportPage() {
     const res = await edgeInvoke<any>("asset-transactions", {
       action: "update_note_full",
       id: editingNote.id,
-      patch: { room: editNoteFormData.room, operation_type: editNoteFormData.operation_type, content: editNoteFormData.content },
+      patch: { room: editNoteFormData.room, content: editNoteFormData.content },
     });
     if (!res.ok) {
       toast.error("Lỗi khi cập nhật ghi chú.");
@@ -690,36 +687,36 @@ export default function DailyReportPage() {
     }
   }, []);
 
-  // Bộ lọc: làm đều khoảng cách các dòng (py-2 trên từng item)
+  // Bộ lọc: bố cục 2 cột (màn hình vừa/lớn), tối đa 3 dòng mỗi cột; màn hình nhỏ 1 cột
   const QuickFilter = () => (
     <RadioGroup
       value={filterType}
       onValueChange={(v) => setFilterType(v)}
-      className="grid grid-cols-1 gap-2"
+      className="grid grid-cols-1 md:grid-cols-2 gap-3"
     >
-      <div className="flex items-center space-x-2 py-2">
+      <div className="flex items-center space-x-2 py-2 rounded-md border px-3">
         <RadioGroupItem value="morning" id="filter-morning" />
-        <Label htmlFor="filter-morning">Sáng ngày ({morningDateFormatted})</Label>
+        <Label htmlFor="filter-morning" className="cursor-pointer">Sáng ngày ({morningDateFormatted})</Label>
       </div>
-      <div className="flex items-center space-x-2 py-2">
+      <div className="flex items-center space-x-2 py-2 rounded-md border px-3">
         <RadioGroupItem value="qln_pgd_next_day" id="filter-qlnpgd" />
-        <Label htmlFor="filter-qlnpgd">QLN Sáng & PGD trong ngày ({qlnPgdDateFormatted})</Label>
+        <Label htmlFor="filter-qlnpgd" className="cursor-pointer">QLN Sáng & PGD trong ngày ({qlnPgdDateFormatted})</Label>
       </div>
-      <div className="flex items-center space-x-2 py-2">
+      <div className="flex items-center space-x-2 py-2 rounded-md border px-3">
         <RadioGroupItem value="afternoon" id="filter-afternoon" />
-        <Label htmlFor="filter-afternoon">Chiều ngày ({todayFormatted})</Label>
+        <Label htmlFor="filter-afternoon" className="cursor-pointer">Chiều ngày ({todayFormatted})</Label>
       </div>
-      <div className="flex items-center space-x-2 py-2">
+      <div className="flex items-center space-x-2 py-2 rounded-md border px-3">
         <RadioGroupItem value="today" id="filter-today" />
-        <Label htmlFor="filter-today">Trong ngày hôm nay ({todayFormatted})</Label>
+        <Label htmlFor="filter-today" className="cursor-pointer">Trong ngày hôm nay ({todayFormatted})</Label>
       </div>
-      <div className="flex items-center space-x-2 py-2">
+      <div className="flex items-center space-x-2 py-2 rounded-md border px-3">
         <RadioGroupItem value="next_day" id="filter-nextday" />
-        <Label htmlFor="filter-nextday">Trong ngày kế tiếp ({nextWorkingDayFormatted})</Label>
+        <Label htmlFor="filter-nextday" className="cursor-pointer">Trong ngày kế tiếp ({nextWorkingDayFormatted})</Label>
       </div>
-      <div className="flex items-center space-x-2 py-2">
+      <div className="flex items-center space-x-2 py-2 rounded-md border px-3">
         <RadioGroupItem value="custom" id="filter-custom" />
-        <Label htmlFor="filter-custom">Tùy chọn khoảng thời gian</Label>
+        <Label htmlFor="filter-custom" className="cursor-pointer">Tùy chọn khoảng thời gian</Label>
       </div>
     </RadioGroup>
   );
@@ -779,8 +776,8 @@ export default function DailyReportPage() {
             </div>
           </div>
 
-          {/* Hàng trên: Bộ lọc và Ghi chú xử lý cạnh nhau */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="main-content-section">
+          {/* Hàng trên: Bộ lọc */}
+          <div className="grid grid-cols-1 gap-6" id="main-content-section">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -843,54 +840,9 @@ export default function DailyReportPage() {
                 )}
               </CardContent>
             </Card>
-
-            {/* Ghi chú xử lý */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="w-4 h-4" /> Ghi chú xử lý
-                  </CardTitle>
-                  {canManageDailyReport ? (
-                    <Button onClick={() => setIsNotesDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
-                      Thêm ghi chú
-                    </Button>
-                  ) : null}
-                </div>
-                <CardDescription>Thêm ghi chú cho báo cáo trong ngày</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {processedNotes.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">Chưa có ghi chú.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {processedNotes.map((note) => (
-                      <div key={note.id} className="flex items-start justify-between rounded border p-2">
-                        <div className="text-base font-medium">
-                          {note.room} - {note.operation_type}: {note.content}
-                        </div>
-                        {canManageDailyReport && (
-                          <div className="flex items-center gap-1">
-                            <Button size="sm" variant="ghost" onClick={() => handleEditNote(note)} className="h-8 w-8 p-0" title="Sửa">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => handleDeleteNote(note.id)} className="h-8 w-8 p-0" title="Xóa">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" onClick={() => handleNoteDone(note.id)} className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700 text-white" title="Đánh dấu xong">
-                              <CheckCircle className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
 
-          {/* Khung gom nhóm tài sản (không hiển thị ghi chú ở đây nữa) */}
+          {/* Khung gom nhóm tài sản + hành động + ghi chú */}
           {showGrouped && (
             <Card className="mt-6">
               <CardHeader className="bg-gradient-to-r from-slate-50 to-purple-50 border-b">
@@ -899,21 +851,28 @@ export default function DailyReportPage() {
                     <CardTitle>{headerDateDisplay}</CardTitle>
                     <CardDescription>Dấu (*) TS đã được nhắn hơn một lần trong tuần</CardDescription>
                   </div>
-                  <Dialog open={isAssetEntryOpen} onOpenChange={setIsAssetEntryOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="bg-green-600 hover:bg-green-700 text-white gap-2">
-                        <Plus className="w-4 h-4" /> Nhập TS
+                  <div className="flex items-center gap-2">
+                    {canManageDailyReport ? (
+                      <Button onClick={() => setIsNotesDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+                        Thêm ghi chú
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-3xl">
-                      <DialogHeader>
-                        <DialogTitle>Nhập thông báo lấy TS</DialogTitle>
-                      </DialogHeader>
-                      <div>
-                        <AssetEntryInlineForm />
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                    ) : null}
+                    <Dialog open={isAssetEntryOpen} onOpenChange={setIsAssetEntryOpen}>
+                      <DialogTrigger asChild>
+                        <Button className="bg-green-600 hover:bg-green-700 text-white gap-2">
+                          <Plus className="w-4 h-4" /> Nhập TS
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-3xl">
+                        <DialogHeader>
+                          <DialogTitle>Nhập thông báo lấy TS</DialogTitle>
+                        </DialogHeader>
+                        <div>
+                          <AssetEntryInlineForm />
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
@@ -947,107 +906,49 @@ export default function DailyReportPage() {
                     </TableBody>
                   </Table>
                 </div>
+
+                {/* Ghi chú xử lý trong cùng khung, đặt ở dưới cùng */}
+                <div className="border-t mt-4 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold flex items-center gap-2">
+                      <FileText className="w-4 h-4" /> Ghi chú xử lý
+                    </div>
+                    {canManageDailyReport ? (
+                      <Button onClick={() => setIsNotesDialogOpen(true)} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                        Thêm ghi chú
+                      </Button>
+                    ) : null}
+                  </div>
+                  {processedNotes.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">Chưa có ghi chú.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {processedNotes.map((note) => (
+                        <div key={note.id} className="flex items-start justify-between rounded border p-2">
+                          <div className="text-base font-medium">
+                            {note.room}: {note.content}
+                          </div>
+                          {canManageDailyReport && (
+                            <div className="flex items-center gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => handleEditNote(note)} className="h-8 w-8 p-0" title="Sửa">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => handleDeleteNote(note.id)} className="h-8 w-8 p-0" title="Xóa">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" onClick={() => handleNoteDone(note.id)} className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700 text-white" title="Đánh dấu xong">
+                                <CheckCircle className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
-
-          {/* Dialog: Thêm ghi chú */}
-          <Dialog open={isNotesDialogOpen} onOpenChange={setIsNotesDialogOpen}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Thêm ghi chú</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3">
-                <Label>Phòng</Label>
-                <Select value={noteFormData.room} onValueChange={(v) => setNoteFormData((p) => ({ ...p, room: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
-                  <SelectContent>
-                    {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-
-                <Label>Loại xử lý</Label>
-                <Select value={noteFormData.operation_type} onValueChange={(v) => setNoteFormData((p) => ({ ...p, operation_type: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Hoàn trả">Hoàn trả</SelectItem>
-                    <SelectItem value="Xuất kho">Xuất kho</SelectItem>
-                    <SelectItem value="Nhập kho">Nhập kho</SelectItem>
-                    <SelectItem value="Xuất mượn">Xuất mượn</SelectItem>
-                    <SelectItem value="Thiếu CT">Thiếu CT</SelectItem>
-                    <SelectItem value="Khác">Khác</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Label>Nội dung</Label>
-                <Textarea
-                  rows={3}
-                  value={noteFormData.content}
-                  onChange={(e) => setNoteFormData((p) => ({ ...p, content: e.target.value }))}
-                  placeholder="Nhập nội dung ghi chú..."
-                />
-
-                <Label>Mail gửi (tùy chọn)</Label>
-                <Input
-                  value={noteFormData.mail_to_nv}
-                  onChange={(e) => setNoteFormData((p) => ({ ...p, mail_to_nv: e.target.value }))}
-                  placeholder="username hoặc email"
-                />
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={() => setIsNotesDialogOpen(false)}>Hủy</Button>
-                  <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleNoteSubmit}>Lưu</Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {/* Dialog: Sửa ghi chú */}
-          <Dialog open={isEditNoteDialogOpen} onOpenChange={setIsEditNoteDialogOpen}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Sửa ghi chú</DialogTitle>
-              </DialogHeader>
-              {editingNote ? (
-                <div className="space-y-3">
-                  <Label>Phòng</Label>
-                  <Select value={editNoteFormData.room} onValueChange={(v) => setEditNoteFormData((p) => ({ ...p, room: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
-                    <SelectContent>
-                      {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-
-                  <Label>Loại xử lý</Label>
-                  <Select value={editNoteFormData.operation_type} onValueChange={(v) => setEditNoteFormData((p) => ({ ...p, operation_type: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Hoàn trả">Hoàn trả</SelectItem>
-                      <SelectItem value="Xuất kho">Xuất kho</SelectItem>
-                      <SelectItem value="Nhập kho">Nhập kho</SelectItem>
-                      <SelectItem value="Xuất mượn">Xuất mượn</SelectItem>
-                      <SelectItem value="Thiếu CT">Thiếu CT</SelectItem>
-                      <SelectItem value="Khác">Khác</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Label>Nội dung</Label>
-                  <Textarea
-                    rows={3}
-                    value={editNoteFormData.content}
-                    onChange={(e) => setEditNoteFormData((p) => ({ ...p, content: e.target.value }))}
-                  />
-
-                  <div className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" onClick={() => setIsEditNoteDialogOpen(false)}>Hủy</Button>
-                    <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleUpdateNote}>Lưu</Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">Chọn ghi chú để sửa.</div>
-              )}
-            </DialogContent>
-          </Dialog>
 
           {/* Khung 'Danh sách tài sản cần lấy' ở cuối trang */}
           <Card className="mt-6">
@@ -1148,85 +1049,67 @@ export default function DailyReportPage() {
             </CardContent>
           </Card>
 
-          {/* Dialog: Sửa giao dịch */}
-          <Dialog open={isEditTxDialogOpen} onOpenChange={setIsEditTxDialogOpen}>
+          {/* Dialog: Thêm ghi chú (đơn giản hóa: chỉ Phòng + Nội dung) */}
+          <Dialog open={isNotesDialogOpen} onOpenChange={setIsNotesDialogOpen}>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>Sửa giao dịch</DialogTitle>
+                <DialogTitle>Thêm ghi chú</DialogTitle>
               </DialogHeader>
-              {editingTransaction ? (
+              <div className="space-y-3">
+                <Label>Phòng</Label>
+                <Select value={noteFormData.room} onValueChange={(v) => setNoteFormData((p) => ({ ...p, room: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
+                  <SelectContent>
+                    {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+
+                <Label>Nội dung</Label>
+                <Textarea
+                  rows={3}
+                  value={noteFormData.content}
+                  onChange={(e) => setNoteFormData((p) => ({ ...p, content: e.target.value }))}
+                  placeholder="Nhập nội dung ghi chú..."
+                />
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setIsNotesDialogOpen(false)}>Hủy</Button>
+                  <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleNoteSubmit}>Lưu</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Dialog: Sửa ghi chú (đơn giản hóa: chỉ Phòng + Nội dung) */}
+          <Dialog open={isEditNoteDialogOpen} onOpenChange={setIsEditNoteDialogOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Sửa ghi chú</DialogTitle>
+              </DialogHeader>
+              {editingNote ? (
                 <div className="space-y-3">
-                  <Label>Ngày giao dịch</Label>
-                  <Input
-                    type="date"
-                    value={editFormData.transaction_date || ""}
-                    onChange={(e) => setEditFormData((p: any) => ({ ...p, transaction_date: e.target.value }))}
-                  />
-
-                  <Label>Buổi</Label>
-                  <Select
-                    value={editFormData.parts_day || "Sáng"}
-                    onValueChange={(v) => setEditFormData((p: any) => ({ ...p, parts_day: v }))}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Chọn buổi" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Sáng">Sáng</SelectItem>
-                      <SelectItem value="Chiều">Chiều</SelectItem>
-                    </SelectContent>
-                  </Select>
-
                   <Label>Phòng</Label>
-                  <Select
-                    value={editFormData.room || "QLN"}
-                    onValueChange={(v) => setEditFormData((p: any) => ({ ...p, room: v }))}
-                  >
+                  <Select value={editNoteFormData.room} onValueChange={(v) => setEditNoteFormData((p) => ({ ...p, room: v }))}>
                     <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
                     <SelectContent>
                       {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                     </SelectContent>
                   </Select>
 
-                  <Label>Loại</Label>
-                  <Select
-                    value={editFormData.transaction_type || "Thay bìa"}
-                    onValueChange={(v) => setEditFormData((p: any) => ({ ...p, transaction_type: v }))}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Xuất kho">Xuất kho</SelectItem>
-                      <SelectItem value="Mượn TS">Mượn TS</SelectItem>
-                      <SelectItem value="Thay bìa">Thay bìa</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Label>Năm TS</Label>
-                  <Input
-                    type="number"
-                    value={editFormData.asset_year ?? ""}
-                    onChange={(e) => setEditFormData((p: any) => ({ ...p, asset_year: Number(e.target.value) }))}
-                  />
-
-                  <Label>Mã TS</Label>
-                  <Input
-                    type="number"
-                    value={editFormData.asset_code ?? ""}
-                    onChange={(e) => setEditFormData((p: any) => ({ ...p, asset_code: Number(e.target.value) }))}
-                  />
-
-                  <Label>Ghi chú</Label>
+                  <Label>Nội dung</Label>
                   <Textarea
                     rows={3}
-                    value={editFormData.note ?? ""}
-                    onChange={(e) => setEditFormData((p: any) => ({ ...p, note: e.target.value }))}
+                    value={editNoteFormData.content}
+                    onChange={(e) => setEditNoteFormData((p) => ({ ...p, content: e.target.value }))}
                   />
 
                   <div className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" onClick={() => setIsEditTxDialogOpen(false)}>Hủy</Button>
-                    <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleUpdateTransaction}>Lưu</Button>
+                    <Button variant="outline" onClick={() => setIsEditNoteDialogOpen(false)}>Hủy</Button>
+                    <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleUpdateNote}>Lưu</Button>
                   </div>
                 </div>
               ) : (
-                <div className="text-sm text-muted-foreground">Chọn giao dịch để sửa.</div>
+                <div className="text-sm text-muted-foreground">Chọn ghi chú để sửa.</div>
               )}
             </DialogContent>
           </Dialog>
