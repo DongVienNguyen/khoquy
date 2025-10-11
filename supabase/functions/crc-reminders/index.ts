@@ -3,15 +3,16 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-api-version",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 type Json = Record<string, any>;
 
-function ok(data: unknown) {
+function ok(data: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify({ data }), {
     headers: { "Content-Type": "application/json", ...corsHeaders },
+    ...(init || {}),
   });
 }
 function err(message: string, status = 400) {
@@ -44,7 +45,7 @@ async function sendEmailResend(toList: string[], subject: string, html: string, 
     throw new Error("RESEND_API_KEY is not configured");
   }
   const payload = {
-    from: "onboarding@resend.dev", // dùng địa chỉ mặc định của Resend (có thể thay bằng domain đã verify)
+    from: "onboarding@resend.dev",
     to: toList,
     subject,
     html,
@@ -106,206 +107,207 @@ function applyTemplate(template: string, reminder: any) {
 }
 
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const admin = createClient(supabaseUrl, serviceKey);
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const admin = createClient(supabaseUrl, serviceKey);
 
-  const body = await req.json().catch(() => ({} as Json));
-  const action = String(body?.action || "");
+    const body = await req.json().catch(() => ({} as Json));
+    const action = String(body?.action || "");
 
-  // Listings
-  if (action === "list_waiting") {
-    const { data, error } = await admin.from("crc_reminders").select("*").eq("is_sent", false).order("created_date", { ascending: false });
-    if (error) return err(error.message, 500);
-    return ok(data);
-  }
-  if (action === "list_sent") {
-    const { data, error } = await admin.from("sent_crc_reminders").select("*").order("sent_date", { ascending: false }).order("created_date", { ascending: false });
-    if (error) return err(error.message, 500);
-    return ok(data);
-  }
-
-  // Staff suggestions
-  if (action === "staff_suggestions") {
-    const { data, error } = await admin.from("staff").select("staff_name, username, email").order("staff_name", { ascending: true });
-    if (error) return err(error.message, 500);
-    return ok(data || []);
-  }
-
-  // CRC role staff lists
-  if (action === "list_ldpcrc_staff") {
-    const { data, error } = await admin.from("ldpcrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
-    if (error) return err(error.message, 500);
-    return ok(data || []);
-  }
-  if (action === "list_cbcrc_staff") {
-    const { data, error } = await admin.from("cbcrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
-    if (error) return err(error.message, 500);
-    return ok(data || []);
-  }
-  if (action === "list_quycrc_staff") {
-    const { data, error } = await admin.from("quycrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
-    if (error) return err(error.message, 500);
-    return ok(data || []);
-  }
-
-  // Create / update / delete
-  if (action === "create_reminder") {
-    const r = body.reminder as Json | undefined;
-    if (!r || !r.loai_bt_crc || !r.ngay_thuc_hien) return err("Missing loai_bt_crc/ngay_thuc_hien");
-    const now = nowIso();
-    const ins = {
-      created_date: now,
-      updated_date: now,
-      created_by: r.created_by || null,
-      loai_bt_crc: r.loai_bt_crc,
-      ngay_thuc_hien: r.ngay_thuc_hien,
-      so_chung_tu: r.so_chung_tu || null,
-      ten_ts: r.ten_ts || null,
-      ldpcrc: r.ldpcrc || null,
-      cbcrc: r.cbcrc || null,
-      quycrc: r.quycrc || null,
-      is_sent: false,
-    };
-    const { data, error } = await admin.from("crc_reminders").insert(ins).select("*").single();
-    if (error) return err(error.message, 500);
-    return ok(data);
-  }
-
-  if (action === "update_reminder") {
-    const id = String(body.id || "");
-    const patch = (body.patch || {}) as Json;
-    if (!id) return err("id is required");
-    const upd = {
-      ...(patch.loai_bt_crc !== undefined ? { loai_bt_crc: patch.loai_bt_crc } : {}),
-      ...(patch.ngay_thuc_hien !== undefined ? { ngay_thuc_hien: patch.ngay_thuc_hien } : {}),
-      ...(patch.so_chung_tu !== undefined ? { so_chung_tu: patch.so_chung_tu } : {}),
-      ...(patch.ten_ts !== undefined ? { ten_ts: patch.ten_ts } : {}),
-      ...(patch.ldpcrc !== undefined ? { ldpcrc: patch.ldpcrc } : {}),
-      ...(patch.cbcrc !== undefined ? { cbcrc: patch.cbcrc } : {}),
-      ...(patch.quycrc !== undefined ? { quycrc: patch.quycrc } : {}),
-      updated_date: nowIso(),
-    };
-    const { data, error } = await admin.from("crc_reminders").update(upd).eq("id", id).select("*").single();
-    if (error) return err(error.message, 500);
-    return ok(data);
-  }
-
-  if (action === "delete_reminder") {
-    const id = String(body.id || "");
-    if (!id) return err("id is required");
-    const { error } = await admin.from("crc_reminders").delete().eq("id", id);
-    if (error) return err(error.message, 500);
-    return ok({ success: true });
-  }
-
-  if (action === "delete_sent") {
-    const id = String(body.id || "");
-    if (!id) return err("id is required");
-    const { error } = await admin.from("sent_crc_reminders").delete().eq("id", id);
-    if (error) return err(error.message, 500);
-    return ok({ success: true });
-  }
-
-  // Utilities
-  function norm(s: string) {
-    return (s || "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/đ/g, "d")
-      .replace(/Đ/g, "d")
-      .trim();
-  }
-  async function emailForName(table: "ldpcrc_staff" | "cbcrc_staff" | "quycrc_staff", name?: string | null) {
-    if (!name || !name.trim()) return null;
-    const { data, error } = await admin.from(table).select("ten_nv, email").eq("ten_nv", name).limit(1);
-    if (error) return null;
-    const row = data?.[0] as { ten_nv?: string; email?: string } | undefined;
-    if (!row?.email) return null;
-    return `${row.email}.hvu@vietcombank.com.vn`;
-  }
-
-  async function buildRecipients(reminder: any) {
-    const list: string[] = [];
-    const e1 = await emailForName("ldpcrc_staff", reminder.ldpcrc);
-    const e2 = await emailForName("cbcrc_staff", reminder.cbcrc);
-    const e3 = await emailForName("quycrc_staff", reminder.quycrc);
-    [e1, e2, e3].forEach((e) => { if (e) list.push(e); });
-    // lọc trùng
-    return Array.from(new Set(list));
-  }
-
-  async function sendOne(reminder: any, template?: string) {
-    // Recipients
-    const recipients = await buildRecipients(reminder);
-    if (recipients.length === 0) {
-      throw new Error("Không tìm thấy email người nhận từ LĐPCRC/CBCRC/QUYCRC");
+    // Listings
+    if (action === "list_waiting") {
+      const { data, error } = await admin.from("crc_reminders").select("*").eq("is_sent", false).order("created_date", { ascending: false });
+      if (error) return err(error.message, 500);
+      return ok(data);
+    }
+    if (action === "list_sent") {
+      const { data, error } = await admin.from("sent_crc_reminders").select("*").order("sent_date", { ascending: false }).order("created_date", { ascending: false });
+      if (error) return err(error.message, 500);
+      return ok(data);
     }
 
-    // Compose email
-    const subject = `Nhắc duyệt CRC: ${String(reminder.loai_bt_crc ?? "")}`;
-    const html = template ? applyTemplate(template, reminder) : renderDefaultHtml(reminder);
-
-    // Send email via Resend
-    await sendEmailResend(recipients, subject, html);
-
-    // Move to sent table
-    const sent = {
-      created_date: nowIso(),
-      updated_date: nowIso(),
-      created_by: reminder.created_by || null,
-      loai_bt_crc: reminder.loai_bt_crc,
-      ngay_thuc_hien: reminder.ngay_thuc_hien,
-      so_chung_tu: reminder.so_chung_tu || null,
-      ten_ts: reminder.ten_ts || null,
-      ldpcrc: reminder.ldpcrc || null,
-      cbcrc: reminder.cbcrc || null,
-      quycrc: reminder.quycrc || null,
-      sent_date: todayYmdGmt7(),
-    };
-    const { error: insErr } = await admin.from("sent_crc_reminders").insert(sent);
-    if (insErr) throw insErr;
-
-    // Delete original
-    const { error: delErr } = await admin.from("crc_reminders").delete().eq("id", reminder.id);
-    if (delErr) throw delErr;
-  }
-
-  if (action === "send_one") {
-    const id = String(body.id || "");
-    const template: string | undefined = body?.template;
-    if (!id) return err("id is required");
-    const { data: r, error } = await admin.from("crc_reminders").select("*").eq("id", id).single();
-    if (error || !r) return err(error?.message || "Not found", 404);
-    await sendOne(r, template);
-    return ok({ success: true });
-  }
-
-  if (action === "send_batch_today") {
-    const template: string | undefined = body?.template;
-    const ddmm = todayDdMmGmt7();
-    const { data: rows, error } = await admin.from("crc_reminders").select("*").eq("ngay_thuc_hien", ddmm);
-    if (error) return err(error.message, 500);
-    let success = 0;
-    for (const r of rows || []) {
-      try { await sendOne(r, template); success++; } catch (e) { /* continue next */ }
+    // Staff suggestions
+    if (action === "staff_suggestions") {
+      const { data, error } = await admin.from("staff").select("staff_name, username, email").order("staff_name", { ascending: true });
+      if (error) return err(error.message, 500);
+      return ok(data || []);
     }
-    return ok({ success: true, count: success });
-  }
 
-  if (action === "send_batch_all") {
-    const template: string | undefined = body?.template;
-    const { data: rows, error } = await admin.from("crc_reminders").select("*");
-    if (error) return err(error.message, 500);
-    let success = 0;
-    for (const r of rows || []) {
-      try { await sendOne(r, template); success++; } catch (e) { /* continue next */ }
+    // CRC role staff lists
+    if (action === "list_ldpcrc_staff") {
+      const { data, error } = await admin.from("ldpcrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
+      if (error) return err(error.message, 500);
+      return ok(data || []);
     }
-    return ok({ success: true, count: success });
-  }
+    if (action === "list_cbcrc_staff") {
+      const { data, error } = await admin.from("cbcrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
+      if (error) return err(error.message, 500);
+      return ok(data || []);
+    }
+    if (action === "list_quycrc_staff") {
+      const { data, error } = await admin.from("quycrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
+      if (error) return err(error.message, 500);
+      return ok(data || []);
+    }
 
-  return err("Unknown action", 404);
+    // Create / update / delete
+    if (action === "create_reminder") {
+      const r = body.reminder as Json | undefined;
+      if (!r || !r.loai_bt_crc || !r.ngay_thuc_hien) return err("Missing loai_bt_crc/ngay_thuc_hien");
+      const now = nowIso();
+      const ins = {
+        created_date: now,
+        updated_date: now,
+        created_by: r.created_by || null,
+        loai_bt_crc: r.loai_bt_crc,
+        ngay_thuc_hien: r.ngay_thuc_hien,
+        so_chung_tu: r.so_chung_tu || null,
+        ten_ts: r.ten_ts || null,
+        ldpcrc: r.ldpcrc || null,
+        cbcrc: r.cbcrc || null,
+        quycrc: r.quycrc || null,
+        is_sent: false,
+      };
+      const { data, error } = await admin.from("crc_reminders").insert(ins).select("*").single();
+      if (error) return err(error.message, 500);
+      return ok(data);
+    }
+
+    if (action === "update_reminder") {
+      const id = String(body.id || "");
+      const patch = (body.patch || {}) as Json;
+      if (!id) return err("id is required");
+      const upd = {
+        ...(patch.loai_bt_crc !== undefined ? { loai_bt_crc: patch.loai_bt_crc } : {}),
+        ...(patch.ngay_thuc_hien !== undefined ? { ngay_thuc_hien: patch.ngay_thuc_hien } : {}),
+        ...(patch.so_chung_tu !== undefined ? { so_chung_tu: patch.so_chung_tu } : {}),
+        ...(patch.ten_ts !== undefined ? { ten_ts: patch.ten_ts } : {}),
+        ...(patch.ldpcrc !== undefined ? { ldpcrc: patch.ldpcrc } : {}),
+        ...(patch.cbcrc !== undefined ? { cbcrc: patch.cbcrc } : {}),
+        ...(patch.quycrc !== undefined ? { quycrc: patch.quycrc } : {}),
+        updated_date: nowIso(),
+      };
+      const { data, error } = await admin.from("crc_reminders").update(upd).eq("id", id).select("*").single();
+      if (error) return err(error.message, 500);
+      return ok(data);
+    }
+
+    if (action === "delete_reminder") {
+      const id = String(body.id || "");
+      if (!id) return err("id is required");
+      const { error } = await admin.from("crc_reminders").delete().eq("id", id);
+      if (error) return err(error.message, 500);
+      return ok({ success: true });
+    }
+
+    if (action === "delete_sent") {
+      const id = String(body.id || "");
+      if (!id) return err("id is required");
+      const { error } = await admin.from("sent_crc_reminders").delete().eq("id", id);
+      if (error) return err(error.message, 500);
+      return ok({ success: true });
+    }
+
+    // Utilities
+    function norm(s: string) {
+      return (s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "d")
+        .trim();
+    }
+    async function emailForName(table: "ldpcrc_staff" | "cbcrc_staff" | "quycrc_staff", name?: string | null) {
+      if (!name || !name.trim()) return null;
+      const { data, error } = await admin.from(table).select("ten_nv, email").eq("ten_nv", name).limit(1);
+      if (error) return null;
+      const row = data?.[0] as { ten_nv?: string; email?: string } | undefined;
+      if (!row?.email) return null;
+      const e = String(row.email).trim();
+      return e.includes("@") ? e : `${e}@vietcombank.com.vn`;
+    }
+
+    async function buildRecipients(reminder: any) {
+      const list: string[] = [];
+      const e1 = await emailForName("ldpcrc_staff", reminder.ldpcrc);
+      const e2 = await emailForName("cbcrc_staff", reminder.cbcrc);
+      const e3 = await emailForName("quycrc_staff", reminder.quycrc);
+      [e1, e2, e3].forEach((e) => { if (e) list.push(e); });
+      return Array.from(new Set(list));
+    }
+
+    async function sendOne(reminder: any, template?: string) {
+      const recipients = await buildRecipients(reminder);
+      if (recipients.length === 0) {
+        throw new Error("Không tìm thấy email người nhận từ LĐPCRC/CBCRC/QUYCRC");
+      }
+
+      const subject = `Nhắc duyệt CRC: ${String(reminder.loai_bt_crc ?? "")}`;
+      const html = template ? applyTemplate(template, reminder) : renderDefaultHtml(reminder);
+
+      await sendEmailResend(recipients, subject, html);
+
+      const sent = {
+        created_date: nowIso(),
+        updated_date: nowIso(),
+        created_by: reminder.created_by || null,
+        loai_bt_crc: reminder.loai_bt_crc,
+        ngay_thuc_hien: reminder.ngay_thuc_hien,
+        so_chung_tu: reminder.so_chung_tu || null,
+        ten_ts: reminder.ten_ts || null,
+        ldpcrc: reminder.ldpcrc || null,
+        cbcrc: reminder.cbcrc || null,
+        quycrc: reminder.quycrc || null,
+        sent_date: todayYmdGmt7(),
+      };
+      const { error: insErr } = await admin.from("sent_crc_reminders").insert(sent);
+      if (insErr) throw insErr;
+
+      const { error: delErr } = await admin.from("crc_reminders").delete().eq("id", reminder.id);
+      if (delErr) throw delErr;
+    }
+
+    if (action === "send_one") {
+      const id = String(body.id || "");
+      const template: string | undefined = body?.template;
+      if (!id) return err("id is required");
+      const { data: r, error } = await admin.from("crc_reminders").select("*").eq("id", id).single();
+      if (error || !r) return err(error?.message || "Not found", 404);
+      await sendOne(r, template);
+      return ok({ success: true });
+    }
+
+    if (action === "send_batch_today") {
+      const template: string | undefined = body?.template;
+      const ddmm = todayDdMmGmt7();
+      const { data: rows, error } = await admin.from("crc_reminders").select("*").eq("ngay_thuc_hien", ddmm);
+      if (error) return err(error.message, 500);
+      let success = 0;
+      for (const r of rows || []) {
+        try { await sendOne(r, template); success++; } catch (_e) { /* continue next */ }
+      }
+      return ok({ success: true, count: success });
+    }
+
+    if (action === "send_batch_all") {
+      const template: string | undefined = body?.template;
+      const { data: rows, error } = await admin.from("crc_reminders").select("*");
+      if (error) return err(error.message, 500);
+      let success = 0;
+      for (const r of rows || []) {
+        try { await sendOne(r, template); success++; } catch (_e) { /* continue next */ }
+      }
+      return ok({ success: true, count: success });
+    }
+
+    return err("Unknown action", 404);
+  } catch (e) {
+    console.error("crc-reminders error:", e);
+    const msg = e instanceof Error ? e.message : "Internal error";
+    return err(`Lỗi gửi email: ${msg}`, 500);
+  }
 });
