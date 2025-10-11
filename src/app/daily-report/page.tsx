@@ -802,6 +802,10 @@ export default function DailyReportPage() {
     }
   }, []);
 
+  const exportToPDF = useCallback(() => {
+    window.print();
+  }, []);
+
   const QuickFilter = () => (
     <RadioGroup
       value={filterType}
@@ -845,11 +849,20 @@ export default function DailyReportPage() {
             <FileText className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Báo cáo trong ngày</h1>
-            <p className="text-muted-foreground">{headerDateDisplay}</p>
+            <h1 className="text-2xl md:text-3xl font-bold">Danh sách TS cần lấy</h1>
+            <p className="text-muted-foreground">{todayText} {lastRefreshTime ? `• cập nhật: ${format(lastRefreshTime, "HH:mm")}` : ""}</p>
           </div>
         </div>
-        <div className="flex gap-2">
+
+        <div className="flex items-center gap-2">
+          <div className="hidden md:flex items-center gap-2 text-sm mr-2">
+            <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} className="data-[state=checked]:bg-green-600" />
+            <span className={`font-medium ${autoRefresh ? "text-green-600" : "text-gray-500"}`}>
+              Auto refresh {autoRefresh ? "ON" : "OFF"}
+            </span>
+            {autoRefresh && <span className="text-xs text-gray-500">(60s)</span>}
+          </div>
+
           <Button
             variant="outline"
             onClick={() => loadAllTransactions(true, true)}
@@ -857,7 +870,10 @@ export default function DailyReportPage() {
             className="gap-2"
             title="Refresh dữ liệu"
           >
-            <RefreshCw className={`w-4 h-4 ${isFetchingData ? "animate-spin" : ""}`} /> Refresh
+            <RefreshCw className={`w-4 h-4 ${isFetchingData ? "animate-spin" : ""}`} /> Làm mới
+          </Button>
+          <Button onClick={exportToPDF} variant="outline" className="gap-2" disabled={!filteredTransactions.length}>
+            <Download className="w-4 h-4" /> Xuất PDF
           </Button>
           <Button onClick={exportFilteredCSV} variant="outline" className="gap-2" disabled={!filteredTransactions.length}>
             <Download className="w-4 h-4" /> Xuất CSV
@@ -884,7 +900,7 @@ export default function DailyReportPage() {
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Filter className="w-4 h-4" /> Bộ lọc nhanh
+              <Filter className="w-4 h-4" /> Bộ lọc danh sách cần xem
             </CardTitle>
             <CardDescription>Chọn khoảng hiển thị phù hợp</CardDescription>
           </CardHeader>
@@ -953,45 +969,51 @@ export default function DailyReportPage() {
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Danh sách giao dịch ({filteredTransactions.length})</CardTitle>
-            <CardDescription>
-              {todayText} {lastRefreshTime ? `• cập nhật: ${format(lastRefreshTime, "HH:mm")}` : ""}
-            </CardDescription>
+            <CardTitle>Danh sách tài sản cần lấy ({filteredTransactions.length})</CardTitle>
+            <CardDescription>{headerDateDisplay}</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {canSeeTakenColumn && <TableHead>Đã lấy</TableHead>}
                     <TableHead>Phòng</TableHead>
-                    <TableHead>Năm</TableHead>
-                    <TableHead>Mã</TableHead>
+                    <TableHead>Năm TS</TableHead>
+                    <TableHead>Mã TS</TableHead>
                     <TableHead>Loại</TableHead>
                     <TableHead>Ngày</TableHead>
                     <TableHead>Buổi</TableHead>
                     <TableHead>Ghi chú</TableHead>
                     <TableHead>CB</TableHead>
                     <TableHead>Time nhắn</TableHead>
-                    {canSeeTakenColumn && <TableHead>Đã lấy</TableHead>}
                     <TableHead className="text-right">Thao tác</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
+                      <TableCell colSpan={canSeeTakenColumn ? 12 : 11} className="h-24 text-center text-muted-foreground">
                         Đang tải dữ liệu...
                       </TableCell>
                     </TableRow>
                   ) : paginatedTransactions.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
+                      <TableCell colSpan={canSeeTakenColumn ? 12 : 11} className="h-24 text-center text-muted-foreground">
                         Không có dữ liệu.
                       </TableCell>
                     </TableRow>
                   ) : (
                     paginatedTransactions.map((t) => (
                       <TableRow key={t.id}>
+                        {canSeeTakenColumn && (
+                          <TableCell>
+                            <Switch
+                              checked={takenTransactionIds.has(t.id)}
+                              onCheckedChange={() => handleToggleTakenStatus(t.id)}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>{t.room}</TableCell>
                         <TableCell>{t.asset_year}</TableCell>
                         <TableCell>{t.asset_code}</TableCell>
@@ -1001,14 +1023,6 @@ export default function DailyReportPage() {
                         <TableCell>{t.note || "-"}</TableCell>
                         <TableCell>{t.staff_code}</TableCell>
                         <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
-                        {canSeeTakenColumn && (
-                          <TableCell>
-                            <Switch
-                              checked={takenTransactionIds.has(t.id)}
-                              onCheckedChange={() => handleToggleTakenStatus(t.id)}
-                            />
-                          </TableCell>
-                        )}
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="outline" size="sm" onClick={() => handleEditTransaction(t)}>
@@ -1055,45 +1069,126 @@ export default function DailyReportPage() {
 
       {showGrouped && (
         <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Tổng hợp theo Phòng/Năm</CardTitle>
-            <CardDescription>Hiển thị các mã TS theo nhóm</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {groupedRows.length === 0 ? (
-              <div className="text-sm text-muted-foreground">Không có dữ liệu nhóm.</div>
-            ) : (
-              <div className="space-y-2">
-                {groupedRows.map((row: any) =>
-                  row.isNote ? (
-                    <div key={row.id} className="p-3 rounded border bg-slate-50">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">{row.room}</div>
-                        {canManageDailyReport && (
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => handleEditNote(row.noteData)}>
-                              <Edit className="w-4 h-4 mr-1" /> Sửa
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleNoteDone(row.noteData.id)}>
-                              <CheckCircle className="w-4 h-4 mr-1" /> Xong
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleDeleteNote(row.noteData.id)}>
-                              <Trash2 className="w-4 h-4 mr-1" /> Xóa
-                            </Button>
-                          </div>
-                        )}
+          <CardHeader className="bg-gradient-to-r from-slate-50 to-purple-50 border-b">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>{headerDateDisplay}</CardTitle>
+                <CardDescription>Dấu (*) TS đã được nhắn hơn một lần trong tuần</CardDescription>
+              </div>
+              {canManageDailyReport && (
+                <Dialog open={isNotesDialogOpen} onOpenChange={setIsNotesDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="icon" className="h-9 w-9">
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>Thêm ghi chú</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                      <Label>Phòng</Label>
+                      <Select value={noteFormData.room} onValueChange={(v) => setNoteFormData((p) => ({ ...p, room: v }))}>
+                        <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
+                        <SelectContent>
+                          {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+
+                      <Label>Loại xử lý</Label>
+                      <Select value={noteFormData.operation_type} onValueChange={(v) => setNoteFormData((p) => ({ ...p, operation_type: v }))}>
+                        <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Hoàn trả">Hoàn trả</SelectItem>
+                          <SelectItem value="Xuất kho">Xuất kho</SelectItem>
+                          <SelectItem value="Nhập kho">Nhập kho</SelectItem>
+                          <SelectItem value="Xuất mượn">Xuất mượn</SelectItem>
+                          <SelectItem value="Thiếu CT">Thiếu CT</SelectItem>
+                          <SelectItem value="Khác">Khác</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Label>Nội dung</Label>
+                      <Textarea
+                        rows={3}
+                        value={noteFormData.content}
+                        onChange={(e) => setNoteFormData((p) => ({ ...p, content: e.target.value }))}
+                        placeholder="Nhập nội dung ghi chú..."
+                      />
+
+                      <Label>Mail gửi (tùy chọn)</Label>
+                      <Input
+                        value={noteFormData.mail_to_nv}
+                        onChange={(e) => setNoteFormData((p) => ({ ...p, mail_to_nv: e.target.value }))}
+                        placeholder="username hoặc email"
+                      />
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setIsNotesDialogOpen(false)}>Hủy</Button>
+                        <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleNoteSubmit}>Lưu</Button>
                       </div>
                     </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-20 px-2">Phòng</TableHead>
+                    <TableHead className="w-14 px-2">Năm</TableHead>
+                    <TableHead className="px-2">Danh sách Mã TS</TableHead>
+                    <TableHead className="w-32 px-2 text-right">Thao tác</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {groupedRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                        Không có dữ liệu nhóm.
+                      </TableCell>
+                    </TableRow>
                   ) : (
-                    <div key={row.id} className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-center">
-                      <div className="font-medium sm:col-span-1">{row.room}</div>
-                      <div className="text-muted-foreground sm:col-span-1">Năm {row.year}</div>
-                      <div className="sm:col-span-4 font-mono">{row.codes}</div>
-                    </div>
-                  )
-                )}
-              </div>
-            )}
+                    groupedRows.map((row: any) => (
+                      <TableRow key={row.id}>
+                        {row.isNote ? (
+                          <>
+                            <TableCell colSpan={3} className="font-medium px-2 whitespace-pre-wrap">
+                              {row.room}
+                            </TableCell>
+                            <TableCell className="px-2 text-right">
+                              {canManageDailyReport && (
+                                <div className="flex gap-1 justify-end">
+                                  <Button size="sm" variant="ghost" onClick={() => handleEditNote(row.noteData)} className="h-8 w-8 p-0">
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => handleDeleteNote(row.noteData.id)} className="h-8 w-8 p-0">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" onClick={() => handleNoteDone(row.noteData.id)} className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700 text-white">
+                                    <CheckCircle className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="font-medium px-2">{row.room}</TableCell>
+                            <TableCell className="font-medium px-2">{row.year}</TableCell>
+                            <TableCell className="px-2 font-mono">{row.codes}</TableCell>
+                            <TableCell />
+                          </>
+                        )}
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       )}
