@@ -240,6 +240,7 @@ const AssetEntryInlineForm: React.FC = () => {
   const handleAssetChange = useCallback((index: number, value: string) => {
     const normalized = String(value).replace(/[,/\\]/g, ".");
     let scheduleNextFocusIndex: number | null = null;
+    let removedDuplicate = false;
     setMultipleAssets((prev) => {
       const next = [...prev];
       const prevVal = next[index] || "";
@@ -265,6 +266,19 @@ const AssetEntryInlineForm: React.FC = () => {
       if (!wasValid && nowValid) {
         scheduleNextFocusIndex = index + 1;
       }
+      if (nowValid) {
+        const entered = updated.trim();
+        for (let i = 0; i < next.length; i++) {
+          if (i !== index && next[i].trim() === entered) {
+            next[i] = "";
+            removedDuplicate = true;
+          }
+        }
+        // Thu gọn đuôi rỗng nếu cần
+        while (next.length > 1 && next[next.length - 1].trim() === "" && next[next.length - 2].trim() === "") {
+          next.pop();
+        }
+      }
       return next.length > 0 ? next : [""];
     });
     if (scheduleNextFocusIndex !== null) {
@@ -274,6 +288,9 @@ const AssetEntryInlineForm: React.FC = () => {
         const el = assetInputRefs.current[nextIdx];
         try { el?.focus(); } catch {}
       }, 0);
+    }
+    if (removedDuplicate) {
+      toast.warning("Đã loại mã trùng, giữ bản đầu tiên.");
     }
   }, [isAssetValid]);
 

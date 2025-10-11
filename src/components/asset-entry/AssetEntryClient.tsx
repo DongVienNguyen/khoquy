@@ -678,6 +678,8 @@ export default function AssetEntryClient() {
 
     // Lịch auto-focus dòng kế tiếp khi mã trở nên hợp lệ lần đầu
     let scheduleNextFocusIndex: number | null = null;
+    // Đánh dấu nếu có loại bỏ bản trùng để hiển thị toast sau khi state cập nhật
+    let removedDuplicate = false;
 
     setMultipleAssets((prev) => {
       const next = [...prev];
@@ -703,6 +705,20 @@ export default function AssetEntryClient() {
       const nowValid = isAssetValid(normalized);
       if (!wasValid && nowValid) {
         scheduleNextFocusIndex = index + 1;
+      }
+      // Nếu hợp lệ: loại bỏ các bản trùng ở các dòng khác (giữ bản đầu tiên)
+      if (nowValid) {
+        const entered = normalized.trim();
+        for (let i = 0; i < next.length; i++) {
+          if (i !== index && next[i].trim() === entered) {
+            next[i] = "";
+            removedDuplicate = true;
+          }
+        }
+        // Thu gọn đuôi rỗng nếu cần sau khi xóa
+        while (next.length > 1 && next[next.length - 1].trim() === "" && next[next.length - 2].trim() === "") {
+          next.pop();
+        }
       }
 
       // Kích hoạt cuộn đúng 1 lần/ô khi gõ ký tự đầu tiên
@@ -746,6 +762,10 @@ export default function AssetEntryClient() {
           triggerScrollRoutine(el);
         }
       }, 0);
+    }
+    // Thông báo khi vừa loại bỏ mã trùng
+    if (removedDuplicate) {
+      toast.warning("Đã loại mã trùng, giữ bản đầu tiên.");
     }
   }, [triggerScrollRoutine, isAssetValid, setShowAllAssets]);
 
