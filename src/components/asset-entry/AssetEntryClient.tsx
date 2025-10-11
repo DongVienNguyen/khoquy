@@ -18,6 +18,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
+import AssetCodeInputRow from "@/components/asset-entry/AssetCodeInputRow";
 
 type SafeStaff = {
   id: string;
@@ -663,52 +664,31 @@ export default function AssetEntryClient() {
                 {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
                   const valid = isAssetValid(val);
                   return (
-                    <div key={idx} className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          lang="en-US"
-                          pattern="[0-9.,]*"
-                          autoComplete="off"
-                          autoCorrect="off"
-                          value={val}
-                          onChange={(e) => handleAssetChange(idx, e.target.value)}
-                          ref={(el) => { assetInputRefs.current[idx] = el; }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Tab" && !e.shiftKey) {
-                              e.preventDefault();
-                              const next = idx + 1;
-                              if (next >= multipleAssets.length) {
-                                setMultipleAssets((prev) => [...prev, ""]);
-                                setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
-                              } else {
-                                assetInputRefs.current[next]?.focus();
-                              }
-                            } else if (e.key === "Tab" && e.shiftKey) {
-                              e.preventDefault();
-                              const prevIdx = idx - 1;
-                              if (prevIdx >= 0) assetInputRefs.current[prevIdx]?.focus();
-                            }
-                          }}
-                          placeholder="Ví dụ: 259.24"
-                          className={`h-10 pr-9 font-mono text-center text-lg font-semibold ${val ? (valid ? "border-green-300" : "border-red-300") : ""}`}
-                        />
-                        {val && (
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                            {valid ? <CheckCircle className="w-5 h-5 text-green-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}
-                          </div>
-                        )}
-                      </div>
-                      <Button type="button" onClick={addAssetField} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-green-600 text-green-800 hover:bg-green-100" aria-label="Thêm dòng">
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                      {multipleAssets.length > 1 && (
-                        <Button type="button" onClick={() => removeAssetField(idx)} variant="outline" size="icon" className="h-9 w-9 rounded-full border-2 border-red-500 text-red-500 hover:bg-red-100" aria-label="Xóa dòng">
-                          <Minus className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
+                    <AssetCodeInputRow
+                      key={idx}
+                      index={idx}
+                      value={val}
+                      isValid={valid}
+                      onChange={handleAssetChange}
+                      onAddRow={addAssetField}
+                      onRemoveRow={removeAssetField}
+                      inputRef={(el) => { assetInputRefs.current[idx] = el; }}
+                      onTabNavigate={(i, dir) => {
+                        if (dir === "next") {
+                          const next = i + 1;
+                          if (next >= multipleAssets.length) {
+                            setMultipleAssets((prev) => [...prev, ""]);
+                            setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
+                          } else {
+                            assetInputRefs.current[next]?.focus();
+                          }
+                        } else {
+                          const prevIdx = i - 1;
+                          if (prevIdx >= 0) assetInputRefs.current[prevIdx]?.focus();
+                        }
+                      }}
+                      showRemove={multipleAssets.length > 1}
+                    />
                   );
                 })}
 
