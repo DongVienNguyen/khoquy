@@ -1,0 +1,5 @@
+export const SUPABASE_PUBLIC_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://aytwkszqdnylsbufksmf.supabase.co";
+
+export const SUPABASE_PUBLIC_ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF5dHdrc3pxZG55bHNidWZrc21mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4ODcyMDYsImV4cCI6MjA3NTQ2MzIwNn0.lLZbIEG26IgWGZsuyM7v8X6LnGURA8avB4Gxnkboplg";
