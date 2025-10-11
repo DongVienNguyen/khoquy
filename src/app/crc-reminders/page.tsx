@@ -718,19 +718,26 @@ export default function CRCRemindersPage() {
             const n = norm(name);
             return list.find(x => norm(x.ten_nv) === n);
           };
+          const makeEmail = (rec: { email?: string } | undefined, fallbackName?: string) => {
+            const raw = (rec?.email || "").trim();
+            if (raw) {
+              return raw.includes("@") ? raw : `${raw}@vietcombank.com.vn`;
+            }
+            return fallbackName || "";
+          };
           const sample = reminders[0] || { ldpcrc: "Nguyễn Văn A", cbcrc: "Trần Thị B", quycrc: "Lê Văn C" };
           const lines: string[] = [];
           if (sample.ldpcrc) {
             const s = findByName(ldpcrcStaff, sample.ldpcrc);
-            lines.push(`Người nhận: ${s?.email ? `${s.email}.hvu@vietcombank.com.vn` : sample.ldpcrc}`);
+            lines.push(`Người nhận: ${makeEmail(s, sample.ldpcrc)}`);
           }
           if (sample.cbcrc) {
             const s = findByName(cbcrcStaff, sample.cbcrc);
-            lines.push(`Người nhận: ${s?.email ? `${s.email}.hvu@vietcombank.com.vn` : sample.cbcrc}`);
+            lines.push(`Người nhận: ${makeEmail(s, sample.cbcrc)}`);
           }
           if (sample.quycrc) {
             const s = findByName(quycrcStaff, sample.quycrc);
-            lines.push(`Người nhận: ${s?.email ? `${s.email}.hvu@vietcombank.com.vn` : sample.quycrc}`);
+            lines.push(`Người nhận: ${makeEmail(s, sample.quycrc)}`);
           }
           return lines.join("<br/>");
         })()}

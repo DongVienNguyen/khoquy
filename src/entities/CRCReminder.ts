@@ -19,6 +19,14 @@ export type CRCReminder = {
 
 const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/crc-reminders`;
 
+function getSavedTemplate(): string | undefined {
+  try {
+    return window.localStorage.getItem("crc_reminder_email_template") || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function call(body: Record<string, any>) {
   try {
     const { data, error } = await supabase.functions.invoke("crc-reminders", {
@@ -69,17 +77,20 @@ export const CRCReminderAPI = {
     return true;
   },
   async sendOne(id: string) {
-    const res = await call({ action: "send_one", id });
+    const template = getSavedTemplate();
+    const res = await call({ action: "send_one", id, template });
     if (!res.ok) throw new Error(String(res.error || "Send failed"));
     return true;
   },
   async sendToday() {
-    const res = await call({ action: "send_batch_today" });
+    const template = getSavedTemplate();
+    const res = await call({ action: "send_batch_today", template });
     if (!res.ok) throw new Error(String(res.error || "Send today failed"));
     return res.data;
   },
   async sendAll() {
-    const res = await call({ action: "send_batch_all" });
+    const template = getSavedTemplate();
+    const res = await call({ action: "send_batch_all", template });
     if (!res.ok) throw new Error(String(res.error || "Send all failed"));
     return res.data;
   },

@@ -42,8 +42,7 @@ function todayYmdGmt7(): string {
 function isValidEmail(email?: string | null): boolean {
   if (!email) return false;
   const e = email.trim();
-  if (e.includes(":")) return false; // reject app: or other prefixes
-  // minimal format check
+  if (e.includes(":")) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
@@ -54,7 +53,7 @@ async function sendEmailResend(toList: string[], subject: string, html: string, 
     throw new Error("RESEND_API_KEY is not configured");
   }
   if (!isValidEmail(RESEND_FROM)) {
-    throw new Error("RESEND_FROM is invalid. Please set RESEND_FROM to a verified sender email like 'crc-reminders@caremylife.me' (no 'app:' or ':').");
+    throw new Error("RESEND_FROM is invalid. Please set RESEND_FROM to a verified sender email like 'crc-reminders@caremylife.me'.");
   }
 
   const payload = {
@@ -79,17 +78,19 @@ async function sendEmailResend(toList: string[], subject: string, html: string, 
   return await resp.json().catch(() => ({}));
 }
 
-function renderDefaultHtml(reminder: any) {
+function renderDefaultHtml(reminder: any, recipientsList: string[]) {
   const safe = (s: any) => String(s ?? "").trim();
   const loai = safe(reminder.loai_bt_crc);
   const ngay = safe(reminder.ngay_thuc_hien);
   const ldp = safe(reminder.ldpcrc);
   const cb = safe(reminder.cbcrc);
   const quy = safe(reminder.quycrc);
+  const recBlock = recipientsList.map(e => `Người nhận: ${e}`).join("<br/>");
   return `
   <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #0f172a; line-height: 1.6;">
     <h2 style="margin: 0 0 8px;">Nhắc duyệt CRC</h2>
     <p style="margin: 0 0 12px;">Chứng từ CRC cần được duyệt theo quy định.</p>
+    <p>${recBlock}</p>
     <table style="border-collapse: collapse; width: 100%; max-width: 640px;">
       <tbody>
         <tr><td style="padding: 6px 0; width: 160px; color: #64748b;">Loại BT CRC</td><td style="padding: 6px 0;"><strong>${loai}</strong></td></tr>
@@ -104,19 +105,15 @@ function renderDefaultHtml(reminder: any) {
   `;
 }
 
-function applyTemplate(template: string, reminder: any) {
-  const replacements: Record<string, string> = {
-    "{{loai_bt_crc}}": String(reminder.loai_bt_crc ?? ""),
-    "{{ngay_thuc_hien}}": String(reminder.ngay_thuc_hien ?? ""),
-    "{{ldpcrc}}": String(reminder.ldpcrc ?? ""),
-    "{{cbcrc}}": String(reminder.cbcrc ?? ""),
-    "{{quycrc}}": String(reminder.quycrc ?? ""),
-  };
-  let html = template || "";
-  for (const [key, val] of Object.entries(replacements)) {
-    html = html.split(key).join(val);
-  }
-  return html;
+function applyTemplate(template: string, reminder: any, recipientsBlock: string) {
+  const soLine = reminder?.so_chung_tu ? `<p>Số chứng từ: <strong>${reminder.so_chung_tu}</strong></p>` : "";
+  const tsLine = reminder?.ten_ts ? `<p>Tên TS: <strong>${reminder.ten_ts}</strong></p>` : "";
+  return (template || "")
+    .replace("{{loai_bt_crc}}", String(reminder?.loai_bt_crc || ""))
+    .replace("{{ngay_thuc_hien}}", String(reminder?.ngay_thuc_hien || ""))
+    .replace("{{recipients_block}}", recipientsBlock || "")
+    .replace("{{so_chung_tu_line}}", soLine)
+    .replace("{{ten_ts_line}}", tsLine);
 }
 
 serve(async (req: Request) => {
@@ -130,7 +127,6 @@ serve(async (req: Request) => {
     const body = await req.json().catch(() => ({} as Json));
     const action = String(body?.action || "");
 
-    // Listings
     if (action === "list_waiting") {
       const { data, error } = await admin.from("crc_reminders").select("*").eq("is_sent", false).order("created_date", { ascending: false });
       if (error) return err(error.message, 500);
@@ -142,14 +138,12 @@ serve(async (req: Request) => {
       return ok(data);
     }
 
-    // Staff suggestions
     if (action === "staff_suggestions") {
       const { data, error } = await admin.from("staff").select("staff_name, username, email").order("staff_name", { ascending: true });
       if (error) return err(error.message, 500);
       return ok(data || []);
     }
 
-    // CRC role staff lists
     if (action === "list_ldpcrc_staff") {
       const { data, error } = await admin.from("ldpcrc_staff").select("id, ten_nv, email").order("ten_nv", { ascending: true });
       if (error) return err(error.message, 500);
@@ -166,7 +160,6 @@ serve(async (req: Request) => {
       return ok(data || []);
     }
 
-    // Create / update / delete
     if (action === "create_reminder") {
       const r = body.reminder as Json | undefined;
       if (!r || !r.loai_bt_crc || !r.ngay_thuc_hien) return err("Missing loai_bt_crc/ngay_thuc_hien");
@@ -224,24 +217,14 @@ serve(async (req: Request) => {
       return ok({ success: true });
     }
 
-    // Utilities
-    function norm(s: string) {
-      return (s || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/đ/g, "d")
-        .replace(/Đ/g, "d")
-        .trim();
-    }
     async function emailForName(table: "ldpcrc_staff" | "cbcrc_staff" | "quycrc_staff", name?: string | null) {
       if (!name || !name.trim()) return null;
       const { data, error } = await admin.from(table).select("ten_nv, email").eq("ten_nv", name).limit(1);
       if (error) return null;
       const row = data?.[0] as { ten_nv?: string; email?: string } | undefined;
       if (!row?.email) return null;
-      const e = String(row.email).trim();
-      return e.includes("@") ? e : `${e}@vietcombank.com.vn`;
+      const raw = String(row.email).trim();
+      return raw.includes("@") ? raw : `${raw}@vietcombank.com.vn`;
     }
 
     async function buildRecipients(reminder: any) {
@@ -253,6 +236,11 @@ serve(async (req: Request) => {
       return Array.from(new Set(list));
     }
 
+    async function recipientsBlockForTemplate(reminder: any) {
+      const recipients = await buildRecipients(reminder);
+      return recipients.map(e => `Người nhận: ${e}`).join("<br/>");
+    }
+
     async function sendOne(reminder: any, template?: string) {
       const recipients = await buildRecipients(reminder);
       if (recipients.length === 0) {
@@ -260,7 +248,8 @@ serve(async (req: Request) => {
       }
 
       const subject = `Nhắc duyệt CRC: ${String(reminder.loai_bt_crc ?? "")}`;
-      const html = template ? applyTemplate(template, reminder) : renderDefaultHtml(reminder);
+      const recipientsBlock = await recipientsBlockForTemplate(reminder);
+      const html = template ? applyTemplate(template, reminder, recipientsBlock) : renderDefaultHtml(reminder, recipients);
 
       await sendEmailResend(recipients, subject, html);
 
