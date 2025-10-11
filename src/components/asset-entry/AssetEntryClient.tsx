@@ -247,20 +247,21 @@ export default function AssetEntryClient() {
       settleTimeoutRef.current = null;
     }
   };
-  const scrollToTodayBottomFit = (smooth = true) => {
-    if (!todayRef.current) return;
-    const rect = todayRef.current.getBoundingClientRect();
+  const scrollTargetBottomFit = (targetEl: HTMLElement | null | undefined, smooth = true) => {
+    const el = targetEl ?? (document.activeElement as HTMLElement | null) ?? undefined;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
     const absTop = window.pageYOffset + rect.top;
     const absBottom = absTop + rect.height;
     const viewportHeight = vvRef.current?.height ?? window.innerHeight;
-    const margin = 8;
+    const margin = 12; // chừa khoảng để không dính sát bàn phím
     const targetY = Math.max(0, absBottom - (viewportHeight - margin));
     window.scrollTo({ top: targetY, behavior: smooth ? "smooth" : "auto" });
   };
-  const triggerScrollRoutine = React.useCallback(() => {
+  const triggerScrollRoutine = React.useCallback((targetEl?: HTMLElement | null) => {
     clearScrollTimers();
     // Cuộn ngay lập tức để đảm bảo đẩy trang lên ngay lần đầu
-    scrollToTodayBottomFit(false);
+    scrollTargetBottomFit(targetEl ?? (document.activeElement as HTMLElement | null), false);
     const initialHeight = vvRef.current?.height ?? window.innerHeight;
     let lastHeight = initialHeight;
     // Poll để bắt khoảnh khắc bàn phím đổi chiều cao, cuộn lại ngay
@@ -268,14 +269,14 @@ export default function AssetEntryClient() {
       const h = vvRef.current?.height ?? window.innerHeight;
       if (Math.abs(h - lastHeight) > 1 || Math.abs(h - initialHeight) > 1) {
         lastHeight = h;
-        scrollToTodayBottomFit(false);
+        scrollTargetBottomFit(targetEl ?? (document.activeElement as HTMLElement | null), false);
       }
     }, 60);
     // Sau khi ổn định, chốt vị trí bằng cuộn mượt
     settleTimeoutRef.current = window.setTimeout(() => {
       clearScrollTimers();
-      scrollToTodayBottomFit(true);
-      setTimeout(() => scrollToTodayBottomFit(true), 200);
+      scrollTargetBottomFit(targetEl ?? (document.activeElement as HTMLElement | null), true);
+      setTimeout(() => scrollTargetBottomFit(targetEl ?? (document.activeElement as HTMLElement | null), true), 200);
     }, 800);
   }, []);
 
@@ -283,17 +284,17 @@ export default function AssetEntryClient() {
   useEffect(() => {
     const onFocusIn = () => {
       if (isFocusable(document.activeElement)) {
-        triggerScrollRoutine();
+        triggerScrollRoutine(document.activeElement as HTMLElement);
       }
     };
     const onVVResize = () => {
       if (isFocusable(document.activeElement)) {
-        triggerScrollRoutine();
+        triggerScrollRoutine(document.activeElement as HTMLElement);
       }
     };
     const onVVGeometryChange = () => {
       if (isFocusable(document.activeElement)) {
-        triggerScrollRoutine();
+        triggerScrollRoutine(document.activeElement as HTMLElement);
       }
     };
     window.addEventListener("focusin", onFocusIn, { passive: true });
@@ -358,19 +359,19 @@ export default function AssetEntryClient() {
         }
       }
 
-      // Cập nhật trigger-first-type theo chiều dài mới và kích hoạt cuộn 1 lần/ô
+      // Kích hoạt cuộn đúng 1 lần/ô khi gõ ký tự đầu tiên
       setFirstTypeTriggered((prevTrig) => {
         let trigNext = prevTrig.slice();
         if (appended && prevTrig.length < next.length) {
           trigNext = [...prevTrig, false];
         }
-        // Kích hoạt nếu từ rỗng -> có ký tự lần đầu
         const becameNonEmpty = wasEmptyBefore && normalized.trim() !== "";
         if (becameNonEmpty && !prevTrig[index]) {
-          triggerScrollRoutine();
+          // Ưu tiên cuộn theo đúng ô input đang gõ (nếu ref có), fallback activeElement
+          const target = assetInputRefs.current[index] ?? (document.activeElement as HTMLElement | null);
+          triggerScrollRoutine(target);
           trigNext[index] = true;
         }
-        // Đồng bộ độ dài nếu đã pop bớt
         if (trigNext.length > next.length) {
           trigNext = trigNext.slice(0, next.length);
         }
