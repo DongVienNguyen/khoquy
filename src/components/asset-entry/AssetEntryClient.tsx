@@ -102,6 +102,7 @@ export default function AssetEntryClient() {
 
   const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const timeCheckTimerRef = useRef<number | null>(null);
+  const todayRef = useRef<HTMLDivElement | null>(null);
 
   const formatDateShort = React.useCallback((date: Date | null) => {
     if (!date) return "Chọn ngày";
@@ -176,6 +177,41 @@ export default function AssetEntryClient() {
       window.dispatchEvent(new Event("asset-entry:ready"));
     } catch {}
   }, [router, calculateDefaultValues]);
+
+  // Giữ thông báo bền vững: không auto-clear
+  // Khi bàn phím (virtual keyboard) mở trên mobile, cuộn sao cho khu vực "Thông báo đã gửi hôm nay" hiện rõ
+  useEffect(() => {
+    const isFocusable = (el: Element | null) => {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    };
+    const scrollToToday = () => {
+      if (!todayRef.current) return;
+      const y = Math.max(0, todayRef.current.offsetTop - 12);
+      window.scrollTo({ top: y, behavior: "smooth" });
+    };
+    const onFocusIn = () => {
+      // đợi bàn phím mở rồi mới cuộn
+      setTimeout(scrollToToday, 80);
+    };
+    const vv: any = typeof window !== "undefined" ? (window as any).visualViewport : null;
+    const onVVResize = () => {
+      if (isFocusable(document.activeElement)) {
+        setTimeout(scrollToToday, 50);
+      }
+    };
+    window.addEventListener("focusin", onFocusIn);
+    if (vv && typeof vv.addEventListener === "function") {
+      vv.addEventListener("resize", onVVResize);
+    }
+    return () => {
+      window.removeEventListener("focusin", onFocusIn);
+      if (vv && typeof vv.removeEventListener === "function") {
+        vv.removeEventListener("resize", onVVResize);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (message.type === "success" && message.text) {
@@ -480,7 +516,7 @@ export default function AssetEntryClient() {
 
   return (
     <div className="w-full">
-      <div className="mx-auto max-w-4xl p-4 space-y-4">
+      <div className="mx-auto max-w-4xl p-4 space-y-4 pb-24 md:pb-4">
         <div className="rounded-lg bg-card border p-6 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 bg-gradient-to-r from-green-600 to-green-700 rounded-xl flex items-center justify-center">
@@ -718,8 +754,8 @@ export default function AssetEntryClient() {
               </Alert>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setMessage({ type: "", text: "" }); }} variant="outline">
+            <div className="hidden md:flex items-center justify-end gap-2 pt-2">
+              <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); }} variant="outline">
                 Clear
               </Button>
               <Button type="submit" disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")} className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
@@ -826,7 +862,7 @@ export default function AssetEntryClient() {
           </Dialog>
         )}
 
-        <div className="rounded-lg bg-card border p-6 shadow-sm">
+        <div ref={todayRef} className="rounded-lg bg-card border p-6 shadow-sm">
           <button className="w-full flex items-center justify-between text-left" onClick={() => setListOpen((o) => !o)}>
             <span className="font-semibold">Thông báo đã gửi hôm nay</span>
             <span className="text-muted-foreground">{listOpen ? "Thu gọn" : "Mở"}</span>
@@ -837,6 +873,30 @@ export default function AssetEntryClient() {
               <MyTodaySubmissionsLazy />
             </Suspense>
           )}
+        </div>
+      </div>
+
+      {/* Thanh nút nổi trên mobile */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+        <div className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 h-11"
+            onClick={() => {
+              setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData);
+              setMultipleAssets([""]);
+            }}
+          >
+            Clear
+          </Button>
+          <Button
+            className="flex-1 h-11 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+            disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")}
+            onClick={() => handleOpenConfirm()}
+          >
+            {isLoading ? "Đang gửi..." : "Gửi thông báo"}
+          </Button>
         </div>
       </div>
     </div>
