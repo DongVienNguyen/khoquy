@@ -18,32 +18,13 @@ type Props = {
   onFirstType?: (index: number) => void;
   onScrollNow?: (index: number) => void;
   autoFocus?: boolean;
+  enterKeyHint?: "next" | "done";
 };
 
 const AssetCodeInputRow: React.FC<Props> = React.memo(
-  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, onScrollNow, autoFocus }) => {
+  ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType, onScrollNow, autoFocus, enterKeyHint }) => {
     const localInputRef = React.useRef<HTMLInputElement | null>(null);
     
-    // Khi value vừa có ký tự đầu và icon đỏ lần đầu xuất hiện -> kích hoạt cuộn
-    const firstInvalidShownRef = React.useRef(false);
-    React.useEffect(() => {
-      if (!firstInvalidShownRef.current && value && value.trim() !== "" && !isValid) {
-        firstInvalidShownRef.current = true;
-        // Đảm bảo input đang focus để scroll chính xác
-        const el = localInputRef.current;
-        try { el?.focus({ preventScroll: true } as any); } catch {}
-        // Buộc cuộn: rAF để đợi DOM/viewport ổn định (keyboad open), rồi thêm 1 lần sau 200ms
-        if (onScrollNow) {
-          requestAnimationFrame(() => onScrollNow(index));
-          setTimeout(() => onScrollNow(index), 200);
-        } else {
-          // Fallback nếu không có onScrollNow: cuộn mượt tới giữa
-          el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-          onFirstType?.(index);
-        }
-      }
-    }, [value, isValid, index, onFirstType, onScrollNow]);
-
     // Auto focus khi được yêu cầu (dành cho ô đầu tiên khi vào trang)
     React.useEffect(() => {
       if (!autoFocus) return;
@@ -75,6 +56,7 @@ const AssetCodeInputRow: React.FC<Props> = React.memo(
             autoComplete="off"
             autoCorrect="off"
             autoFocus={autoFocus}
+            enterKeyHint={enterKeyHint}
             value={value}
             onChange={(e) => onChange(index, e.target.value)}
             ref={(el) => {

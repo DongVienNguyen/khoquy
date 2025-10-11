@@ -114,9 +114,30 @@ export default function AssetEntryClient() {
   const initialVVHeightRef = useRef<number>(typeof window !== "undefined" ? ((window as any).visualViewport?.height ?? window.innerHeight) : 0);
   const lastVVHeightRef = useRef<number>(initialVVHeightRef.current);
   const keyboardOpenRef = useRef<boolean>(false);
+  const [keyboardOpenUI, setKeyboardOpenUI] = useState<boolean>(false);
   const keyboardOpenThreshold = 120; // ngưỡng giảm chiều cao để coi là keyboard mở
   const keyboardDebounceTimeoutRef = useRef<number | null>(null);
   const keyboardRepeatTimeoutRef = useRef<number | null>(null);
+
+  // Throttle helper cho sự kiện viewport để tránh giật
+  const throttle = <T extends (...args: any[]) => void>(fn: T, wait = 150) => {
+    let last = 0;
+    let timer: number | null = null;
+    return (...args: Parameters<T>) => {
+      const now = Date.now();
+      const remaining = wait - (now - last);
+      if (remaining <= 0) {
+        last = now;
+        fn(...args);
+      } else if (timer === null) {
+        timer = window.setTimeout(() => {
+          last = Date.now();
+          timer = null;
+          fn(...args);
+        }, remaining);
+      }
+    };
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -156,7 +177,6 @@ export default function AssetEntryClient() {
 
   // Auto-scroll infra: visualViewport & timers
   const vvRef = useRef<any>(typeof window !== "undefined" ? (window as any).visualViewport : null);
-  const pollIdRef = useRef<number | null>(null);
   const settleTimeoutRef = useRef<number | null>(null);
   // Mỗi ô nhập chỉ kích hoạt cuộn 1 lần khi gõ ký tự đầu tiên
   const [firstTypeTriggered, setFirstTypeTriggered] = useState<boolean[]>([false]);
@@ -171,9 +191,7 @@ export default function AssetEntryClient() {
     }
   }, []);
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  // (Loại effect setIsMounted trùng) — đã có effect setIsMounted phía trên
 
   const formatDateShort = React.useCallback((date: Date | null) => {
     if (!date) return "Chọn ngày";
@@ -296,10 +314,6 @@ export default function AssetEntryClient() {
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
   };
   const clearScrollTimers = () => {
-    if (pollIdRef.current) {
-      clearInterval(pollIdRef.current);
-      pollIdRef.current = null;
-    }
     if (settleTimeoutRef.current) {
       clearTimeout(settleTimeoutRef.current);
       settleTimeoutRef.current = null;
@@ -320,22 +334,12 @@ export default function AssetEntryClient() {
     clearScrollTimers();
     // Cuộn ngay lập tức để đảm bảo đẩy trang lên ngay lần đầu
     scrollTargetBottomFit(targetEl ?? (document.activeElement as HTMLElement | null), false);
-    const initialHeight = vvRef.current?.height ?? window.innerHeight;
-    let lastHeight = initialHeight;
-    // Poll để bắt khoảnh khắc bàn phím đổi chiều cao, cuộn lại ngay
-    pollIdRef.current = window.setInterval(() => {
-      const h = vvRef.current?.height ?? window.innerHeight;
-      if (Math.abs(h - lastHeight) > 1 || Math.abs(h - initialHeight) > 1) {
-        lastHeight = h;
-        scrollTargetBottomFit(targetEl ?? (document.activeElement as HTMLElement | null), false);
-      }
-    }, 60);
     // Sau khi ổn định, chốt vị trí bằng cuộn mượt
     settleTimeoutRef.current = window.setTimeout(() => {
       clearScrollTimers();
       scrollTargetBottomFit(targetEl ?? (document.activeElement as HTMLElement | null), true);
       setTimeout(() => scrollTargetBottomFit(targetEl ?? (document.activeElement as HTMLElement | null), true), 200);
-    }, 800);
+    }, 700);
   }, []);
 
   // Kích hoạt cuộn khi người dùng gõ ký tự đầu tiên trong một ô (kể cả số)
@@ -377,6 +381,7 @@ export default function AssetEntryClient() {
       if (decreasedEnough && !keyboardOpenRef.current) {
         // opening → open: neo baseline 2–3 nhịp
         keyboardOpenRef.current = true;
+        if (!keyboardOpenUI) setKeyboardOpenUI(true);
         scrollToTodayBottom(false); // nhịp 1: tức thời
         if (keyboardDebounceTimeoutRef.current) clearTimeout(keyboardDebounceTimeoutRef.current);
         keyboardDebounceTimeoutRef.current = window.setTimeout(() => {
@@ -399,6 +404,7 @@ export default function AssetEntryClient() {
         // delay nhỏ để tránh giật do animation
         setTimeout(() => {
           keyboardOpenRef.current = false;
+          if (keyboardOpenUI) setKeyboardOpenUI(false);
         }, 160);
       }
     };
@@ -421,20 +427,22 @@ export default function AssetEntryClient() {
         triggerScrollRoutine(document.activeElement as HTMLElement);
       }
     };
+    const throttledResize = throttle(onVVResize, 150);
+    const throttledGeometry = throttle(onVVGeometryChange, 150);
     window.addEventListener("focusin", onFocusIn, { passive: true });
-    window.addEventListener("resize", onVVResize, { passive: true });
+    window.addEventListener("resize", throttledResize, { passive: true });
     const vv = vvRef.current;
     if (vv && typeof vv.addEventListener === "function") {
-      vv.addEventListener("resize", onVVResize, { passive: true });
-      vv.addEventListener("geometrychange", onVVGeometryChange, { passive: true });
+      vv.addEventListener("resize", throttledResize, { passive: true });
+      vv.addEventListener("geometrychange", throttledGeometry, { passive: true });
     }
     return () => {
       clearScrollTimers();
       window.removeEventListener("focusin", onFocusIn);
-      window.removeEventListener("resize", onVVResize);
+      window.removeEventListener("resize", throttledResize);
       if (vv && typeof vv.removeEventListener === "function") {
-        vv.removeEventListener("resize", onVVResize);
-        vv.removeEventListener("geometrychange", onVVGeometryChange);
+        vv.removeEventListener("resize", throttledResize);
+        vv.removeEventListener("geometrychange", throttledGeometry);
       }
       if (keyboardDebounceTimeoutRef.current) {
         clearTimeout(keyboardDebounceTimeoutRef.current);
@@ -855,7 +863,10 @@ export default function AssetEntryClient() {
           </div>
         </div>
       ) : (
-        <div className="mx-auto max-w-4xl p-4 space-y-4 pb-24 md:pb-4">
+        <div
+          className="mx-auto max-w-4xl p-4 space-y-4 pb-24 md:pb-4"
+          style={keyboardOpenUI ? { paddingBottom: `calc(env(safe-area-inset-bottom) + ${bottomBarHeight}px + 16px)` } : undefined}
+        >
           <div className="rounded-lg bg-card border p-6 shadow-sm">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 bg-gradient-to-r from-green-600 to-green-700 rounded-xl flex items-center justify-center">
@@ -1051,6 +1062,7 @@ export default function AssetEntryClient() {
                         onFirstType={handleFirstType}
                         onScrollNow={handleScrollNow}
                         autoFocus={idx === 0}
+                        enterKeyHint={idx < (showAllAssets ? multipleAssets.length : Math.min(multipleAssets.length, 5)) - 1 ? "next" : "done"}
                         onTabNavigate={(i, dir) => {
                           if (dir === "next") {
                             const next = i + 1;
@@ -1118,13 +1130,26 @@ export default function AssetEntryClient() {
                 </Alert>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setFirstTypeTriggered([false]); }} variant="outline">
-                  Clear
-                </Button>
-                <Button type="submit" disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")} className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
-                  {isLoading ? "Đang gửi..." : "Gửi thông báo"}
-                </Button>
+              <div
+                ref={bottomBarRef}
+                className={`pt-2 ${keyboardOpenUI ? "sticky bottom-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60" : ""}`}
+              >
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); setFirstTypeTriggered([false]); }}
+                    variant="outline"
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")}
+                    className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isLoading ? "Đang gửi..." : "Gửi thông báo"}
+                  </Button>
+                </div>
               </div>
 
               {isConfirmOpen && (
