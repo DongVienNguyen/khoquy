@@ -104,6 +104,12 @@ export default function AssetEntryClient() {
   const timeCheckTimerRef = useRef<number | null>(null);
   const todayRef = useRef<HTMLDivElement | null>(null);
 
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const formatDateShort = React.useCallback((date: Date | null) => {
     if (!date) return "Chọn ngày";
     const d = new Date(date);
@@ -510,363 +516,399 @@ export default function AssetEntryClient() {
 
   return (
     <div className="w-full">
-      <div className="mx-auto max-w-4xl p-4 space-y-4">
-        <div className="rounded-lg bg-card border p-6 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 bg-gradient-to-r from-green-600 to-green-700 rounded-xl flex items-center justify-center">
-              <Package className="w-6 h-6 text-white" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">Thông báo lấy TS</h1>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowOptions((v) => !v)}
-                  className="ml-2"
-                >
-                  {showOptions ? "Ẩn" : "Hiện"}
-                </Button>
-              </div>
-              <p className="text-muted-foreground mt-1">
-                {currentStaff?.role === "admin"
-                  ? "Không giới hạn thời gian cho Admin"
-                  : "Khung giờ 7:45-8:05 và 12:45-13:05 hãy nhắn Zalo vì đã chốt DS"}
-              </p>
-            </div>
+      {/* Khi chưa mount trên client, trả về khung rỗng để tránh SSR/CSR lệch nhau */}
+      {!isMounted ? (
+        <div className="mx-auto max-w-4xl p-4 space-y-4 pb-24 md:pb-4">
+          <div className="rounded-lg bg-card border p-6 shadow-sm">
+            <div className="h-6 w-40 bg-muted rounded" />
           </div>
-
-          {showOptions && (
-            <div className="mt-6 rounded-md bg-green-50 text-green-700 p-3 text-sm" id="instruction-section">
-              Từ <strong>Phải sang Trái</strong>: 2 ký tự thứ 9 và 10 là Năm TS: 24; 4 ký tự cuối là Mã TS: 259 - vd: 0424102470200259
-            </div>
-          )}
-
-          <form onSubmit={handleOpenConfirm} className="mt-6 space-y-6">
-            {showOptions && (
-            <div>
-              <Label className="flex items-center gap-2 text-sm font-medium mb-2">
-                <Building className="text-muted-foreground" size={18} />
-                Tài sản của phòng
-              </Label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Select value={formData.room} onValueChange={handleRoomChange}>
-                  <SelectTrigger className="h-10"><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
-                  <SelectContent>
-                    {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-
-                {formData.room === "QLN" ? (
-                  <Textarea
-                    rows={2}
-                    placeholder="Ghi chú (tùy chọn)"
-                    value={formData.note}
-                    onChange={(e) => setFormData((p) => ({ ...p, note: e.target.value }))}
-                  />
-                ) : requiresNoteDropdown ? (
-                  <Select value={formData.note} onValueChange={(v) => setFormData((p) => ({ ...p, note: v }))}>
-                    <SelectTrigger className="h-10"><SelectValue placeholder="Chọn ghi chú" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Ship PGD">Ship PGD</SelectItem>
-                      <SelectItem value="Lấy ở CN">Lấy ở CN</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : null}
+          <div className="rounded-lg bg-card border p-6 shadow-sm">
+            <div className="h-6 w-56 bg-muted rounded" />
+          </div>
+        </div>
+      ) : (
+        <div className="mx-auto max-w-4xl p-4 space-y-4 pb-24 md:pb-4">
+          <div className="rounded-lg bg-card border p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-gradient-to-r from-green-600 to-green-700 rounded-xl flex items-center justify-center">
+                <Package className="w-6 h-6 text-white" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <h1 className="text-2xl font-bold">Thông báo lấy TS</h1>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowOptions((v) => !v)}
+                    className="ml-2"
+                  >
+                    {showOptions ? "Ẩn" : "Hiện"}
+                  </Button>
+                </div>
+                <p className="text-muted-foreground mt-1">
+                  {currentStaff?.role === "admin"
+                    ? "Không giới hạn thời gian cho Admin"
+                    : "Khung giờ 7:45-8:05 và 12:45-13:05 hãy nhắn Zalo vì đã chốt DS"}
+                </p>
               </div>
             </div>
+
+            {showOptions && (
+              <div className="mt-6 rounded-md bg-green-50 text-green-700 p-3 text-sm" id="instruction-section">
+                Từ <strong>Phải sang Trái</strong>: 2 ký tự thứ 9 và 10 là Năm TS: 24; 4 ký tự cuối là Mã TS: 259 - vd: 0424102470200259
+              </div>
             )}
 
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS: (tuần khác mới cần chọn ngày)
-              </Label>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                  <div className="flex items-center gap-1">
-                    <Checkbox
-                      id="session-sang"
-                      checked={formData.parts_day === "Sáng"}
-                      onCheckedChange={(v: CheckedState) =>
-                        setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
-                      }
-                    />
-                    <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
-                  </div>
-                </div>
-                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                  <div className="flex items-center gap-1">
-                    <Checkbox
-                      id="session-chieu"
-                      checked={formData.parts_day === "Chiều"}
-                      onCheckedChange={(v: CheckedState) =>
-                        setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
-                      }
-                    />
-                    <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
-                  </div>
-                </div>
+            <form onSubmit={handleOpenConfirm} className="mt-6 space-y-6">
+              {showOptions && (
+              <div>
+                <Label className="flex items-center gap-2 text-sm font-medium mb-2">
+                  <Building className="text-muted-foreground" size={18} />
+                  Tài sản của phòng
+                </Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Select value={formData.room} onValueChange={handleRoomChange}>
+                    <SelectTrigger className="h-10"><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
+                    <SelectContent>
+                      {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
 
-                {!datePickerMounted ? (
-                  <Button variant="outline" className="h-10 w-full justify-center" onClick={() => setDatePickerMounted(true)}>
-                    {formatDateShort(formData.transaction_date)}
-                  </Button>
-                ) : (
-                  <Suspense fallback={<div className="h-10 flex items-center justify-center border rounded-md text-sm text-muted-foreground">Đang tải lịch...</div>}>
-                    <DatePickerLazy
-                      selected={formData.transaction_date}
-                      minDate={minDate}
-                      onSelect={(date) => setFormData((p) => ({ ...p, transaction_date: date }))}
-                      formatDateShort={formatDateShort}
-                      autoOpen
+                  {formData.room === "QLN" ? (
+                    <Textarea
+                      rows={2}
+                      placeholder="Ghi chú (tùy chọn)"
+                      value={formData.note}
+                      onChange={(e) => setFormData((p) => ({ ...p, note: e.target.value }))}
                     />
-                  </Suspense>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                  <div className="flex items-center gap-1">
-                    <Checkbox
-                      id="type-khac"
-                      checked={formData.transaction_type === "Khác"}
-                      onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
-                    />
-                    <Label htmlFor="type-khac" className="text-sm">Khác</Label>
-                  </div>
-                </div>
-                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                  <div className="flex items-center gap-1">
-                    <Checkbox
-                      id="type-xuat"
-                      checked={formData.transaction_type === "Xuất"}
-                      onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Xuất" : "Khác" }))}
-                    />
-                    <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
-                  </div>
-                </div>
-                <div className="flex items-center justify-center h-10 px-2 border rounded-md">
-                  <div className="flex items-center gap-1">
-                    <Checkbox
-                      id="type-muon"
-                      checked={formData.transaction_type === "Mượn"}
-                      onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Mượn" : "Khác" }))}
-                    />
-                    <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
-                  </div>
+                  ) : requiresNoteDropdown ? (
+                    <Select value={formData.note} onValueChange={(v) => setFormData((p) => ({ ...p, note: v }))}>
+                      <SelectTrigger className="h-10"><SelectValue placeholder="Chọn ghi chú" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Ship PGD">Ship PGD</SelectItem>
+                        <SelectItem value="Lấy ở CN">Lấy ở CN</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : null}
                 </div>
               </div>
-            </div>
+              )}
 
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:  (nhiều TS chọn nút AI nhập bằng hình)</Label>
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <CalendarIcon className="text-muted-foreground" size={18} /> Buổi và ngày lấy TS: (tuần khác mới cần chọn ngày)
+                </Label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                    <div className="flex items-center gap-1">
+                      <Checkbox
+                        id="session-sang"
+                        checked={formData.parts_day === "Sáng"}
+                        onCheckedChange={(v: CheckedState) =>
+                          setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
+                        }
+                      />
+                      <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                    <div className="flex items-center gap-1">
+                      <Checkbox
+                        id="session-chieu"
+                        checked={formData.parts_day === "Chiều"}
+                        onCheckedChange={(v: CheckedState) =>
+                          setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
+                        }
+                      />
+                      <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
+                    </div>
+                  </div>
 
-                  {!aiMounted ? (
-                    <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1" onClick={() => setAiMounted(true)}>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M3 8a4 4 0 0 1 4-4h2l2-2h4l2 2h2a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" />
-                        <circle cx="12" cy="13" r="4" />
-                      </svg>
-                      <span className="text-base font-semibold">AI</span>
+                  {!datePickerMounted ? (
+                    <Button variant="outline" className="h-10 w-full justify-center" onClick={() => setDatePickerMounted(true)}>
+                      {formatDateShort(formData.transaction_date)}
                     </Button>
                   ) : (
-                    <Suspense fallback={<div className="text-sm text-muted-foreground">Đang tải AI...</div>}>
-                      <AssetEntryAIDialogLazy
-                        isAssetValid={isAssetValid}
-                        setMultipleAssets={setMultipleAssets}
-                        currentStaff={currentStaff}
-                        onNeedConfirm={({ options, selections }) => {
-                          setAiNeedsConfirm({ options, selections });
-                          setIsAiConfirmOpen(true);
-                        }}
-                        setMessage={setMessage}
+                    <Suspense fallback={<div className="h-10 flex items-center justify-center border rounded-md text-sm text-muted-foreground">Đang tải lịch...</div>}>
+                      <DatePickerLazy
+                        selected={formData.transaction_date}
+                        minDate={minDate}
+                        onSelect={(date) => setFormData((p) => ({ ...p, transaction_date: date }))}
+                        formatDateShort={formatDateShort}
                         autoOpen
                       />
                     </Suspense>
                   )}
                 </div>
-
-                {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
-                  const valid = isAssetValid(val);
-                  return (
-                    <AssetCodeInputRow
-                      key={idx}
-                      index={idx}
-                      value={val}
-                      isValid={valid}
-                      onChange={handleAssetChange}
-                      onAddRow={addAssetField}
-                      onRemoveRow={removeAssetField}
-                      inputRef={(el) => { assetInputRefs.current[idx] = el; }}
-                      onTabNavigate={(i, dir) => {
-                        if (dir === "next") {
-                          const next = i + 1;
-                          if (next >= multipleAssets.length) {
-                            setMultipleAssets((prev) => [...prev, ""]);
-                            setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
-                          } else {
-                            assetInputRefs.current[next]?.focus();
-                          }
-                        } else {
-                          const prevIdx = i - 1;
-                          if (prevIdx >= 0) assetInputRefs.current[prevIdx]?.focus();
-                        }
-                      }}
-                      showRemove={multipleAssets.length > 1}
-                    />
-                  );
-                })}
-
-                {multipleAssets.length > 5 && (
-                  <div className="flex justify-center">
-                    <Button type="button" variant="ghost" onClick={() => setShowAllAssets((v) => !v)} className="text-slate-600 hover:text-slate-800">
-                      {showAllAssets ? (<><ChevronUp className="w-4 h-4 mr-1" /> Thu gọn</>) : (<><ChevronDown className="w-4 h-4 mr-1" /> Xem thêm {multipleAssets.length - 5}</>)}
-                    </Button>
-                  </div>
-                )}
               </div>
-            </div>
 
-            {isRestrictedTime && currentStaff?.role !== "admin" && (
-              <Alert className="border-orange-200 bg-orange-50">
-                <AlertCircle className="h-4 w-4 text-orange-600" />
-                <AlertDescription className="text-orange-800">
-                  <strong>Thông báo:</strong> Từ 7:45-8:05 và 12:45-13:05: Hãy nhắn Zalo.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {message.text && (
-              <Alert variant={message.type === "success" ? "default" : "destructive"} className={message.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
-                {message.type === "success" ? <CheckCircle className="h-4 w-4 text-green-600" /> : <AlertCircle className="h-4 w-4" />}
-                <AlertDescription className={message.type === "success" ? "text-green-800" : "text-red-800"}>{message.text}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); }} variant="outline">
-                Clear
-              </Button>
-              <Button type="submit" disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")} className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
-                {isLoading ? "Đang gửi..." : "Gửi thông báo"}
-              </Button>
-            </div>
-
-            {isConfirmOpen && (
-              <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>Xác nhận gửi thông báo</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-3 text-sm">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><span className="font-medium">Buổi:</span> {formData.parts_day}</div>
-                      <div><span className="font-medium">Ngày:</span> {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : "-"}</div>
-                    </div>
-                    <div>
-                      <span className="font-semibold">Danh sách mã TS ({multipleAssets.filter((a) => a.trim()).length}):</span>
-                      <div className="mt-2 max-h-40 overflow-auto rounded border bg-slate-50 p-3">
-                        {multipleAssets.filter((a) => a.trim()).map((a, idx) => (
-                          <div key={idx} className="flex items-center gap-2 text-base">
-                            {isAssetValid(a) ? <CheckCircle className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
-                            <span className={`${isAssetValid(a) ? "text-slate-800" : "text-red-600"} text-lg font-semibold`}>{a.replace(".", "/")}</span>
-                          </div>
-                        ))}
-                      </div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                    <div className="flex items-center gap-1">
+                      <Checkbox
+                        id="type-khac"
+                        checked={formData.transaction_type === "Khác"}
+                        onCheckedChange={(v: CheckedState) => v && setFormData((p) => ({ ...p, transaction_type: "Khác" }))}
+                      />
+                      <Label htmlFor="type-khac" className="text-sm">Khác</Label>
                     </div>
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setIsConfirmOpen(false)}>Hủy</Button>
-                    <Button onClick={performSubmit} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
-                      {isLoading ? "Đang gửi..." : "Xác nhận & Gửi"}
-                    </Button>
+                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                    <div className="flex items-center gap-1">
+                      <Checkbox
+                        id="type-xuat"
+                        checked={formData.transaction_type === "Xuất"}
+                        onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Xuất" : "Khác" }))}
+                      />
+                      <Label htmlFor="type-xuat" className="text-sm">Xuất</Label>
+                    </div>
                   </div>
-                </DialogContent>
-              </Dialog>
-            )}
-          </form>
-        </div>
-
-        {isAiConfirmOpen && (
-          <Dialog open={isAiConfirmOpen} onOpenChange={setIsAiConfirmOpen}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Xác nhận mã cần làm rõ</DialogTitle>
-              </DialogHeader>
-              {aiNeedsConfirm && Object.keys(aiNeedsConfirm.options).length > 0 ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Một số mã có nhiều cách diễn giải năm. Vui lòng chọn chính xác cho từng mã:
-                  </p>
-                  <div className="space-y-2">
-                    {Object.entries(aiNeedsConfirm.options).map(([code, opts]) => (
-                      <div key={code} className="grid grid-cols-3 items-center gap-2">
-                        <Label className="col-span-1 text-sm">Mã {code}</Label>
-                        <div className="col-span-2">
-                          <Select
-                            value={aiNeedsConfirm.selections[code] || ""}
-                            onValueChange={(v) =>
-                              setAiNeedsConfirm((prev) =>
-                                prev ? { options: prev.options, selections: { ...prev.selections, [code]: v } } : prev
-                              )
-                            }
-                          >
-                            <SelectTrigger className="h-10"><SelectValue placeholder="Chọn mã đúng" /></SelectTrigger>
-                            <SelectContent>
-                              {opts.map((o) => (
-                                <SelectItem key={o} value={o}>{o}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" onClick={() => setIsAiConfirmOpen(false)}>Để sau</Button>
-                    <Button
-                      className="bg-green-600 hover:bg-green-700"
-                      onClick={() => {
-                        if (!aiNeedsConfirm) return;
-                        const chosen = Object.values(aiNeedsConfirm.selections || {}).filter(Boolean);
-                        if (chosen.length > 0) {
-                          setMultipleAssets((prev) => {
-                            const existing = prev.filter((a) => a.trim());
-                            const merged = Array.from(new Set([...existing, ...chosen]));
-                            return merged.length > 0 ? merged : [""];
-                          });
-                          toast.success(`Đã thêm xác nhận cho ${chosen.length} mã.`);
-                        }
-                        setIsAiConfirmOpen(false);
-                      }}
-                    >
-                      Xác nhận & Thêm
-                    </Button>
+                  <div className="flex items-center justify-center h-10 px-2 border rounded-md">
+                    <div className="flex items-center gap-1">
+                      <Checkbox
+                        id="type-muon"
+                        checked={formData.transaction_type === "Mượn"}
+                        onCheckedChange={(v: CheckedState) => setFormData((p) => ({ ...p, transaction_type: v ? "Mượn" : "Khác" }))}
+                      />
+                      <Label htmlFor="type-muon" className="text-sm">Mượn</Label>
+                    </div>
                   </div>
                 </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">Không có mã cần xác nhận.</div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Nhập [Mã TS] . [Năm TS]:  (nhiều TS chọn nút AI nhập bằng hình)</Label>
+
+                    {!aiMounted ? (
+                      <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1" onClick={() => setAiMounted(true)}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 8a4 4 0 0 1 4-4h2l2-2h4l2 2h2a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" />
+                          <circle cx="12" cy="13" r="4" />
+                        </svg>
+                        <span className="text-base font-semibold">AI</span>
+                      </Button>
+                    ) : (
+                      <Suspense fallback={<div className="text-sm text-muted-foreground">Đang tải AI...</div>}>
+                        <AssetEntryAIDialogLazy
+                          isAssetValid={isAssetValid}
+                          setMultipleAssets={setMultipleAssets}
+                          currentStaff={currentStaff}
+                          onNeedConfirm={({ options, selections }) => {
+                            setAiNeedsConfirm({ options, selections });
+                            setIsAiConfirmOpen(true);
+                          }}
+                          setMessage={setMessage}
+                          autoOpen
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+
+                  {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
+                    const valid = isAssetValid(val);
+                    return (
+                      <AssetCodeInputRow
+                        key={idx}
+                        index={idx}
+                        value={val}
+                        isValid={valid}
+                        onChange={handleAssetChange}
+                        onAddRow={addAssetField}
+                        onRemoveRow={removeAssetField}
+                        inputRef={(el) => { assetInputRefs.current[idx] = el; }}
+                        onTabNavigate={(i, dir) => {
+                          if (dir === "next") {
+                            const next = i + 1;
+                            if (next >= multipleAssets.length) {
+                              setMultipleAssets((prev) => [...prev, ""]);
+                              setTimeout(() => assetInputRefs.current[next]?.focus(), 0);
+                            } else {
+                              assetInputRefs.current[next]?.focus();
+                            }
+                          } else {
+                            const prevIdx = i - 1;
+                            if (prevIdx >= 0) assetInputRefs.current[prevIdx]?.focus();
+                          }
+                        }}
+                        showRemove={multipleAssets.length > 1}
+                      />
+                    );
+                  })}
+
+                  {multipleAssets.length > 5 && (
+                    <div className="flex justify-center">
+                      <Button type="button" variant="ghost" onClick={() => setShowAllAssets((v) => !v)} className="text-slate-600 hover:text-slate-800">
+                        {showAllAssets ? (<><ChevronUp className="w-4 h-4 mr-1" /> Thu gọn</>) : (<><ChevronDown className="w-4 h-4 mr-1" /> Xem thêm {multipleAssets.length - 5}</>)}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {isRestrictedTime && currentStaff?.role !== "admin" && (
+                <Alert className="border-orange-200 bg-orange-50">
+                  <AlertCircle className="h-4 w-4 text-orange-600" />
+                  <AlertDescription className="text-orange-800">
+                    <strong>Thông báo:</strong> Từ 7:45-8:05 và 12:45-13:05: Hãy nhắn Zalo.
+                  </AlertDescription>
+                </Alert>
               )}
-            </DialogContent>
-          </Dialog>
-        )}
 
-        <div ref={todayRef} className="rounded-lg bg-card border p-6 shadow-sm">
-          <button className="w-full flex items-center justify-between text-left" onClick={() => setListOpen((o) => !o)}>
-            <span className="font-semibold">Thông báo đã gửi hôm nay</span>
-            <span className="text-muted-foreground">{listOpen ? "Thu gọn" : "Mở"}</span>
-          </button>
+              {message.text && (
+                <Alert variant={message.type === "success" ? "default" : "destructive"} className={message.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
+                  {message.type === "success" ? <CheckCircle className="h-4 w-4 text-green-600" /> : <AlertCircle className="h-4 w-4" />}
+                  <AlertDescription className={message.type === "success" ? "text-green-800" : "text-red-800"}>{message.text}</AlertDescription>
+                </Alert>
+              )}
 
-          {listOpen && (
-            <Suspense fallback={<div className="mt-4 text-sm text-muted-foreground">Đang tải danh sách của bạn...</div>}>
-              <MyTodaySubmissionsLazy />
-            </Suspense>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button type="button" onClick={() => { setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData); setMultipleAssets([""]); }} variant="outline">
+                  Clear
+                </Button>
+                <Button type="submit" disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")} className="h-10 px-4 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
+                  {isLoading ? "Đang gửi..." : "Gửi thông báo"}
+                </Button>
+              </div>
+
+              {isConfirmOpen && (
+                <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>Xác nhận gửi thông báo</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 text-sm">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div><span className="font-medium">Buổi:</span> {formData.parts_day}</div>
+                        <div><span className="font-medium">Ngày:</span> {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : "-"}</div>
+                      </div>
+                      <div>
+                        <span className="font-semibold">Danh sách mã TS ({multipleAssets.filter((a) => a.trim()).length}):</span>
+                        <div className="mt-2 max-h-40 overflow-auto rounded border bg-slate-50 p-3">
+                          {multipleAssets.filter((a) => a.trim()).map((a, idx) => (
+                            <div key={idx} className="flex items-center gap-2 text-base">
+                              {isAssetValid(a) ? <CheckCircle className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                              <span className={`${isAssetValid(a) ? "text-slate-800" : "text-red-600"} text-lg font-semibold`}>{a.replace(".", "/")}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setIsConfirmOpen(false)}>Hủy</Button>
+                      <Button onClick={performSubmit} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
+                        {isLoading ? "Đang gửi..." : "Xác nhận & Gửi"}
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </form>
+          </div>
+
+          {isAiConfirmOpen && (
+            <Dialog open={isAiConfirmOpen} onOpenChange={setIsAiConfirmOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Xác nhận mã cần làm rõ</DialogTitle>
+                </DialogHeader>
+                {aiNeedsConfirm && Object.keys(aiNeedsConfirm.options).length > 0 ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Một số mã có nhiều cách diễn giải năm. Vui lòng chọn chính xác cho từng mã:
+                    </p>
+                    <div className="space-y-2">
+                      {Object.entries(aiNeedsConfirm.options).map(([code, opts]) => (
+                        <div key={code} className="grid grid-cols-3 items-center gap-2">
+                          <Label className="col-span-1 text-sm">Mã {code}</Label>
+                          <div className="col-span-2">
+                            <Select
+                              value={aiNeedsConfirm.selections[code] || ""}
+                              onValueChange={(v) =>
+                                setAiNeedsConfirm((prev) =>
+                                  prev ? { options: prev.options, selections: { ...prev.selections, [code]: v } } : prev
+                                )
+                              }
+                            >
+                              <SelectTrigger className="h-10"><SelectValue placeholder="Chọn mã đúng" /></SelectTrigger>
+                              <SelectContent>
+                                {opts.map((o) => (
+                                  <SelectItem key={o} value={o}>{o}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button variant="outline" onClick={() => setIsAiConfirmOpen(false)}>Để sau</Button>
+                      <Button
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => {
+                          if (!aiNeedsConfirm) return;
+                          const chosen = Object.values(aiNeedsConfirm.selections || {}).filter(Boolean);
+                          if (chosen.length > 0) {
+                            setMultipleAssets((prev) => {
+                              const existing = prev.filter((a) => a.trim());
+                              const merged = Array.from(new Set([...existing, ...chosen]));
+                              return merged.length > 0 ? merged : [""];
+                            });
+                            toast.success(`Đã thêm xác nhận cho ${chosen.length} mã.`);
+                          }
+                          setIsAiConfirmOpen(false);
+                        }}
+                      >
+                        Xác nhận & Thêm
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">Không có mã cần xác nhận.</div>
+                )}
+              </DialogContent>
+            </Dialog>
           )}
+
+          <div ref={todayRef} className="rounded-lg bg-card border p-6 shadow-sm">
+            <button className="w-full flex items-center justify-between text-left" onClick={() => setListOpen((o) => !o)}>
+              <span className="font-semibold">Thông báo đã gửi hôm nay</span>
+              <span className="text-muted-foreground">{listOpen ? "Thu gọn" : "Mở"}</span>
+            </button>
+
+            {listOpen && (
+              <Suspense fallback={<div className="mt-4 text-sm text-muted-foreground">Đang tải danh sách của bạn...</div>}>
+                <MyTodaySubmissionsLazy />
+              </Suspense>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Thanh nút nổi trên mobile */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+        <div className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 h-11"
+            onClick={() => {
+              setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData);
+              setMultipleAssets([""]);
+            }}
+          >
+            Clear
+          </Button>
+          <Button
+            className="flex-1 h-11 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+            disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")}
+            onClick={() => handleOpenConfirm()}
+          >
+            {isLoading ? "Đang gửi..." : "Gửi thông báo"}
+          </Button>
         </div>
       </div>
     </div>
