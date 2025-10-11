@@ -112,6 +112,7 @@ export default function AssetEntryClient() {
   const settleTimeoutRef = useRef<number | null>(null);
   // Mỗi ô nhập chỉ kích hoạt cuộn 1 lần khi gõ ký tự đầu tiên
   const [firstTypeTriggered, setFirstTypeTriggered] = useState<boolean[]>([false]);
+  const firstTypeTriggeredRef = useRef<boolean[]>([false]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -282,14 +283,16 @@ export default function AssetEntryClient() {
 
   // Kích hoạt cuộn khi người dùng gõ ký tự đầu tiên trong một ô (kể cả số)
   const handleFirstType = React.useCallback((index: number) => {
-    // Đánh dấu đã kích hoạt lần đầu cho ô đó
+    // Guard: chỉ trigger 1 lần/ô kể cả nhiều event cùng lúc (beforeinput/keydown/change)
+    while (firstTypeTriggeredRef.current.length <= index) firstTypeTriggeredRef.current.push(false);
+    if (firstTypeTriggeredRef.current[index]) return;
+    firstTypeTriggeredRef.current[index] = true;
     setFirstTypeTriggered((prev) => {
       const next = prev.slice();
       while (next.length <= index) next.push(false);
-      if (!next[index]) next[index] = true;
+      next[index] = true;
       return next.length > 0 ? next : [true];
     });
-    // Cuộn theo đúng ô input đang gõ
     const target = assetInputRefs.current[index] ?? (document.activeElement as HTMLElement | null);
     triggerScrollRoutine(target || undefined);
   }, [triggerScrollRoutine]);
@@ -378,6 +381,8 @@ export default function AssetEntryClient() {
         let trigNext = prevTrig.slice();
         if (appended && prevTrig.length < next.length) {
           trigNext = [...prevTrig, false];
+          // Đồng bộ guard ref khi auto-append
+          firstTypeTriggeredRef.current.push(false);
         }
         const becameNonEmpty = wasEmptyBefore && normalized.trim() !== "";
         if (becameNonEmpty && !prevTrig[index]) {
@@ -385,6 +390,9 @@ export default function AssetEntryClient() {
           const target = assetInputRefs.current[index] ?? (document.activeElement as HTMLElement | null);
           triggerScrollRoutine(target);
           trigNext[index] = true;
+          // Cập nhật guard ref để không trigger lại
+          while (firstTypeTriggeredRef.current.length <= index) firstTypeTriggeredRef.current.push(false);
+          firstTypeTriggeredRef.current[index] = true;
         }
         if (trigNext.length > next.length) {
           trigNext = trigNext.slice(0, next.length);
@@ -400,6 +408,7 @@ export default function AssetEntryClient() {
     setMultipleAssets((prev) => {
       const next = [...prev, ""];
       setFirstTypeTriggered((prevTrig) => [...prevTrig, false]);
+      firstTypeTriggeredRef.current.push(false);
       return next;
     });
   }, []);
@@ -412,9 +421,13 @@ export default function AssetEntryClient() {
           const arr = prevTrig.filter((_, i) => i !== index);
           return arr.length > 0 ? arr : [false];
         });
+        // Đồng bộ guard ref khi xóa ô
+        firstTypeTriggeredRef.current = firstTypeTriggeredRef.current.filter((_, i) => i !== index);
+        if (firstTypeTriggeredRef.current.length === 0) firstTypeTriggeredRef.current = [false];
         return next;
       }
       setFirstTypeTriggered([false]);
+      firstTypeTriggeredRef.current = [false];
       return [""];
     });
   }, []);
@@ -551,6 +564,7 @@ export default function AssetEntryClient() {
     setFormData(calculateDefaultValues(currentStaff));
     setMultipleAssets([""]);
     setFirstTypeTriggered([false]);
+    firstTypeTriggeredRef.current = [false];
     setIsLoading(false);
 
     try {
@@ -847,6 +861,8 @@ export default function AssetEntryClient() {
                                 setFirstTypeTriggered((prevTrig) => [...prevTrig, false]);
                                 return arr;
                               });
+                              // Đồng bộ guard ref cho ô mới và cuộn sau khi focus
+                              firstTypeTriggeredRef.current.push(false);
                               setTimeout(() => {
                                 const el = assetInputRefs.current[next];
                                 if (el) {
@@ -1035,6 +1051,7 @@ export default function AssetEntryClient() {
                     setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData);
                     setMultipleAssets([""]);
                     setFirstTypeTriggered([false]);
+                   firstTypeTriggeredRef.current = [false];
                   }}
                 >
                   Clear
