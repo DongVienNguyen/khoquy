@@ -231,27 +231,40 @@ export default function AssetEntryClient() {
       const tag = el.tagName;
       return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
     };
-    const scrollToToday = () => {
+    const scrollToTodayBottomFit = () => {
       if (!todayRef.current) return;
-      const y = Math.max(0, todayRef.current.offsetTop - 12);
-      window.scrollTo({ top: y, behavior: "smooth" });
+      const vv = typeof window !== "undefined" ? (window as any).visualViewport : null;
+      const rect = todayRef.current.getBoundingClientRect();
+      const absTop = window.pageYOffset + rect.top;
+      const absBottom = absTop + rect.height;
+      const viewportHeight = vv?.height ?? window.innerHeight;
+      const margin = 8; // chừa 1 chút khoảng trắng
+      const targetY = Math.max(0, absBottom - (viewportHeight - margin));
+      window.scrollTo({ top: targetY, behavior: "smooth" });
     };
     const onFocusIn = () => {
-      // chờ keyboard xuất hiện rồi cuộn
-      setTimeout(scrollToToday, 80);
+      if (isFocusable(document.activeElement)) {
+        // đợi keyboard bật xong mới canh
+        setTimeout(scrollToTodayBottomFit, 150);
+      }
     };
     const vv: any = typeof window !== "undefined" ? (window as any).visualViewport : null;
     const onVVResize = () => {
+      // Khi chiều cao viewport thay đổi do bàn phím, căn lại vị trí
       if (isFocusable(document.activeElement)) {
-        setTimeout(scrollToToday, 50);
+        // phản ứng nhanh khi keyboard thay đổi chiều cao
+        setTimeout(scrollToTodayBottomFit, 0);
       }
     };
     window.addEventListener("focusin", onFocusIn, { passive: true });
+    // fallback khi một số trình duyệt không bắn focusin đúng lúc
+    window.addEventListener("resize", onVVResize, { passive: true });
     if (vv && typeof vv.addEventListener === "function") {
       vv.addEventListener("resize", onVVResize, { passive: true });
     }
     return () => {
       window.removeEventListener("focusin", onFocusIn);
+      window.removeEventListener("resize", onVVResize);
       if (vv && typeof vv.removeEventListener === "function") {
         vv.removeEventListener("resize", onVVResize);
       }
