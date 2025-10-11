@@ -991,33 +991,34 @@ export default function AssetEntryClient() {
               </Suspense>
             )}
           </div>
+
+          {isMounted && (
+            <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+              <div className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 h-11"
+                  onClick={() => {
+                    setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData);
+                    setMultipleAssets([""]);
+                    setFirstTypeTriggered([false]);
+                  }}
+                >
+                  Clear
+                </Button>
+                <Button
+                  className="flex-1 h-11 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                  disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")}
+                  onClick={() => handleOpenConfirm()}
+                >
+                  {isLoading ? "Đang gửi..." : "Gửi thông báo"}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
-
-      {/* Thanh nút nổi trên mobile */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-        <div className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1 h-11"
-            onClick={() => {
-              setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData);
-              setMultipleAssets([""]);
-              setFirstTypeTriggered([false]);
-            }}
-          >
-            Clear
-          </Button>
-          <Button
-            className="flex-1 h-11 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-            disabled={!isFormValid || isLoading || (isRestrictedTime && currentStaff?.role !== "admin")}
-            onClick={() => handleOpenConfirm()}
-          >
-            {isLoading ? "Đang gửi..." : "Gửi thông báo"}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }
