@@ -238,22 +238,33 @@ export default function AssetEntryClient() {
       const absTop = window.pageYOffset + rect.top;
       const absBottom = absTop + rect.height;
       const viewportHeight = vv?.height ?? window.innerHeight;
-      const margin = 8; // chừa 1 chút khoảng trắng
+      const margin = 8;
       const targetY = Math.max(0, absBottom - (viewportHeight - margin));
       window.scrollTo({ top: targetY, behavior: "smooth" });
     };
+    const scheduleSettledScroll = () => {
+      // Cuộn ngay và lặp lại để bắt kịp thời điểm bàn phím hoàn tất mở
+      scrollToTodayBottomFit();
+      setTimeout(scrollToTodayBottomFit, 160);
+      setTimeout(scrollToTodayBottomFit, 320);
+    };
     const onFocusIn = () => {
       if (isFocusable(document.activeElement)) {
-        // đợi keyboard bật xong mới canh
-        setTimeout(scrollToTodayBottomFit, 150);
+        // Cuộn ngay lần đầu và lặp lại để đảm bảo sát mép dưới
+        scheduleSettledScroll();
       }
     };
     const vv: any = typeof window !== "undefined" ? (window as any).visualViewport : null;
     const onVVResize = () => {
       // Khi chiều cao viewport thay đổi do bàn phím, căn lại vị trí
       if (isFocusable(document.activeElement)) {
-        // phản ứng nhanh khi keyboard thay đổi chiều cao
-        setTimeout(scrollToTodayBottomFit, 0);
+        // Phản ứng nhanh khi keyboard thay đổi chiều cao
+        scheduleSettledScroll();
+      }
+    };
+    const onVVGeometryChange = () => {
+      if (isFocusable(document.activeElement)) {
+        scheduleSettledScroll();
       }
     };
     window.addEventListener("focusin", onFocusIn, { passive: true });
@@ -261,12 +272,15 @@ export default function AssetEntryClient() {
     window.addEventListener("resize", onVVResize, { passive: true });
     if (vv && typeof vv.addEventListener === "function") {
       vv.addEventListener("resize", onVVResize, { passive: true });
+      // iOS Safari thường bắn geometrychange thay vì resize
+      vv.addEventListener("geometrychange", onVVGeometryChange, { passive: true });
     }
     return () => {
       window.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("resize", onVVResize);
       if (vv && typeof vv.removeEventListener === "function") {
         vv.removeEventListener("resize", onVVResize);
+        vv.removeEventListener("geometrychange", onVVGeometryChange);
       }
     };
   }, []);
