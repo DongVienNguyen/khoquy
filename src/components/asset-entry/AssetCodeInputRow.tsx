@@ -20,6 +20,15 @@ type Props = {
 
 const AssetCodeInputRow: React.FC<Props> = React.memo(
   ({ index, value, isValid, onChange, onAddRow, onRemoveRow, inputRef, onTabNavigate, showRemove, onFirstType }) => {
+    // Khi value vừa có ký tự đầu và icon đỏ lần đầu xuất hiện -> kích hoạt cuộn
+    const firstInvalidShownRef = React.useRef(false);
+    React.useEffect(() => {
+      if (!firstInvalidShownRef.current && value && value.trim() !== "" && !isValid) {
+        firstInvalidShownRef.current = true;
+        onFirstType?.(index);
+      }
+    }, [value, isValid, index, onFirstType]);
+    
     return (
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
