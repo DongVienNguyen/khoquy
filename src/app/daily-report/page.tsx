@@ -15,11 +15,10 @@ import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
-import { FileText, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, ChevronRight, Plus, CheckCircle, Edit, Trash2, RefreshCw, Download } from "lucide-react";
+import { FileText, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, ChevronRight, Plus, CheckCircle, Edit, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { SonnerToaster } from "@/components/ui/sonner";
 import AssetEntryInlineForm from "@/components/asset-entry/AssetEntryInlineForm";
-import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
+import { edgeInvoke } from "@/lib/edge-invoke";
 
 type SafeStaff = {
   id: string;
@@ -37,7 +36,7 @@ type AssetTx = {
   asset_year: number;
   asset_code: number;
   transaction_type: "Xuất kho" | "Mượn TS" | "Thay bìa";
-  transaction_date: string; // yyyy-MM-dd
+  transaction_date: string;
   parts_day: "Sáng" | "Chiều";
   note: string | null;
   staff_code: string;
@@ -82,8 +81,8 @@ function getNextWorkingDay(date = new Date()): Date {
   const d = new Date(date);
   const dow = d.getDay();
   let add = 1;
-  if (dow === 5) add = 3; // Fri -> Mon
-  else if (dow === 6) add = 2; // Sat -> Mon
+  if (dow === 5) add = 3;
+  else if (dow === 6) add = 2;
   return addDays(d, add);
 }
 
@@ -121,7 +120,6 @@ export default function DailyReportPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isFetchingData, setIsFetchingData] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const [showGrouped, setShowGrouped] = useState(true);
 
   const [filterType, setFilterType] = useState<string>("");
@@ -136,8 +134,8 @@ export default function DailyReportPage() {
 
   const [isNotesDialogOpen, setIsNotesDialogOpen] = useState(false);
   const [noteFormData, setNoteFormData] = useState<{ room: string; operation_type: string; content: string; mail_to_nv: string; }>({
-    room: "",
-    operation_type: "",
+    room: "QLN",
+    operation_type: "Khác",
     content: "",
     mail_to_nv: "",
   });
@@ -158,8 +156,6 @@ export default function DailyReportPage() {
   const autoRefreshRef = useRef<any>(null);
   const hasInitializedFilter = useRef(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
-  const [isAssetEntryDialogOpen, setIsAssetEntryDialogOpen] = useState(false);
 
   const isFetchingDataRef = useRef(false);
   useEffect(() => { isFetchingDataRef.current = isFetchingData; }, [isFetchingData]);
@@ -172,15 +168,6 @@ export default function DailyReportPage() {
 
   const currentUsernameRef = useRef<string | undefined>(undefined);
   useEffect(() => { currentUsernameRef.current = currentStaff?.username; }, [currentStaff]);
-
-  const [showAutoRefreshing, setShowAutoRefreshing] = useState(false);
-  useEffect(() => {
-    if (autoRefresh && !isManualRefreshing && isFetchingData) {
-      const t = setTimeout(() => setShowAutoRefreshing(true), 400);
-      return () => clearTimeout(t);
-    }
-    setShowAutoRefreshing(false);
-  }, [autoRefresh, isManualRefreshing, isFetchingData]);
 
   useEffect(() => {
     const raw = getLoggedInStaff();
@@ -283,7 +270,6 @@ export default function DailyReportPage() {
 
   const backgroundRefresh = useCallback(async () => {
     if (document.hidden || isFetchingDataRef.current) return;
-
     setIsFetchingData(true);
     try {
       const range = getScopedDateRange();
@@ -332,17 +318,18 @@ export default function DailyReportPage() {
     setCurrentPage(1);
   }, [filterType, customFilters]);
 
+  const gmt7TodayStr = useMemo(() => {
+    const now = new Date();
+    const gmt7 = new Date(now.getTime() + 7 * 3600 * 1000);
+    return format(gmt7, "yyyy-MM-dd");
+  }, []);
+
   const isRestrictedNow = useCallback(() => {
     const now = new Date();
     const gmt7Hour = (now.getUTCHours() + 7) % 24;
     const minutes = now.getUTCMinutes();
     const current = gmt7Hour * 60 + minutes;
     return (current >= 465 && current <= 485) || (current >= 765 && current <= 785);
-  }, []);
-  const gmt7TodayStr = useMemo(() => {
-    const now = new Date();
-    const gmt7 = new Date(now.getTime() + 7 * 3600 * 1000);
-    return format(gmt7, "yyyy-MM-dd");
   }, []);
 
   const canActOnTransaction = useCallback((t: AssetTx) => {
@@ -412,67 +399,9 @@ export default function DailyReportPage() {
     });
   }, [allTransactions, filterType, customFilters]);
 
-  const filteredDeletedTransactions = useMemo(() => {
-    const transactions = (allTransactions || []).filter(Boolean);
-    if (transactions.length === 0) return [];
-    let base: AssetTx[] = [];
-    const tmp = (function (): AssetTx[] {
-      if (filterType === "qln_pgd_next_day") {
-        const targetDate = getMorningTargetDate();
-        const targetStr = format(targetDate, "yyyy-MM-dd");
-        const pgdRooms = ["CMT8", "NS", "ĐS", "LĐH"];
-        return transactions.filter((t) => {
-          const matchesDate = format(new Date(t.transaction_date), "yyyy-MM-dd") === targetStr;
-          if (!matchesDate) return false;
-          const isMorning = t.parts_day === "Sáng";
-          const isPgdAfternoon = t.parts_day === "Chiều" && pgdRooms.includes(t.room);
-          return isMorning || isPgdAfternoon;
-        });
-      } else if (filterType === "next_day") {
-        const targetDate = getNextWorkingDay();
-        const targetStr = format(targetDate, "yyyy-MM-dd");
-        return transactions.filter((t) => format(new Date(t.transaction_date), "yyyy-MM-dd") === targetStr);
-      } else if (filterType === "custom") {
-        const start = new Date(customFilters.start + "T00:00:00");
-        const end = new Date(customFilters.end + "T23:59:59");
-        const parts = customFilters.parts_day === "all" ? null : customFilters.parts_day;
-        return transactions.filter((t) => {
-          const dt = new Date(t.transaction_date);
-          const dateMatch = dt >= start && dt <= end;
-          const partsMatch = !parts || t.parts_day === parts;
-          return dateMatch && partsMatch;
-        });
-      } else {
-        let target: Date;
-        let parts: "Sáng" | "Chiều" | null;
-        if (filterType === "morning") {
-          target = getMorningTargetDate();
-          parts = "Sáng";
-        } else if (filterType === "afternoon") {
-          target = new Date();
-          parts = "Chiều";
-        } else {
-          target = new Date();
-          parts = null;
-        }
-        const targetStr = format(target, "yyyy-MM-dd");
-        return transactions.filter((t) => {
-          const dateMatch = format(new Date(t.transaction_date), "yyyy-MM-dd") === targetStr;
-          const partsMatch = !parts || t.parts_day === parts;
-          return dateMatch && partsMatch;
-        });
-      }
-    })();
-    base = tmp;
-    return base.filter((t) => t.is_deleted).sort((a, b) => {
-      if (a.room !== b.room) return a.room.localeCompare(b.room);
-      if (a.asset_year !== b.asset_year) return a.asset_year - b.asset_year;
-      return (a.asset_code || 0) - (b.asset_code || 0);
-    });
-  }, [allTransactions, filterType, customFilters]);
-
   const startOfCurrentWeek = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
   const endOfCurrentWeek = useMemo(() => endOfWeek(new Date(), { weekStartsOn: 1 }), []);
+
   const groupedRows = useMemo(() => {
     const txs = filteredTransactions;
     const notes = processedNotes;
@@ -488,12 +417,12 @@ export default function DailyReportPage() {
     });
 
     const visible = txs.filter((t) => !takenTransactionIds.has(t.id));
-
     const groupedByRoom: Record<string, AssetTx[]> = {};
     visible.forEach((t) => {
       groupedByRoom[t.room] = groupedByRoom[t.room] || [];
       groupedByRoom[t.room].push(t);
     });
+
     const roomOrder = ["QLN", "CMT8", "NS", "ĐS", "LĐH", "DVKH"];
     const sortedRooms = Object.keys(groupedByRoom).sort((a, b) => {
       const ia = roomOrder.indexOf(a);
@@ -533,7 +462,6 @@ export default function DailyReportPage() {
           codes: "",
           isNote: true,
           noteData: note,
-          isFullWidth: true,
         });
       });
     }
@@ -697,7 +625,7 @@ export default function DailyReportPage() {
       return;
     }
     toast.success("Đã tạo ghi chú");
-    setNoteFormData({ room: "", operation_type: "", content: "", mail_to_nv: "" });
+    setNoteFormData({ room: "QLN", operation_type: "Khác", content: "", mail_to_nv: "" });
     setIsNotesDialogOpen(false);
     loadProcessedNotes();
   }, [canManageDailyReport, noteFormData, currentStaff, loadProcessedNotes]);
@@ -749,43 +677,6 @@ export default function DailyReportPage() {
     loadProcessedNotes();
   }, [canManageDailyReport, loadProcessedNotes]);
 
-  const exportFilteredCSV = useCallback(() => {
-    if (!filteredTransactions.length) {
-      toast.info("Không có dữ liệu để xuất.");
-      return;
-    }
-    const esc = (s: any) => {
-      const v = String(s ?? "");
-      const w = v.replace(/"/g, '""');
-      return /[",\n\r]/.test(w) ? `"${w}"` : w;
-    };
-    const header = ["Phòng","Năm TS","Mã TS","Loại","Ngày","Buổi","Ghi chú","CB","Time nhắn","ID"];
-    const lines: string[] = [header.join(",")];
-    for (const t of filteredTransactions) {
-      lines.push([
-        esc(t.room),
-        esc(t.asset_year),
-        esc(t.asset_code),
-        esc(t.transaction_type),
-        esc(t.transaction_date),
-        esc(t.parts_day),
-        esc(t.note || ""),
-        esc(t.staff_code),
-        esc(t.notified_at),
-        esc(t.id),
-      ].join(","));
-    }
-    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `DailyReport_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [filteredTransactions]);
-
   const todayText = useMemo(() => {
     const sWeek = format(startOfCurrentWeek, "II");
     const sYear = format(startOfCurrentWeek, "yyyy");
@@ -802,57 +693,43 @@ export default function DailyReportPage() {
     }
   }, []);
 
-  const exportToPDF = useCallback(() => {
-    window.print();
-  }, []);
-
   const QuickFilter = () => (
     <RadioGroup
       value={filterType}
       onValueChange={(v) => setFilterType(v)}
-      className="grid grid-cols-2 sm:grid-cols-3 gap-2"
+      className="grid grid-cols-1 gap-2"
     >
       <div className="flex items-center space-x-2">
         <RadioGroupItem value="morning" id="filter-morning" />
-        <Label htmlFor="filter-morning">Sáng hôm nay</Label>
-      </div>
-      <div className="flex items-center space-x-2">
-        <RadioGroupItem value="afternoon" id="filter-afternoon" />
-        <Label htmlFor="filter-afternoon">Chiều hôm nay</Label>
-      </div>
-      <div className="flex items-center space-x-2">
-        <RadioGroupItem value="today" id="filter-today" />
-        <Label htmlFor="filter-today">Trong ngày</Label>
-      </div>
-      <div className="flex items-center space-x-2">
-        <RadioGroupItem value="next_day" id="filter-nextday" />
-        <Label htmlFor="filter-nextday">Ngày kế tiếp</Label>
+        <Label htmlFor="filter-morning">Sáng ngày ({morningDateFormatted})</Label>
       </div>
       <div className="flex items-center space-x-2">
         <RadioGroupItem value="qln_pgd_next_day" id="filter-qlnpgd" />
-        <Label htmlFor="filter-qlnpgd">QLN sáng & PGD trong ngày</Label>
+        <Label htmlFor="filter-qlnpgd">QLN Sáng & PGD trong ngày ({qlnPgdDateFormatted})</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="afternoon" id="filter-afternoon" />
+        <Label htmlFor="filter-afternoon">Chiều ngày ({todayFormatted})</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="today" id="filter-today" />
+        <Label htmlFor="filter-today">Trong ngày hôm nay ({todayFormatted})</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="next_day" id="filter-nextday" />
+        <Label htmlFor="filter-nextday">Trong ngày kế tiếp ({nextWorkingDayFormatted})</Label>
       </div>
       <div className="flex items-center space-x-2">
         <RadioGroupItem value="custom" id="filter-custom" />
-        <Label htmlFor="filter-custom">Tùy chọn</Label>
+        <Label htmlFor="filter-custom">Tùy chọn khoảng thời gian</Label>
       </div>
     </RadioGroup>
   );
 
   return (
     <div className="p-4 md:p-8">
-      {/* Chỉ in phần báo cáo */}
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #print-section, #print-section * { visibility: visible; }
-          #print-section { position: absolute; left: 0; top: 0; width: 100%; }
-          .no-print { display: none !important; }
-        }
-      `}</style>
-
-      {/* Header: tiêu đề + tuần + cập nhật + nút điều khiển */}
-      <div className="flex items-center justify-between mb-6 no-print">
+      {/* Header: Tiêu đề + tuần + cập nhật + nút điều khiển */}
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-r from-green-600 to-green-700 rounded-xl flex items-center justify-center">
             <FileText className="w-6 h-6 text-white" />
@@ -861,7 +738,7 @@ export default function DailyReportPage() {
             <h1 className="text-2xl md:text-3xl font-bold">Danh sách TS cần lấy</h1>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600 mt-1">
               <span>
-                Tuần {format(startOfCurrentWeek, "II")} - {format(startOfCurrentWeek, "yyyy")} ({format(startOfCurrentWeek, "dd/MM")} - {format(endOfCurrentWeek, "dd/MM")})
+                {todayText}
               </span>
               {lastRefreshTime && (
                 <span className="text-xs text-green-600 font-medium">
@@ -873,7 +750,6 @@ export default function DailyReportPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Auto refresh switch + nhãn */}
           <div className="hidden md:flex items-center gap-2 text-sm mr-2">
             <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} className="data-[state=checked]:bg-green-600" />
             <span className={`font-medium ${autoRefresh ? "text-green-600" : "text-gray-500"}`}>
@@ -881,7 +757,6 @@ export default function DailyReportPage() {
             </span>
             {autoRefresh && <span className="text-xs text-gray-500">(60s)</span>}
           </div>
-
           <Button
             variant="outline"
             onClick={() => loadAllTransactions(true, true)}
@@ -891,13 +766,6 @@ export default function DailyReportPage() {
           >
             <RefreshCw className={`w-4 h-4 ${isFetchingData ? "animate-spin" : ""}`} /> Làm mới
           </Button>
-
-          {/* Xuất PDF */}
-          <Button onClick={exportToPDF} variant="outline" className="gap-2" disabled={!filteredTransactions.length}>
-            <Download className="w-4 h-4" /> Xuất PDF
-          </Button>
-
-          {/* Toggle Hiện/Ẩn DS (gom nhóm) */}
           <Button
             onClick={() => setShowGrouped((v) => !v)}
             variant="outline"
@@ -906,28 +774,11 @@ export default function DailyReportPage() {
             <ListTree className="w-4 h-4 mr-2" />
             {showGrouped ? "Ẩn DS" : "Hiện DS"}
           </Button>
-
-          {/* Nhập TS */}
-          <Dialog open={isAssetEntryDialogOpen} onOpenChange={setIsAssetEntryDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-green-600 hover:bg-green-700 text-white gap-2">
-                <Plus className="w-4 h-4" /> Nhập TS
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-3xl">
-              <DialogHeader>
-                <DialogTitle>Nhập thông báo lấy TS</DialogTitle>
-              </DialogHeader>
-              <div>
-                <AssetEntryInlineForm />
-              </div>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
-      {/* Lưới 2 cột: Bộ lọc bên trái, danh sách bên phải */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print" id="main-content-section">
+      {/* Khung lọc bên trái */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="main-content-section">
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -988,197 +839,119 @@ export default function DailyReportPage() {
                 </Select>
               </div>
             )}
-
-            <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-2">
-                <ListTree className="w-4 h-4" /> Nhóm theo Phòng/Năm
-              </Label>
-              <Switch checked={showGrouped} onCheckedChange={setShowGrouped} />
-            </div>
+            {/* Bỏ nút Nhóm theo Phòng/Năm vì đã có Ẩn/Hiện DS */}
           </CardContent>
         </Card>
+        {/* Không còn khung danh sách ở cột phải — sẽ chuyển xuống cuối trang */}
+      </div>
 
-        {/* Bảng chi tiết bên phải (đưa cột Đã lấy lên đầu) */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Danh sách tài sản cần lấy ({filteredTransactions.length})</CardTitle>
-            <CardDescription>{headerDateDisplay}</CardDescription>
+      {/* Khung gom nhóm tài sản */}
+      {showGrouped && (
+        <Card className="mt-6">
+          <CardHeader className="bg-gradient-to-r from-slate-50 to-purple-50 border-b">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>{headerDateDisplay}</CardTitle>
+                <CardDescription>Dấu (*) TS đã được nhắn hơn một lần trong tuần</CardDescription>
+              </div>
+              {/* Đưa nút + Nhập TS vào khung gom nhóm, và bỏ nút dấu + thêm ghi chú */}
+              <Dialog open={isEditDialogOpen && false} onOpenChange={() => {}}>
+                <DialogTrigger asChild>
+                  <Dialog open={undefined} onOpenChange={setIsEditDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="bg-green-600 hover:bg-green-700 text-white gap-2">
+                        <Plus className="w-4 h-4" /> Nhập TS
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-3xl">
+                      <DialogHeader>
+                        <DialogTitle>Nhập thông báo lấy TS</DialogTitle>
+                      </DialogHeader>
+                      <div>
+                        <AssetEntryInlineForm />
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </DialogTrigger>
+              </Dialog>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {canSeeTakenColumn && <TableHead>Đã lấy</TableHead>}
-                    <TableHead>Phòng</TableHead>
-                    <TableHead>Năm TS</TableHead>
-                    <TableHead>Mã TS</TableHead>
-                    <TableHead>Loại</TableHead>
-                    <TableHead>Ngày</TableHead>
-                    <TableHead>Buổi</TableHead>
-                    <TableHead>Ghi chú</TableHead>
-                    <TableHead>CB</TableHead>
-                    <TableHead>Time nhắn</TableHead>
-                    <TableHead className="text-right">Thao tác</TableHead>
+                    <TableHead className="w-20 px-2">Phòng</TableHead>
+                    <TableHead className="w-14 px-2">Năm</TableHead>
+                    <TableHead className="px-2">Danh sách Mã TS</TableHead>
+                    <TableHead className="w-32 px-2 text-right">Thao tác</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {isLoading ? (
+                  {groupedRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
-                        Đang tải dữ liệu...
-                      </TableCell>
-                    </TableRow>
-                  ) : paginatedTransactions.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
-                        Không có dữ liệu.
+                      <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                        Không có dữ liệu nhóm.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    paginatedTransactions.map((t) => (
-                      <TableRow key={t.id}>
-                        {canSeeTakenColumn && (
-                          <TableCell>
-                            <Switch
-                              checked={takenTransactionIds.has(t.id)}
-                              onCheckedChange={() => handleToggleTakenStatus(t.id)}
-                            />
-                          </TableCell>
+                    groupedRows.map((row: any) => (
+                      <TableRow key={row.id}>
+                        {row.isNote ? (
+                          <>
+                            <TableCell colSpan={3} className="font-medium px-2 whitespace-pre-wrap">
+                              {row.room}
+                            </TableCell>
+                            <TableCell className="px-2 text-right">
+                              {canManageDailyReport && (
+                                <div className="flex gap-1 justify-end">
+                                  <Button size="sm" variant="ghost" onClick={() => handleEditNote(row.noteData)} className="h-8 w-8 p-0">
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => handleDeleteNote(row.noteData.id)} className="h-8 w-8 p-0">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" onClick={() => handleNoteDone(row.noteData.id)} className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700 text-white">
+                                    <CheckCircle className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="font-medium px-2">{row.room}</TableCell>
+                            <TableCell className="px-2 font-bold text-base sm:text-lg">{row.year}</TableCell>
+                            <TableCell className="px-2 font-mono font-bold text-xl sm:text-2xl">{row.codes}</TableCell>
+                            <TableCell />
+                          </>
                         )}
-                        <TableCell>{t.room}</TableCell>
-                        <TableCell>{t.asset_year}</TableCell>
-                        <TableCell>{t.asset_code}</TableCell>
-                        <TableCell>{t.transaction_type}</TableCell>
-                        <TableCell>{format(new Date(t.transaction_date), "dd/MM/yyyy")}</TableCell>
-                        <TableCell>{t.parts_day}</TableCell>
-                        <TableCell>{t.note || "-"}</TableCell>
-                        <TableCell>{t.staff_code}</TableCell>
-                        <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="sm" onClick={() => handleEditTransaction(t)}>
-                              <Edit className="w-4 h-4 mr-1" /> Sửa
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => handleDeleteTransaction(t.id)}>
-                              <Trash2 className="w-4 h-4 mr-1" /> Xóa
-                            </Button>
-                          </div>
-                        </TableCell>
                       </TableRow>
                     ))
                   )}
                 </TableBody>
               </Table>
             </div>
-            {/* Giữ phân trang như hiện tại */}
           </CardContent>
         </Card>
-      </div>
+      )}
 
-      {/* Vùng in và thứ tự trình bày: Gom nhóm phía trên, rồi chi tiết */}
-      <div id="print-section">
-        {showGrouped && (
-          <Card className="mt-6">
-            <CardHeader className="bg-gradient-to-r from-slate-50 to-purple-50 border-b">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>{headerDateDisplay}</CardTitle>
-                  <CardDescription>Dấu (*) TS đã được nhắn hơn một lần trong tuần</CardDescription>
-                </div>
-                {canManageDailyReport && (
-                  <Dialog open={isNotesDialogOpen} onOpenChange={setIsNotesDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="icon" className="h-9 w-9">
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    </DialogTrigger>
-                    {/* Form thêm ghi chú giữ nguyên ở dưới */}
-                  </Dialog>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-20 px-2">Phòng</TableHead>
-                      <TableHead className="w-14 px-2">Năm</TableHead>
-                      <TableHead className="px-2">Danh sách Mã TS</TableHead>
-                      <TableHead className="w-32 px-2 text-right">Thao tác</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {groupedRows.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                          Không có dữ liệu nhóm.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      groupedRows.map((row: any) => (
-                        <TableRow key={row.id}>
-                          {row.isNote ? (
-                            <>
-                              <TableCell colSpan={3} className="font-medium px-2 whitespace-pre-wrap">
-                                {row.room}
-                              </TableCell>
-                              <TableCell className="px-2 text-right">
-                                {canManageDailyReport && (
-                                  <div className="flex gap-1 justify-end">
-                                    <Button size="sm" variant="ghost" onClick={() => handleEditNote(row.noteData)} className="h-8 w-8 p-0">
-                                      <Edit className="h-4 w-4" />
-                                    </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => handleDeleteNote(row.noteData.id)} className="h-8 w-8 p-0">
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                    <Button size="sm" onClick={() => handleNoteDone(row.noteData.id)} className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700 text-white">
-                                      <CheckCircle className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </TableCell>
-                            </>
-                          ) : (
-                            <>
-                              <TableCell className="font-medium px-2">{row.room}</TableCell>
-                              <TableCell className="font-medium px-2">{row.year}</TableCell>
-                              <TableCell className="px-2 font-mono">{row.codes}</TableCell>
-                              <TableCell />
-                            </>
-                          )}
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* Các Dialog ghi chú và sửa giao dịch: giữ nguyên bên dưới để tái sử dụng */}
+      {/* Khung Ghi chú xử lý với nút cùng hàng tiêu đề */}
       <div className="mt-6">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="w-4 h-4" /> Ghi chú xử lý
-            </CardTitle>
-            <CardDescription>Thêm ghi chú cho báo cáo trong ngày</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {canManageDailyReport ? (
-              <div className="flex justify-end">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-4 h-4" /> Ghi chú xử lý
+              </CardTitle>
+              {canManageDailyReport ? (
                 <Button onClick={() => setIsNotesDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
                   Thêm ghi chú
                 </Button>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Bạn không có quyền quản lý ghi chú.</p>
-            )}
-          </CardContent>
+              ) : null}
+            </div>
+            <CardDescription>Thêm ghi chú cho báo cáo trong ngày</CardDescription>
+          </CardHeader>
         </Card>
       </div>
 
@@ -1233,114 +1006,105 @@ export default function DailyReportPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Sửa ghi chú */}
-      <Dialog open={isEditNoteDialogOpen} onOpenChange={setIsEditNoteDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Sửa ghi chú</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Label>Phòng</Label>
-            <Select value={editNoteFormData.room} onValueChange={(v) => setEditNoteFormData((p) => ({ ...p, room: v }))}>
-              <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
-              <SelectContent>
-                {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            <Label>Loại xử lý</Label>
-            <Select value={editNoteFormData.operation_type} onValueChange={(v) => setEditNoteFormData((p) => ({ ...p, operation_type: v }))}>
-              <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Hoàn trả">Hoàn trả</SelectItem>
-                <SelectItem value="Xuất kho">Xuất kho</SelectItem>
-                <SelectItem value="Nhập kho">Nhập kho</SelectItem>
-                <SelectItem value="Xuất mượn">Xuất mượn</SelectItem>
-                <SelectItem value="Thiếu CT">Thiếu CT</SelectItem>
-                <SelectItem value="Khác">Khác</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Label>Nội dung</Label>
-            <Textarea
-              rows={3}
-              value={editNoteFormData.content}
-              onChange={(e) => setEditNoteFormData((p) => ({ ...p, content: e.target.value }))}
-              placeholder="Nhập nội dung ghi chú..."
-            />
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setIsEditNoteDialogOpen(false)}>Hủy</Button>
-              <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleUpdateNote}>Cập nhật</Button>
-            </div>
+      {/* Khung 'Danh sách tài sản cần lấy' chuyển xuống cuối trang */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Danh sách tài sản cần lấy ({filteredTransactions.length})</CardTitle>
+          <CardDescription>{headerDateDisplay}</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {canSeeTakenColumn && <TableHead>Đã lấy</TableHead>}
+                  <TableHead>Phòng</TableHead>
+                  <TableHead>Năm TS</TableHead>
+                  <TableHead>Mã TS</TableHead>
+                  <TableHead>Loại</TableHead>
+                  <TableHead>Ngày</TableHead>
+                  <TableHead>Buổi</TableHead>
+                  <TableHead>Ghi chú</TableHead>
+                  <TableHead>CB</TableHead>
+                  <TableHead>Time nhắn</TableHead>
+                  <TableHead className="text-right">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
+                      Đang tải dữ liệu...
+                    </TableCell>
+                  </TableRow>
+                ) : filteredTransactions.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
+                      Không có dữ liệu.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredTransactions.map((t) => (
+                    <TableRow key={t.id}>
+                      {canSeeTakenColumn && (
+                        <TableCell>
+                          <Switch
+                            checked={takenTransactionIds.has(t.id)}
+                            onCheckedChange={() => handleToggleTakenStatus(t.id)}
+                          />
+                        </TableCell>
+                      )}
+                      <TableCell>{t.room}</TableCell>
+                      <TableCell>{t.asset_year}</TableCell>
+                      <TableCell>{t.asset_code}</TableCell>
+                      <TableCell>{t.transaction_type}</TableCell>
+                      <TableCell>{format(new Date(t.transaction_date), "dd/MM/yyyy")}</TableCell>
+                      <TableCell>{t.parts_day}</TableCell>
+                      <TableCell>{t.note || "-"}</TableCell>
+                      <TableCell>{t.staff_code}</TableCell>
+                      <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => handleEditTransaction(t)}>
+                            <Edit className="w-4 h-4 mr-1" /> Sửa
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => handleDeleteTransaction(t.id)}>
+                            <Trash2 className="w-4 h-4 mr-1" /> Xóa
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog: Sửa giao dịch */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Sửa giao dịch</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Label>Ngày</Label>
-            <Input
-              type="date"
-              value={editFormData.transaction_date || ""}
-              onChange={(e) => setEditFormData((p: any) => ({ ...p, transaction_date: e.target.value }))}
-            />
-
-            <Label>Buổi</Label>
-            <Select
-              value={editFormData.parts_day || ""}
-              onValueChange={(v) => setEditFormData((p: any) => ({ ...p, parts_day: v }))}
-            >
-              <SelectTrigger><SelectValue placeholder="Chọn buổi" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Sáng">Sáng</SelectItem>
-                <SelectItem value="Chiều">Chiều</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Label>Phòng</Label>
-            <Select
-              value={editFormData.room || ""}
-              onValueChange={(v) => setEditFormData((p: any) => ({ ...p, room: v }))}
-            >
-              <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
-              <SelectContent>
-                {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            <Label>Loại</Label>
-            <Select
-              value={editFormData.transaction_type || ""}
-              onValueChange={(v) => setEditFormData((p: any) => ({ ...p, transaction_type: v }))}
-            >
-              <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Xuất kho">Xuất kho</SelectItem>
-                <SelectItem value="Mượn TS">Mượn TS</SelectItem>
-                <SelectItem value="Thay bìa">Thay bìa</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Label>Ghi chú</Label>
-            <Textarea
-              rows={2}
-              value={editFormData.note || ""}
-              onChange={(e) => setEditFormData((p: any) => ({ ...p, note: e.target.value }))}
-            />
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Hủy</Button>
-              <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleUpdateTransaction}>Cập nhật</Button>
+          {/* Phân trang nếu cần */}
+          {filteredTransactions.length > ITEMS_PER_PAGE && (
+            <div className="flex justify-center items-center gap-4 p-4">
+              <Button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                variant="outline"
+                className="gap-2"
+              >
+                <ChevronLeft className="w-4 h-4" /> Trước
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Trang {currentPage} / {Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE)}
+              </span>
+              <Button
+                onClick={() => setCurrentPage((p) => Math.min(Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE), p + 1))}
+                disabled={currentPage >= Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE)}
+                variant="outline"
+                className="gap-2"
+              >
+                Tiếp <ChevronRight className="w-4 h-4" />
+              </Button>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
