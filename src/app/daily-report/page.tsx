@@ -802,12 +802,483 @@ export default function DailyReportPage() {
     }
   }, []);
 
+  const QuickFilter = () => (
+    <RadioGroup
+      value={filterType}
+      onValueChange={(v) => setFilterType(v)}
+      className="grid grid-cols-2 sm:grid-cols-3 gap-2"
+    >
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="morning" id="filter-morning" />
+        <Label htmlFor="filter-morning">Sáng hôm nay</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="afternoon" id="filter-afternoon" />
+        <Label htmlFor="filter-afternoon">Chiều hôm nay</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="today" id="filter-today" />
+        <Label htmlFor="filter-today">Trong ngày</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="next_day" id="filter-nextday" />
+        <Label htmlFor="filter-nextday">Ngày kế tiếp</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="qln_pgd_next_day" id="filter-qlnpgd" />
+        <Label htmlFor="filter-qlnpgd">QLN sáng & PGD trong ngày</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="custom" id="filter-custom" />
+        <Label htmlFor="filter-custom">Tùy chọn</Label>
+      </div>
+    </RadioGroup>
+  );
+
   return (
     <div className="p-4 md:p-8">
       <SonnerToaster />
-      {/* ...giữ nguyên phần render từ bản hiện có, chỉ thay logic gọi function... */}
-      {/* Nội dung JSX phía dưới y hệt file gốc (không đổi UI), đã cập nhật các handler ở trên */}
-      {/* Vì file dài, phần JSX giữ nguyên như đã có trong dự án */}
+
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-r from-green-600 to-green-700 rounded-xl flex items-center justify-center">
+            <FileText className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">Báo cáo trong ngày</h1>
+            <p className="text-muted-foreground">{headerDateDisplay}</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => loadAllTransactions(true, true)}
+            disabled={isFetchingData}
+            className="gap-2"
+            title="Refresh dữ liệu"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetchingData ? "animate-spin" : ""}`} /> Refresh
+          </Button>
+          <Button onClick={exportFilteredCSV} variant="outline" className="gap-2" disabled={!filteredTransactions.length}>
+            <Download className="w-4 h-4" /> Xuất CSV
+          </Button>
+          <Dialog open={isAssetEntryDialogOpen} onOpenChange={setIsAssetEntryDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-green-600 hover:bg-green-700 text-white gap-2">
+                <Plus className="w-4 h-4" /> Nhập TS
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Nhập thông báo lấy TS</DialogTitle>
+              </DialogHeader>
+              <div>
+                <AssetEntryInlineForm />
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="main-content-section">
+        <Card className="lg:col-span-1">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="w-4 h-4" /> Bộ lọc nhanh
+            </CardTitle>
+            <CardDescription>Chọn khoảng hiển thị phù hợp</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <QuickFilter />
+            {filterType === "custom" && (
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4" /> Khoảng ngày
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start">
+                        {format(new Date(customFilters.start), "dd/MM/yyyy")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-0">
+                      <Calendar
+                        mode="single"
+                        selected={new Date(customFilters.start)}
+                        onSelect={(d) => d && setCustomFilters((p) => ({ ...p, start: format(d, "yyyy-MM-dd") }))}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start">
+                        {format(new Date(customFilters.end), "dd/MM/yyyy")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-0">
+                      <Calendar
+                        mode="single"
+                        selected={new Date(customFilters.end)}
+                        onSelect={(d) => d && setCustomFilters((p) => ({ ...p, end: format(d, "yyyy-MM-dd") }))}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <Label>Buổi</Label>
+                <Select
+                  value={customFilters.parts_day}
+                  onValueChange={(v) => setCustomFilters((p) => ({ ...p, parts_day: v as any }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="Chọn buổi" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Cả ngày</SelectItem>
+                    <SelectItem value="Sáng">Sáng</SelectItem>
+                    <SelectItem value="Chiều">Chiều</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2">
+                <ListTree className="w-4 h-4" /> Nhóm theo Phòng/Năm
+              </Label>
+              <Switch checked={showGrouped} onCheckedChange={setShowGrouped} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Danh sách giao dịch ({filteredTransactions.length})</CardTitle>
+            <CardDescription>
+              {todayText} {lastRefreshTime ? `• cập nhật: ${format(lastRefreshTime, "HH:mm")}` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Phòng</TableHead>
+                    <TableHead>Năm</TableHead>
+                    <TableHead>Mã</TableHead>
+                    <TableHead>Loại</TableHead>
+                    <TableHead>Ngày</TableHead>
+                    <TableHead>Buổi</TableHead>
+                    <TableHead>Ghi chú</TableHead>
+                    <TableHead>CB</TableHead>
+                    <TableHead>Time nhắn</TableHead>
+                    {canSeeTakenColumn && <TableHead>Đã lấy</TableHead>}
+                    <TableHead className="text-right">Thao tác</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
+                        Đang tải dữ liệu...
+                      </TableCell>
+                    </TableRow>
+                  ) : paginatedTransactions.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
+                        Không có dữ liệu.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    paginatedTransactions.map((t) => (
+                      <TableRow key={t.id}>
+                        <TableCell>{t.room}</TableCell>
+                        <TableCell>{t.asset_year}</TableCell>
+                        <TableCell>{t.asset_code}</TableCell>
+                        <TableCell>{t.transaction_type}</TableCell>
+                        <TableCell>{format(new Date(t.transaction_date), "dd/MM/yyyy")}</TableCell>
+                        <TableCell>{t.parts_day}</TableCell>
+                        <TableCell>{t.note || "-"}</TableCell>
+                        <TableCell>{t.staff_code}</TableCell>
+                        <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
+                        {canSeeTakenColumn && (
+                          <TableCell>
+                            <Switch
+                              checked={takenTransactionIds.has(t.id)}
+                              onCheckedChange={() => handleToggleTakenStatus(t.id)}
+                            />
+                          </TableCell>
+                        )}
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={() => handleEditTransaction(t)}>
+                              <Edit className="w-4 h-4 mr-1" /> Sửa
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => handleDeleteTransaction(t.id)}>
+                              <Trash2 className="w-4 h-4 mr-1" /> Xóa
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {filteredTransactions.length > ITEMS_PER_PAGE && (
+              <div className="flex justify-center items-center gap-4 p-4">
+                <Button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  variant="outline"
+                  className="gap-2"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Trước
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Trang {currentPage} / {totalPages}
+                </span>
+                <Button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  variant="outline"
+                  className="gap-2"
+                >
+                  Tiếp <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {showGrouped && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Tổng hợp theo Phòng/Năm</CardTitle>
+            <CardDescription>Hiển thị các mã TS theo nhóm</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {groupedRows.length === 0 ? (
+              <div className="text-sm text-muted-foreground">Không có dữ liệu nhóm.</div>
+            ) : (
+              <div className="space-y-2">
+                {groupedRows.map((row: any) =>
+                  row.isNote ? (
+                    <div key={row.id} className="p-3 rounded border bg-slate-50">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium">{row.room}</div>
+                        {canManageDailyReport && (
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => handleEditNote(row.noteData)}>
+                              <Edit className="w-4 h-4 mr-1" /> Sửa
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleNoteDone(row.noteData.id)}>
+                              <CheckCircle className="w-4 h-4 mr-1" /> Xong
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleDeleteNote(row.noteData.id)}>
+                              <Trash2 className="w-4 h-4 mr-1" /> Xóa
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={row.id} className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-center">
+                      <div className="font-medium sm:col-span-1">{row.room}</div>
+                      <div className="text-muted-foreground sm:col-span-1">Năm {row.year}</div>
+                      <div className="sm:col-span-4 font-mono">{row.codes}</div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="mt-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-4 h-4" /> Ghi chú xử lý
+            </CardTitle>
+            <CardDescription>Thêm ghi chú cho báo cáo trong ngày</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {canManageDailyReport ? (
+              <div className="flex justify-end">
+                <Button onClick={() => setIsNotesDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+                  Thêm ghi chú
+                </Button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Bạn không có quyền quản lý ghi chú.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Dialog: Thêm ghi chú */}
+      <Dialog open={isNotesDialogOpen} onOpenChange={setIsNotesDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Thêm ghi chú</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Label>Phòng</Label>
+            <Select value={noteFormData.room} onValueChange={(v) => setNoteFormData((p) => ({ ...p, room: v }))}>
+              <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
+              <SelectContent>
+                {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <Label>Loại xử lý</Label>
+            <Select value={noteFormData.operation_type} onValueChange={(v) => setNoteFormData((p) => ({ ...p, operation_type: v }))}>
+              <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Hoàn trả">Hoàn trả</SelectItem>
+                <SelectItem value="Xuất kho">Xuất kho</SelectItem>
+                <SelectItem value="Nhập kho">Nhập kho</SelectItem>
+                <SelectItem value="Xuất mượn">Xuất mượn</SelectItem>
+                <SelectItem value="Thiếu CT">Thiếu CT</SelectItem>
+                <SelectItem value="Khác">Khác</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Label>Nội dung</Label>
+            <Textarea
+              rows={3}
+              value={noteFormData.content}
+              onChange={(e) => setNoteFormData((p) => ({ ...p, content: e.target.value }))}
+              placeholder="Nhập nội dung ghi chú..."
+            />
+
+            <Label>Mail gửi (tùy chọn)</Label>
+            <Input
+              value={noteFormData.mail_to_nv}
+              onChange={(e) => setNoteFormData((p) => ({ ...p, mail_to_nv: e.target.value }))}
+              placeholder="username hoặc email"
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setIsNotesDialogOpen(false)}>Hủy</Button>
+              <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleNoteSubmit}>Lưu</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Sửa ghi chú */}
+      <Dialog open={isEditNoteDialogOpen} onOpenChange={setIsEditNoteDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sửa ghi chú</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Label>Phòng</Label>
+            <Select value={editNoteFormData.room} onValueChange={(v) => setEditNoteFormData((p) => ({ ...p, room: v }))}>
+              <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
+              <SelectContent>
+                {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <Label>Loại xử lý</Label>
+            <Select value={editNoteFormData.operation_type} onValueChange={(v) => setEditNoteFormData((p) => ({ ...p, operation_type: v }))}>
+              <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Hoàn trả">Hoàn trả</SelectItem>
+                <SelectItem value="Xuất kho">Xuất kho</SelectItem>
+                <SelectItem value="Nhập kho">Nhập kho</SelectItem>
+                <SelectItem value="Xuất mượn">Xuất mượn</SelectItem>
+                <SelectItem value="Thiếu CT">Thiếu CT</SelectItem>
+                <SelectItem value="Khác">Khác</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Label>Nội dung</Label>
+            <Textarea
+              rows={3}
+              value={editNoteFormData.content}
+              onChange={(e) => setEditNoteFormData((p) => ({ ...p, content: e.target.value }))}
+              placeholder="Nhập nội dung ghi chú..."
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setIsEditNoteDialogOpen(false)}>Hủy</Button>
+              <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleUpdateNote}>Cập nhật</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Sửa giao dịch */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sửa giao dịch</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Label>Ngày</Label>
+            <Input
+              type="date"
+              value={editFormData.transaction_date || ""}
+              onChange={(e) => setEditFormData((p: any) => ({ ...p, transaction_date: e.target.value }))}
+            />
+
+            <Label>Buổi</Label>
+            <Select
+              value={editFormData.parts_day || ""}
+              onValueChange={(v) => setEditFormData((p: any) => ({ ...p, parts_day: v }))}
+            >
+              <SelectTrigger><SelectValue placeholder="Chọn buổi" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Sáng">Sáng</SelectItem>
+                <SelectItem value="Chiều">Chiều</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Label>Phòng</Label>
+            <Select
+              value={editFormData.room || ""}
+              onValueChange={(v) => setEditFormData((p: any) => ({ ...p, room: v }))}
+            >
+              <SelectTrigger><SelectValue placeholder="Chọn phòng" /></SelectTrigger>
+              <SelectContent>
+                {ROOMS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <Label>Loại</Label>
+            <Select
+              value={editFormData.transaction_type || ""}
+              onValueChange={(v) => setEditFormData((p: any) => ({ ...p, transaction_type: v }))}
+            >
+              <SelectTrigger><SelectValue placeholder="Chọn loại" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Xuất kho">Xuất kho</SelectItem>
+                <SelectItem value="Mượn TS">Mượn TS</SelectItem>
+                <SelectItem value="Thay bìa">Thay bìa</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Label>Ghi chú</Label>
+            <Textarea
+              rows={2}
+              value={editFormData.note || ""}
+              onChange={(e) => setEditFormData((p: any) => ({ ...p, note: e.target.value }))}
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Hủy</Button>
+              <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleUpdateTransaction}>Cập nhật</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
