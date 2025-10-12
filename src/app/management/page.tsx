@@ -348,6 +348,14 @@ export default function ManagementPage() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState(0);
 
+  // New: prune partitions dialog state
+  const [pruneOpen, setPruneOpen] = useState(false);
+  const [pruneRetention, setPruneRetention] = useState<string>("4");
+  const [pruneDryRun, setPruneDryRun] = useState<boolean>(true);
+  const [pruneAutoCreateNext, setPruneAutoCreateNext] = useState<boolean>(true);
+  const [isPruning, setIsPruning] = useState(false);
+  const [pruneResult, setPruneResult] = useState<any>(null);
+
   // Overview tab states
   const [overviewCounts, setOverviewCounts] = useState<Record<string, number>>({});
   const [autoDeleteSettings, setAutoDeleteSettings] = useState<Record<string, { enabled: boolean; interval: string }>>({});
@@ -661,8 +669,8 @@ export default function ManagementPage() {
       updated_date: new Date().toISOString(),
     };
     try {
-      const { error } = await supabase.from("staff").update(patch).eq("id", staff.id);
-      if (error) throw error;
+      const res = await callAdminCrud("update_record", { table: "staff", id: staff.id, patch });
+      if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Không thể cập nhật trạng thái");
       setMessage({ type: "success", text: `Đã ${newStatus === "locked" ? "khóa" : "mở khóa"} tài khoản ${staff.staff_name || staff.username}!` });
       await loadData();
     } catch (e: any) {
@@ -1118,12 +1126,40 @@ export default function ManagementPage() {
     const counts: Record<string, number> = {};
     for (const [key, cfg] of Object.entries(entityConfig)) {
       try {
-        const { count } = await supabase.from(cfg.table).select("*", { count: "exact", head: true });
-        counts[key] = count || 0;
+        const res = await callAdminCrud("list_all", { table: cfg.table, orderBy: cfg.defaultSort?.replace("-", "") || "created_date", ascending: true });
+        if (res.ok && Array.isArray(res.data)) counts[key] = res.data.length;
+        else counts[key] = 0;
       } catch { counts[key] = 0; }
     }
     setOverviewCounts(counts);
   }, []);
+
+  async function runPruneAssetPartitions() {
+    if (!currentStaff) return;
+    setIsPruning(true);
+    setPruneResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("asset-maintenance", {
+        body: {
+          action: "prune_asset_partitions",
+          staff_username: currentStaff.username,
+          retention_quarters: parseInt(pruneRetention, 10),
+          dry_run: pruneDryRun,
+          auto_create_next: pruneAutoCreateNext,
+        },
+        headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+      });
+      if (error) throw error;
+      const payload = data?.data ?? data;
+      setPruneResult(payload);
+      toast.success(pruneDryRun ? "Dry-run thành công!" : "Đã dọn partition cũ thành công!");
+    } catch (e: any) {
+      toast.error(e?.message || "Không thể thực hiện dọn partition.");
+    } finally {
+      setIsPruning(false);
+    }
+  }
+
   const saveAutoDeleteSettings = useCallback(async () => {
     try {
       // Save to Supabase system_settings via upsert
@@ -1257,6 +1293,11 @@ export default function ManagementPage() {
                     {isComboProcessing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Archive className="w-4 h-4 mr-2" />}
                     Xóa & Backup toàn bộ
                   </Button>
+                  {isAdmin && (
+                    <Button onClick={() => setPruneOpen(true)} className="bg-black text-white">
+                      Dọn Asset Transactions (drop partition cũ)
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -1277,6 +1318,55 @@ export default function ManagementPage() {
               )}
             </div>
           </div>
+
+          {/* Dialog prune partitions */}
+          <Dialog open={pruneOpen} onOpenChange={setPruneOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Dọn Asset Transactions (drop partition cũ)</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Giữ lại số quý gần nhất</Label>
+                  <Select value={pruneRetention} onValueChange={setPruneRetention}>
+                    <SelectTrigger className="h-10"><SelectValue placeholder="Chọn số quý" /></SelectTrigger>
+                    <SelectContent>
+                      {["2","4","6","8","12"].map(v => <SelectItem key={v} value={v}>{v} quý</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch checked={pruneDryRun} onCheckedChange={setPruneDryRun} />
+                    Chạy thử (dry-run)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch checked={pruneAutoCreateNext} onCheckedChange={setPruneAutoCreateNext} />
+                    Tự tạo partition quý kế tiếp
+                  </label>
+                </div>
+                <Alert className="bg-amber-50 border-amber-200">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-amber-800">
+                    Hành động không thể hoàn tác. Hãy backup trước nếu cần. Tính năng yêu cầu bảng asset_transactions đã chuyển sang partition theo quý.
+                  </AlertDescription>
+                </Alert>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setPruneOpen(false)}>Hủy</Button>
+                  <Button onClick={runPruneAssetPartitions} disabled={isPruning} className="bg-black text-white">
+                    {isPruning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    {pruneDryRun ? "Chạy thử" : "Thực thi"}
+                  </Button>
+                </div>
+                {pruneResult && (
+                  <div className="rounded-md border p-3 text-sm bg-slate-50">
+                    <div className="font-medium mb-1">Kết quả:</div>
+                    <pre className="whitespace-pre-wrap break-words">{JSON.stringify(pruneResult, null, 2)}</pre>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           <StatsOverview />
         </div>

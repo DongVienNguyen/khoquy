@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,6 +61,9 @@ const StatsOverview: React.FC = () => {
       return localStorage.getItem("stats_auto_refresh") === "true";
     } catch { return false; }
   });
+  const [includeDeleted, setIncludeDeleted] = useState<boolean>(() => {
+    try { return localStorage.getItem("stats_include_deleted") === "true"; } catch { return false; }
+  });
 
   // Lưu auto-refresh vào localStorage khi thay đổi
   useEffect(() => {
@@ -69,6 +72,12 @@ const StatsOverview: React.FC = () => {
     } catch {}
   }, [autoRefresh]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("stats_include_deleted", includeDeleted ? "true" : "false");
+    } catch {}
+  }, [includeDeleted]);
+
   const load = useCallback(async () => {
     if (!startDate || !endDate) {
       toast.error("Vui lòng chọn đủ ngày bắt đầu và kết thúc.");
@@ -76,25 +85,25 @@ const StatsOverview: React.FC = () => {
     }
     setIsLoading(true);
     try {
-      let q = supabase
-        .from("asset_transactions")
-        .select("id, transaction_date, room, transaction_type, is_deleted")
-        .gte("transaction_date", startDate)
-        .lte("transaction_date", endDate);
-      // Áp dụng lọc phòng/loại ở server nếu có
-      if (selectedRoom !== "all") q = q.eq("room", selectedRoom);
-      if (selectedType !== "all") q = q.eq("transaction_type", selectedType);
-
-      const { data, error } = await q;
+      // gọi edge function asset-transactions -> list_range
+      const { data, error } = await supabase.functions.invoke("asset-transactions", {
+        body: { action: "list_range", start: startDate, end: endDate, include_deleted: includeDeleted },
+        headers: { Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}` },
+      });
       if (error) throw error;
-      setRows((data || []) as TxRow[]);
+      const payload = (data?.data ?? data) as TxRow[] | undefined;
+      const all = Array.isArray(payload) ? payload : [];
+      // áp dụng lọc phòng/loại ở client
+      const filtered = all.filter(r => (selectedRoom === "all" ? true : r.room === selectedRoom))
+                          .filter(r => (selectedType === "all" ? true : r.transaction_type === selectedType));
+      setRows(filtered);
     } catch (e: any) {
       toast.error(e?.message || "Không thể tải dữ liệu thống kê");
       setRows([]);
     } finally {
       setIsLoading(false);
     }
-  }, [startDate, endDate, selectedRoom, selectedType]);
+  }, [startDate, endDate, selectedRoom, selectedType, includeDeleted]);
 
   useEffect(() => { load(); }, []); // initial
 
@@ -107,6 +116,12 @@ const StatsOverview: React.FC = () => {
     return () => clearInterval(id);
   }, [autoRefresh, load]);
 
+  // Tự động load khi thay đổi lọc/ngày (debounce)
+  useEffect(() => {
+    const t = setTimeout(() => { load(); }, 400);
+    return () => clearTimeout(t);
+  }, [startDate, endDate, selectedRoom, selectedType, includeDeleted, load]);
+
   // Export CSV tổng hợp (daily, room, type)
   const exportSummaryCSV = useCallback(() => {
     const esc = (s: any) => {
@@ -115,25 +130,29 @@ const StatsOverview: React.FC = () => {
       return /[",\n\r]/.test(w) ? `"${w}"` : w;
     };
     const lines: string[] = [];
-    lines.push(`Từ ngày,${esc(startDate)},Đến ngày,${esc(endDate)},Phòng,${esc(selectedRoom)},Loại,${esc(selectedType)}`);
-    lines.push(""); // ngắt dòng
+    lines.push(`Từ ngày,${esc(startDate)},Đến ngày,${esc(endDate)},Phòng,${esc(selectedRoom)},Loại,${esc(selectedType)},Bao gồm đã xóa,${includeDeleted ? "Có" : "Không"}`);
+    lines.push("");
 
     // Daily
     lines.push("Daily,date,count");
-    // dailyData đã được tính sẵn ở dưới, nên gọi lại trước phần render
-    // ... existing code ...
+    dailyData.forEach(d => {
+      lines.push(`${esc(d.date)},${esc(d.count)}`);
+    });
 
     // Room
     lines.push("");
     lines.push("Rooms,room,count");
-    // ... existing code ...
+    roomData.forEach(r => {
+      lines.push(`${esc(r.room)},${esc(r.count)}`);
+    });
 
     // Type
     lines.push("");
     lines.push("Types,name,count");
-    // ... existing code ...
+    typeData.forEach(t => {
+      lines.push(`${esc(t.name)},${esc(t.value)}`);
+    });
 
-    // Tạo Blob và tải
     const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -143,7 +162,7 @@ const StatsOverview: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [startDate, endDate, selectedRoom, selectedType /*, dailyData, roomData, typeData */]);
+  }, [startDate, endDate, selectedRoom, selectedType, includeDeleted, dailyData, roomData, typeData]);
 
   // Build series per day (áp dụng lọc client bổ sung nếu cần)
   const dailyData = useMemo(() => {
@@ -237,6 +256,10 @@ const StatsOverview: React.FC = () => {
                 <label className="flex items-center gap-2 text-sm">
                   <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
                   Auto refresh
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={includeDeleted} onCheckedChange={setIncludeDeleted} />
+                  Bao gồm đã xóa
                 </label>
               </div>
             </div>
