@@ -1,8 +1,9 @@
 import React from "react";
 import LinkSignIn from "@/components/link-signin";
 
-export default function Page({ params }: { params: { username: string } }) {
-  const username = String(params?.username || "").trim();
+export default async function Page({ params }: { params: Promise<{ username: string }> }) {
+  const { username: raw } = await params;
+  const username = String(raw || "").trim();
 
   return (
     <div className="min-h-screen w-full grid place-items-center p-6">
