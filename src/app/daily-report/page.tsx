@@ -764,7 +764,7 @@ export default function DailyReportPage() {
                 className="gap-2"
                 title="Làm mới dữ liệu"
               >
-                <RefreshCw className={`w-4 h-4 ${isFetchingData ? "animate-spin" : ""}`} /> Làm mới
+                <RefreshCw className={`w-4 h-4 ${isFetchingData ? "animate-spin" : ""}`} /> 
               </Button>
               <Button
                 onClick={() => setShowGrouped((v) => !v)}
