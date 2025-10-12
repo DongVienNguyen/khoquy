@@ -1078,7 +1078,7 @@ export default function AssetEntryClient() {
               </div>
             )}
 
-            <form onSubmit={handleOpenConfirm} className="mt-6 space-y-6">
+            <form onSubmit={handleOpenConfirm} className="mt-4 space-y-3">
               {showOptions && (
               <div>
                 <Label className="flex items-center gap-2 text-sm font-medium mb-2">
@@ -1114,11 +1114,11 @@ export default function AssetEntryClient() {
               </div>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <Label className="flex items-center gap-2 text-sm font-medium">
                   <CalendarIcon className="text-muted-foreground" size={18} /> Khác tuần mới chọn ngày
                 </Label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-1.5">
                   <div className="flex items-center justify-center h-10 px-2 border rounded-md">
                     <div className="flex items-center gap-1">
                       <Checkbox
@@ -1162,8 +1162,8 @@ export default function AssetEntryClient() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-1.5">
                   <div className="flex items-center justify-center h-10 px-2 border rounded-md">
                     <div className="flex items-center gap-1">
                       <Checkbox
@@ -1197,8 +1197,8 @@ export default function AssetEntryClient() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 gap-3">
+              <div className="space-y-2">
+                <div className="grid grid-cols-1 gap-1.5">
                   <div className="flex items-center justify-between">
                     <Label className="text-sm font-medium">Nhiều TS chọn nút AI nhập bằng hình:</Label>
 

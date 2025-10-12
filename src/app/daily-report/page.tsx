@@ -731,8 +731,8 @@ export default function DailyReportPage() {
       ) : (
         <>
           {/* Header: Tiêu đề + tuần + cập nhật + nút điều khiển */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0 mb-4">
+            <div className="flex items-start md:items-center gap-3 md:w-auto">
               <div className="w-10 h-10 bg-gradient-to-r from-green-600 to-green-700 rounded-xl flex items-center justify-center">
                 <FileText className="w-6 h-6 text-white" />
               </div>
@@ -749,7 +749,7 @@ export default function DailyReportPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full md:w-auto justify-start md:justify-end mt-2 md:mt-0">
               <div className="hidden md:flex items-center gap-2 text-sm mr-2">
                 <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} className="data-[state=checked]:bg-green-600" />
                 <span className={`font-medium ${autoRefresh ? "text-green-600" : "text-gray-500"}`}>
