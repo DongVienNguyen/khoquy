@@ -913,7 +913,7 @@ export default function DailyReportPage() {
                     </div>
                     {canManageDailyReport ? (
                       <Button onClick={() => setIsNotesDialogOpen(true)} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
-                        Thêm ghi chú
+                        Notes
                       </Button>
                     ) : null}
                   </div>
