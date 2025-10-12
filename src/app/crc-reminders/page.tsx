@@ -319,6 +319,54 @@ export default function CRCRemindersPage() {
     });
   }, [reminders, searchText]);
 
+  // Tính recipients_block theo giá trị đang nhập để preview đúng và đủ người nhận
+  const computedRecipientsBlock = useMemo(() => {
+    const norm = (t: string) =>
+      (t || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "d");
+
+    const findByName = <T extends { ten_nv: string; email?: string }>(list: T[], name?: string) => {
+      if (!name) return undefined;
+      const n = norm(name);
+      return list.find(x => norm(x.ten_nv) === n);
+    };
+
+    const makeEmail = (rec: { email?: string } | undefined, fallbackName?: string) => {
+      const raw = (rec?.email || "").trim();
+      if (raw) {
+        return raw.includes("@") ? raw : `${raw}@vietcombank.com.vn`;
+      }
+      return (fallbackName || "").trim();
+    };
+
+    const lines: string[] = [];
+    const ldp = String(newReminder.ldpcrc || "").trim();
+    const cb = String(newReminder.cbcrc || "").trim();
+    const quy = String(newReminder.quycrc || "").trim();
+
+    if (ldp) {
+      const s = findByName(ldpcrcStaff, ldp);
+      const email = makeEmail(s, ldp);
+      if (email) lines.push(`Người nhận: ${email}`);
+    }
+    if (cb) {
+      const s = findByName(cbcrcStaff, cb);
+      const email = makeEmail(s, cb);
+      if (email) lines.push(`Người nhận: ${email}`);
+    }
+    if (quy) {
+      const s = findByName(quycrcStaff, quy);
+      const email = makeEmail(s, quy);
+      if (email) lines.push(`Người nhận: ${email}`);
+    }
+
+    return lines.join("<br/>");
+  }, [newReminder.ldpcrc, newReminder.cbcrc, newReminder.quycrc, ldpcrcStaff, cbcrcStaff, quycrcStaff]);
+
   // Ensure staff lists are loaded on-demand when user opens autocomplete
   const ensureLDPCRCLoaded = useCallback(async () => {
     if (ldpcrcStaff.length > 0) return;
@@ -704,43 +752,16 @@ export default function CRCRemindersPage() {
         onOpenChange={setTemplateOpen}
         template={emailTemplate}
         onTemplateChange={setEmailTemplate}
-        sampleReminder={reminders[0] || { loai_bt_crc: "Nhập kho - 001 - HS ABC", ngay_thuc_hien: "01-01", ldpcrc: "Nguyễn Văn A", cbcrc: "Trần Thị B", quycrc: "Lê Văn C" }}
-        recipientsBlock={(() => {
-          const norm = (t: string) =>
-            (t || "")
-              .toLowerCase()
-              .normalize("NFD")
-              .replace(/[\u0300-\u036f]/g, "")
-              .replace(/đ/g, "d")
-              .replace(/Đ/g, "d");
-          const findByName = <T extends { ten_nv: string }>(list: T[], name?: string) => {
-            if (!name) return undefined;
-            const n = norm(name);
-            return list.find(x => norm(x.ten_nv) === n);
-          };
-          const makeEmail = (rec: { email?: string } | undefined, fallbackName?: string) => {
-            const raw = (rec?.email || "").trim();
-            if (raw) {
-              return raw.includes("@") ? raw : `${raw}@vietcombank.com.vn`;
-            }
-            return fallbackName || "";
-          };
-          const sample = reminders[0] || { ldpcrc: "Nguyễn Văn A", cbcrc: "Trần Thị B", quycrc: "Lê Văn C" };
-          const lines: string[] = [];
-          if (sample.ldpcrc) {
-            const s = findByName(ldpcrcStaff, sample.ldpcrc);
-            lines.push(`Người nhận: ${makeEmail(s, sample.ldpcrc)}`);
-          }
-          if (sample.cbcrc) {
-            const s = findByName(cbcrcStaff, sample.cbcrc);
-            lines.push(`Người nhận: ${makeEmail(s, sample.cbcrc)}`);
-          }
-          if (sample.quycrc) {
-            const s = findByName(quycrcStaff, sample.quycrc);
-            lines.push(`Người nhận: ${makeEmail(s, sample.quycrc)}`);
-          }
-          return lines.join("<br/>");
-        })()}
+        sampleReminder={{
+          loai_bt_crc: String(newReminder.loai_bt_crc || "Nhập kho - 001 - HS ABC"),
+          ngay_thuc_hien: String(newReminder.ngay_thuc_hien || "01-01"),
+          ldpcrc: String(newReminder.ldpcrc || ""),
+          cbcrc: String(newReminder.cbcrc || ""),
+          quycrc: String(newReminder.quycrc || ""),
+          so_chung_tu: (newReminder as any)?.so_chung_tu,
+          ten_ts: (newReminder as any)?.ten_ts,
+        }}
+        recipientsBlock={computedRecipientsBlock}
         currentUsername={currentUser?.username}
       />
 
