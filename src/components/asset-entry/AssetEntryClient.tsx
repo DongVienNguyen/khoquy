@@ -262,6 +262,25 @@ export default function AssetEntryClient() {
   }, [formData.transaction_date]);
 
   useEffect(() => {
+    // Gia hạn cookie linkUser nếu tồn tại, để giảm việc phải dùng lại link
+    try {
+      const raw = typeof document !== "undefined" ? document.cookie : "";
+      const m = raw.match(/(?:^|;\\s*)linkUser=([^;]+)/);
+      const v = m ? decodeURIComponent(m[1]) : "";
+      if (v) {
+        const parts = [
+          `linkUser=${encodeURIComponent(v)}`,
+          "path=/",
+          "SameSite=Lax",
+          "Max-Age=2592000", // 30 ngày
+        ];
+        if (typeof window !== "undefined" && window.location.protocol === "https:") {
+          parts.push("Secure");
+        }
+        document.cookie = parts.join("; ");
+      }
+    } catch {}
+
     const staff = getLoggedInStaff();
     if (!staff) {
       router.replace("/sign-in");

@@ -81,5 +81,6 @@ export const config = {
     "/other-assets/:path*",
     "/sign-in",
     "/sign-out",
+    "/:username"
   ],
 };
