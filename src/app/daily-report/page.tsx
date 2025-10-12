@@ -881,13 +881,12 @@ export default function DailyReportPage() {
                         <TableHead className="w-20 px-2">Phòng</TableHead>
                         <TableHead className="w-14 px-2">Năm</TableHead>
                         <TableHead className="px-2">Danh sách Mã TS</TableHead>
-                        <TableHead className="w-32 px-2 text-right">Thao tác</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {groupedRows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                          <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
                             Không có dữ liệu nhóm.
                           </TableCell>
                         </TableRow>
@@ -896,8 +895,7 @@ export default function DailyReportPage() {
                           <TableRow key={row.id}>
                             <TableCell className="font-medium px-2">{row.room}</TableCell>
                             <TableCell className="px-2 font-bold text-base sm:text-lg">{row.year}</TableCell>
-                            <TableCell className="px-2 font-mono font-bold text-xl sm:text-2xl">{row.codes}</TableCell>
-                            <TableCell />
+                            <TableCell className="px-2 font-mono font-bold text-xl sm:text-2xl break-words">{row.codes}</TableCell>
                           </TableRow>
                         ))
                       )}
