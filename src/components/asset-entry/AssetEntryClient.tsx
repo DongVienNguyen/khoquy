@@ -1053,7 +1053,7 @@ export default function AssetEntryClient() {
               </div>
               <div className="flex-1">
                 <div className="flex items-center justify-between">
-                  <h1 className="text-2xl font-bold">Thông báo lấy TS</h1>
+                  <h1 className="text-2xl font-bold">TB lấy TS</h1>
                   <Button
                     type="button"
                     variant="outline"
