@@ -858,7 +858,7 @@ export default function DailyReportPage() {
                     <Dialog open={isAssetEntryOpen} onOpenChange={setIsAssetEntryOpen}>
                       <DialogTrigger asChild>
                         <Button className="bg-green-600 hover:bg-green-700 text-white gap-2">
-                          <Plus className="w-4 h-4" /> 
+                          <Plus className="w-4 h-4" /> Add TS
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="max-w-3xl">
@@ -913,7 +913,7 @@ export default function DailyReportPage() {
                     </div>
                     {canManageDailyReport ? (
                       <Button onClick={() => setIsNotesDialogOpen(true)} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
-                        Notes
+                        Thêm ghi chú
                       </Button>
                     ) : null}
                   </div>
