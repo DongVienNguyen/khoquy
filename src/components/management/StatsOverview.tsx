@@ -129,27 +129,62 @@ const StatsOverview: React.FC = () => {
       const w = v.replace(/"/g, '""');
       return /[",\n\r]/.test(w) ? `"${w}"` : w;
     };
+    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+    // Tính dữ liệu local từ rows và khoảng ngày (tránh phụ thuộc biến chưa khởi tạo)
+    // Daily
+    const countMap = new Map<string, number>();
+    for (const r of rows) {
+      const d = r.transaction_date;
+      countMap.set(d, (countMap.get(d) || 0) + 1);
+    }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const dailyDataLocal: { date: string; count: number }[] = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const key = ymd(d);
+      dailyDataLocal.push({ date: key, count: countMap.get(key) || 0 });
+    }
+
+    // Room
+    const roomMap: Record<string, number> = {};
+    for (const r of rows) {
+      const k = r.room || "Khác";
+      roomMap[k] = (roomMap[k] || 0) + 1;
+    }
+    const order = [...ROOMS, ...Object.keys(roomMap).filter(k => !ROOMS.includes(k))];
+    const roomDataLocal = order.filter(k => roomMap[k]).map(k => ({ room: k, count: roomMap[k] }));
+
+    // Type
+    const tmap: Record<string, number> = {};
+    for (const r of rows) {
+      const t = TYPES.includes(r.transaction_type) ? r.transaction_type : "Khác";
+      tmap[t] = (tmap[t] || 0) + 1;
+    }
+    const typeDataLocal = Object.entries(tmap).map(([name, value]) => ({ name, value }));
+
+    // Ghi CSV
     const lines: string[] = [];
     lines.push(`Từ ngày,${esc(startDate)},Đến ngày,${esc(endDate)},Phòng,${esc(selectedRoom)},Loại,${esc(selectedType)},Bao gồm đã xóa,${includeDeleted ? "Có" : "Không"}`);
     lines.push("");
 
     // Daily
     lines.push("Daily,date,count");
-    dailyData.forEach(d => {
+    dailyDataLocal.forEach(d => {
       lines.push(`${esc(d.date)},${esc(d.count)}`);
     });
 
     // Room
     lines.push("");
     lines.push("Rooms,room,count");
-    roomData.forEach(r => {
+    roomDataLocal.forEach(r => {
       lines.push(`${esc(r.room)},${esc(r.count)}`);
     });
 
     // Type
     lines.push("");
     lines.push("Types,name,count");
-    typeData.forEach(t => {
+    typeDataLocal.forEach(t => {
       lines.push(`${esc(t.name)},${esc(t.value)}`);
     });
 
@@ -162,7 +197,7 @@ const StatsOverview: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [startDate, endDate, selectedRoom, selectedType, includeDeleted, dailyData, roomData, typeData]);
+  }, [startDate, endDate, selectedRoom, selectedType, includeDeleted, rows]);
 
   // Build series per day (áp dụng lọc client bổ sung nếu cần)
   const dailyData = useMemo(() => {
