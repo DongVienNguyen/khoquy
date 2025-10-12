@@ -737,7 +737,7 @@ export default function DailyReportPage() {
                 <FileText className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl md:text-3xl font-bold">Danh sách TS cần lấy</h1>
+                <h1 className="text-2xl md:text-3xl font-bold">DS TS cần lấy</h1>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600 mt-1">
                   <span>{todayText}</span>
                   {lastRefreshTime && (
