@@ -753,7 +753,7 @@ export default function DailyReportPage() {
               <div className="hidden md:flex items-center gap-2 text-sm mr-2">
                 <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} className="data-[state=checked]:bg-green-600" />
                 <span className={`font-medium ${autoRefresh ? "text-green-600" : "text-gray-500"}`}>
-                   {autoRefresh ? "ON" : "OFF"}
+                 {autoRefresh ? "ON" : "OFF"}
                 </span>
                 {autoRefresh && <span className="text-xs text-gray-500">(60s)</span>}
               </div>
