@@ -724,6 +724,22 @@ export default function DailyReportPage() {
   const [isAssetEntryOpen, setIsAssetEntryOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
+  // Lắng nghe sự kiện thêm tài sản để tự động cập nhật và đóng form
+  useEffect(() => {
+    const onSubmitted = () => {
+      setIsAssetEntryOpen(false);
+      loadAllTransactions(false, false);
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("asset:submitted", onSubmitted);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("asset:submitted", onSubmitted);
+      }
+    };
+  }, [loadAllTransactions]);
+
   return (
     <div className="p-4 md:p-8">
       {!mounted ? (
@@ -921,8 +937,9 @@ export default function DailyReportPage() {
                     <div className="space-y-2">
                       {processedNotes.map((note) => (
                         <div key={note.id} className="flex items-start justify-between rounded border p-2">
-                          <div className="text-base font-medium whitespace-pre-line">
-                            {note.room}: {note.content}
+                          <div className="flex-1">
+                            <div className="text-sm font-semibold text-slate-700">{note.room}</div>
+                            <div className="mt-1 text-base whitespace-pre-line">{note.content}</div>
                           </div>
                           {canManageDailyReport && (
                             <div className="flex items-center gap-1">
