@@ -921,7 +921,7 @@ export default function DailyReportPage() {
                     <div className="space-y-2">
                       {processedNotes.map((note) => (
                         <div key={note.id} className="flex items-start justify-between rounded border p-2">
-                          <div className="text-base font-medium">
+                          <div className="text-base font-medium whitespace-pre-line">
                             {note.room}: {note.content}
                           </div>
                           {canManageDailyReport && (
