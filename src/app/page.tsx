@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 
-export default function Home() {
-  const c = cookies();
+export default async function Home() {
+  const c = await cookies();
   const role = c.get("staffRole")?.value || "";
   const dept = c.get("staffDept")?.value || "";
 
