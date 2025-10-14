@@ -19,6 +19,7 @@ import { FileText, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, Chev
 import { toast } from "sonner";
 import AssetEntryInlineForm from "@/components/asset-entry/AssetEntryInlineForm";
 import { edgeInvoke } from "@/lib/edge-invoke";
+import EditTransactionDialog from "@/components/asset-entry/EditTransactionDialog";
 
 type SafeStaff = {
   id: string;
@@ -1126,6 +1127,21 @@ export default function DailyReportPage() {
               )}
             </DialogContent>
           </Dialog>
+
+          {/* Render edit dialog when needed */}
+          {editingTransaction && (
+            <EditTransactionDialog
+              open={isEditTxDialogOpen}
+              onOpenChange={setIsEditTxDialogOpen}
+              transaction={editingTransaction}
+              editorUsername={currentStaff?.username || "unknown"}
+              onUpdated={() => {
+                setIsEditTxDialogOpen(false);
+                setEditingTransaction(null);
+                loadAllTransactions(false);
+              }}
+            />
+          )}
         </>
       )}
     </div>

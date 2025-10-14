@@ -4,6 +4,7 @@ import React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Edit3, Trash2, RefreshCcw } from "lucide-react";
+import EditTransactionDialog from "@/components/asset-entry/EditTransactionDialog";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 
 type SafeStaff = {
@@ -56,6 +57,8 @@ function gmt7TodayYMD(): string {
 const MyTodaySubmissions: React.FC = () => {
   const [rows, setRows] = React.useState<AssetTx[]>([]);
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
+  const [editingTx, setEditingTx] = React.useState<AssetTx | null>(null);
+  const [isEditOpen, setIsEditOpen] = React.useState<boolean>(false);
   const staff = React.useMemo(() => getLoggedInStaff(), []);
 
   const loadToday = React.useCallback(async () => {
@@ -181,9 +184,9 @@ const MyTodaySubmissions: React.FC = () => {
                   <td className="py-2 px-3">
                     <div className="flex items-center gap-2">
                       <button
-                        title="Sửa (ghi chú)"
+                        title="Sửa giao dịch"
                         className="h-8 w-8 rounded-md border flex items-center justify-center hover:bg-muted"
-                        onClick={() => updateNote(r)}
+                        onClick={() => { setEditingTx(r); setIsEditOpen(true); }}
                       >
                         <Edit3 className="w-4 h-4" />
                       </button>
@@ -202,6 +205,19 @@ const MyTodaySubmissions: React.FC = () => {
           </tbody>
         </table>
       </div>
+      {editingTx && (
+        <EditTransactionDialog
+          open={isEditOpen}
+          onOpenChange={(v: boolean) => { setIsEditOpen(v); if (!v) setEditingTx(null); }}
+          transaction={editingTx}
+          editorUsername={staff?.username || "unknown"}
+          onUpdated={(updated: AssetTx) => {
+            setRows((prev) => prev.map((x) => x.id === updated.id ? updated : x));
+            setEditingTx(null);
+            setIsEditOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 };
