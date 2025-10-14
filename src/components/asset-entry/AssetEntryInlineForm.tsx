@@ -425,6 +425,11 @@ const AssetEntryInlineForm: React.FC = () => {
     });
     toast.success("Đã gửi thông báo trong ứng dụng");
 
+    // Phát sự kiện kèm dữ liệu để trang daily-report cập nhật ngay
+    try {
+      window.dispatchEvent(new CustomEvent("asset:submitted:data", { detail: created }));
+    } catch {}
+
     setFormData(currentStaff ? calculateDefaultValues(currentStaff) : formData);
     setMultipleAssets([""]);
     setIsLoading(false);

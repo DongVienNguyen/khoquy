@@ -731,12 +731,26 @@ export default function DailyReportPage() {
       setIsAssetEntryOpen(false);
       loadAllTransactions(false, false);
     };
+    const onSubmittedData = (evt: any) => {
+      const created = (evt?.detail ?? []) as AssetTx[];
+      if (!Array.isArray(created) || created.length === 0) return;
+      // Gộp ngay vào danh sách hiện thời để hiển thị tức thì (sau đó vẫn có background refresh)
+      setAllTransactions((prev) => {
+        const existingIds = new Set(prev.map((x) => String(x.id)));
+        const toAdd = created.filter((x: any) => !existingIds.has(String(x.id)));
+        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      });
+      setLastRefreshTime(new Date());
+      setIsAssetEntryOpen(false);
+    };
     if (typeof window !== "undefined") {
       window.addEventListener("asset:submitted", onSubmitted);
+      window.addEventListener("asset:submitted:data", onSubmittedData as EventListener);
     }
     return () => {
       if (typeof window !== "undefined") {
         window.removeEventListener("asset:submitted", onSubmitted);
+        window.removeEventListener("asset:submitted:data", onSubmittedData as EventListener);
       }
     };
   }, [loadAllTransactions]);
@@ -878,7 +892,7 @@ export default function DailyReportPage() {
                           <Plus className="w-4 h-4" /> Add TS
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-3xl">
+                      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>Nhập thông báo lấy TS</DialogTitle>
                         </DialogHeader>
