@@ -36,6 +36,8 @@ const ServiceWorkerRegister = () => {
           // Nếu đã có worker mới sẵn sàng chờ activate
           if (reg.waiting && navigator.serviceWorker.controller) {
             showUpdateToast();
+            window.dispatchEvent(new CustomEvent("pwa:update-available"));
+            console.log("[PWA] emit pwa:update-available (waiting worker)");
           }
           // Lắng nghe updatefound và trạng thái worker mới
           reg.addEventListener("updatefound", () => {
@@ -43,6 +45,8 @@ const ServiceWorkerRegister = () => {
             newWorker?.addEventListener("statechange", () => {
               if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
                 showUpdateToast();
+                window.dispatchEvent(new CustomEvent("pwa:update-available"));
+                console.log("[PWA] emit pwa:update-available (installed with controller)");
               }
             });
           });
@@ -50,6 +54,8 @@ const ServiceWorkerRegister = () => {
           // Khi controller thay đổi (worker mới nhận quyền điều khiển), chỉ hiển thị toast, không tự reload
           navigator.serviceWorker.addEventListener("controllerchange", () => {
             showUpdateToast();
+            window.dispatchEvent(new CustomEvent("pwa:update-applied"));
+            console.log("[PWA] emit pwa:update-applied (controllerchange)");
           });
         })
         .catch((err) => {

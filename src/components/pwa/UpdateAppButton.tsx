@@ -11,8 +11,23 @@ const UpdateAppButton: React.FC = () => {
 
   React.useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
-    // Hiển thị nút nếu có SW
-    setVisible(true);
+    const onAvailable = () => setVisible(true);
+    const onApplied = () => setVisible(false);
+    window.addEventListener("pwa:update-available", onAvailable);
+    window.addEventListener("pwa:update-applied", onApplied);
+    // Ẩn khi controllerchange để tránh hiển thị dư
+    navigator.serviceWorker.addEventListener("controllerchange", onApplied);
+    // Kiểm tra nhanh khi mount: nếu có worker đang chờ và đã có controller → hiện nút
+    navigator.serviceWorker.getRegistration().then((reg) => {
+      if (reg?.waiting && navigator.serviceWorker.controller) {
+        setVisible(true);
+      }
+    });
+    return () => {
+      window.removeEventListener("pwa:update-available", onAvailable);
+      window.removeEventListener("pwa:update-applied", onApplied);
+      navigator.serviceWorker.removeEventListener("controllerchange", onApplied as EventListener);
+    };
   }, []);
 
   const checkAndUpdate = async () => {
@@ -58,9 +73,10 @@ const UpdateAppButton: React.FC = () => {
         className="shadow bg-secondary text-secondary-foreground"
         aria-label="Cập nhật ứng dụng"
         disabled={checking}
+        title="Có phiên bản mới – bấm để áp dụng và tải lại"
       >
         <RefreshCw className={`h-4 w-4 ${checking ? "animate-spin" : ""}`} />
-        <span className="ml-2">{checking ? "Đang kiểm tra..." : "Cập nhật ứng dụng"}</span>
+        <span className="ml-2 hidden sm:inline">{checking ? "Đang kiểm tra..." : "Cập nhật ứng dụng"}</span>
       </Button>
     </div>
   );
