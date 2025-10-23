@@ -1,5 +1,5 @@
 // Bump cache version để ép cập nhật SW
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
@@ -73,27 +73,22 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       try {
         const preload = event.preloadResponse ? await event.preloadResponse : null;
-        if (preload && !preload.redirected) {
+        if (preload && !preload.redirected && !(preload.status >= 300 && preload.status < 400)) {
           return preload;
         }
-        // Thử fetch bình thường
         const net = await fetch(request);
-        // Nếu fetch trả về một phản hồi đã qua redirect, iOS Safari sẽ lỗi nếu SW trả thẳng
-        if (net && net.redirected) {
-          // Cố gắng theo URL cuối và lấy tài liệu 200 OK không redirect
+        if (net && (net.redirected || (net.status >= 300 && net.status < 400))) {
           try {
             const direct = await fetch(net.url, { credentials: 'include', cache: 'no-store' });
-            if (direct.ok && !direct.redirected) {
+            if (direct.ok && !direct.redirected && !(direct.status >= 300 && direct.status < 400)) {
               return direct;
             }
           } catch (_e) {}
-          // Không trả redirect; dùng offline fallback để tránh lỗi Safari
           const offline = await caches.match('/offline.html');
           return offline || new Response('<h1>Offline</h1>', { status: 200, headers: { 'Content-Type': 'text/html' } });
         }
         return net;
       } catch (_e) {
-        // Offline hoặc lỗi mạng: trả offline.html (200)
         const offline = await caches.match('/offline.html');
         return offline || new Response('<h1>Offline</h1>', { status: 200, headers: { 'Content-Type': 'text/html' } });
       }
