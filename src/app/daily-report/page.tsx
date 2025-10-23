@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { format, addDays, startOfWeek, endOfWeek, isWithinInterval, getWeek, getYear } from "date-fns";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -116,7 +116,9 @@ export default function DailyReportPage() {
   const router = useRouter();
   const [currentStaff, setCurrentStaff] = useState<SafeStaff | null>(null);
 
-  const [allTransactions, setAllTransactions] = useState<AssetTx[]>([]);
+  // Tách dữ liệu: khung trên (group) và bảng (table)
+  const [groupTransactions, setGroupTransactions] = useState<AssetTx[]>([]);
+  const [tableTransactions, setTableTransactions] = useState<AssetTx[]>([]);
   const [processedNotes, setProcessedNotes] = useState<ProcessedNote[]>([]);
   const [takenTransactionIds, setTakenTransactionIds] = useState<Set<string>>(new Set());
 
@@ -152,12 +154,20 @@ export default function DailyReportPage() {
 
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  const [groupLastRefreshTime, setGroupLastRefreshTime] = useState<Date | null>(null);
+  const [tableLastRefreshTime, setTableLastRefreshTime] = useState<Date | null>(null);
   const autoRefreshRef = useRef<any>(null);
   const hasInitializedFilter = useRef(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
-  const isFetchingDataRef = useRef(false);
-  useEffect(() => { isFetchingDataRef.current = isFetchingData; }, [isFetchingData]);
+  // Loading flags: ưu tiên khung trên
+  const [isGroupLoading, setIsGroupLoading] = useState(true);
+  const [isTableLoading, setIsTableLoading] = useState(false);
+
+  const isGroupLoadingRef = useRef(false);
+  useEffect(() => { isGroupLoadingRef.current = isGroupLoading; }, [isGroupLoading]);
+  const isTableLoadingRef = useRef(false);
+  useEffect(() => { isTableLoadingRef.current = isTableLoading; }, [isTableLoading]);
 
   const canManageDailyReportRef = useRef(false);
   useEffect(() => { canManageDailyReportRef.current = !!(currentStaff?.department === "NQ"); }, [currentStaff]);
@@ -225,11 +235,9 @@ export default function DailyReportPage() {
     setTakenTransactionIds(ids);
   }, [currentStaff?.username, canSeeTakenColumn]);
 
-  const loadAllTransactions = useCallback(async (useCache: boolean = true, isManual: boolean = false) => {
-    if (isFetchingDataRef.current) return;
-    if (isManual) setIsManualRefreshing(true);
-    setIsFetchingData(true);
-    setIsLoading(true);
+  // Tải khung trên (ưu tiên): gọi sớm nhất
+  const loadTransactionsForGroup = useCallback(async () => {
+    setIsGroupLoading(true);
     try {
       const range = getActiveRange();
       const partsParam = filterType === "custom" && customFilters.parts_day !== "all" ? customFilters.parts_day : null;
@@ -241,36 +249,71 @@ export default function DailyReportPage() {
         include_deleted: true
       });
       if (!res.ok) {
-        setAllTransactions([]);
+        setGroupTransactions([]);
       } else {
-        setAllTransactions(Array.isArray(res.data) ? (res.data as AssetTx[]) : []);
+        setGroupTransactions(Array.isArray(res.data) ? (res.data as AssetTx[]) : []);
       }
-      setLastRefreshTime(new Date());
+      setGroupLastRefreshTime(new Date());
     } finally {
-      setIsLoading(false);
-      setIsFetchingData(false);
-      if (isManual) setIsManualRefreshing(false);
+      setIsGroupLoading(false);
     }
   }, [getActiveRange, filterType, customFilters]);
 
-  useEffect(() => {
-    const run = () => loadAllTransactions(true, false);
-    let h: any;
+  // Tải bảng (trì hoãn): gọi sau khi khung trên đã hiển thị
+  const loadTransactionsForTable = useCallback(async () => {
+    if (isTableLoadingRef.current) return;
+    setIsTableLoading(true);
+    try {
+      const range = getActiveRange();
+      const partsParam = filterType === "custom" && customFilters.parts_day !== "all" ? customFilters.parts_day : null;
+      const res = await edgeInvoke<AssetTx[]>("asset-transactions", {
+        action: "list_range",
+        start: range.start,
+        end: range.end,
+        parts_day: partsParam,
+        include_deleted: true
+      });
+      if (!res.ok) {
+        setTableTransactions([]);
+      } else {
+        setTableTransactions(Array.isArray(res.data) ? (res.data as AssetTx[]) : []);
+      }
+      setTableLastRefreshTime(new Date());
+    } finally {
+      setIsTableLoading(false);
+    }
+  }, [getActiveRange, filterType, customFilters]);
+
+  // schedule tải bảng sau khi khung trên đã hiển thị
+  const scheduleTableLoad = useCallback(() => {
+    const run = () => loadTransactionsForTable();
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
       // @ts-ignore
-      h = window.requestIdleCallback(run, { timeout: 1000 });
+      window.requestIdleCallback(run, { timeout: 1200 });
     } else {
-      h = setTimeout(run, 50);
+      setTimeout(run, 400);
     }
+  }, [/* deps set below after loadTransactionsForTable is defined */]);
+
+  // cập nhật deps cho scheduleTableLoad sau khi loadTransactionsForTable có mặt
+  useEffect(() => {
+    // no-op, chỉ để ràng buộc closures
+  }, [scheduleTableLoad, loadTransactionsForTable]);
+
+  useEffect(() => {
+    const runGroup = () => loadTransactionsForGroup();
+    // Gọi ngay khung trên
+    runGroup();
+
+    // Gọi ghi chú và trạng thái đã lấy
     if (canManageDailyReport) loadProcessedNotes();
     if (canSeeTakenColumn) loadTakenStatus();
+
+    // Lên lịch bảng sau
+    scheduleTableLoad();
+
     return () => {
-      if (typeof window !== "undefined" && "cancelIdleCallback" in window && h) {
-        // @ts-ignore
-        window.cancelIdleCallback(h);
-      } else if (h) {
-        clearTimeout(h);
-      }
+      // không cần hủy gì ở đây cho schedule đơn giản
     };
   }, []);
 
@@ -285,45 +328,36 @@ export default function DailyReportPage() {
     hasInitializedFilter.current = true;
   }, []);
 
-  // Khi dùng bộ lọc "Tùy chọn", tải lại dữ liệu theo khoảng ngày/ca đã chọn
+  // Khi dùng bộ lọc "Tùy chọn", tải lại khung trên trước, bảng sau
   useEffect(() => {
     if (filterType !== "custom") return;
-    loadAllTransactions(false, false);
-  }, [filterType, customFilters.start, customFilters.end, customFilters.parts_day, loadAllTransactions]);
+    loadTransactionsForGroup();
+    scheduleTableLoad();
+  }, [filterType, customFilters.start, customFilters.end, customFilters.parts_day, loadTransactionsForGroup, scheduleTableLoad]);
+
+  // Gộp trạng thái bận để khóa nút và hiển thị hiệu ứng quay
+  const isBusy = isGroupLoading || isTableLoading || isManualRefreshing;
 
   const backgroundRefresh = useCallback(async () => {
-    if (document.hidden || isFetchingDataRef.current) return;
-    setIsFetchingData(true);
-    try {
-      const range = getActiveRange();
-      const partsParam = filterType === "custom" && customFilters.parts_day !== "all" ? customFilters.parts_day : null;
-      const resTx = await edgeInvoke<AssetTx[]>("asset-transactions", {
-        action: "list_range",
-        start: range.start,
-        end: range.end,
-        parts_day: partsParam,
-        include_deleted: true
-      });
-
-      const doNotes = canManageDailyReportRef.current;
-      const doTaken = canSeeTakenColumnRef.current && !!currentUsernameRef.current;
-
-      const resNotes = doNotes ? await edgeInvoke<ProcessedNote[]>("asset-transactions", { action: "list_notes" }) : { ok: false, data: [] as any };
-      const resTaken = doTaken
-        ? await edgeInvoke<any[]>("asset-transactions", { action: "list_taken_status", user_username: currentUsernameRef.current!, week_year: getCurrentWeekYear() })
-        : { ok: false, data: [] as any };
-
-      if (resTx.ok) setAllTransactions(Array.isArray(resTx.data) ? (resTx.data as AssetTx[]) : []);
+    if (document.hidden || isGroupLoadingRef.current || isTableLoadingRef.current) return;
+    // Làm mới khung trên + ghi chú + taken trước
+    await loadTransactionsForGroup();
+    const doNotes = canManageDailyReportRef.current;
+    const doTaken = canSeeTakenColumnRef.current && !!currentUsernameRef.current;
+    if (doNotes) {
+      const resNotes = await edgeInvoke<ProcessedNote[]>("asset-transactions", { action: "list_notes" });
       if (resNotes.ok) setProcessedNotes(Array.isArray(resNotes.data) ? (resNotes.data as ProcessedNote[]) : []);
+    }
+    if (doTaken) {
+      const resTaken = await edgeInvoke<any[]>("asset-transactions", { action: "list_taken_status", user_username: currentUsernameRef.current!, week_year: getCurrentWeekYear() });
       if (resTaken.ok) {
         const list = Array.isArray(resTaken.data) ? (resTaken.data as any[]) : [];
         setTakenTransactionIds(new Set(list.map((x) => String(x.transaction_id))));
       }
-      setLastRefreshTime(new Date());
-    } finally {
-      setIsFetchingData(false);
     }
-  }, [getActiveRange, filterType, customFilters]);
+    // Bảng: lên lịch sau
+    scheduleTableLoad();
+  }, [loadTransactionsForGroup, scheduleTableLoad]);
 
   useEffect(() => {
     if (autoRefreshRef.current) {
@@ -342,7 +376,7 @@ export default function DailyReportPage() {
       }
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [autoRefresh]);
+  }, [autoRefresh, backgroundRefresh]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -371,8 +405,9 @@ export default function DailyReportPage() {
     return txDateStr >= gmt7TodayStr;
   }, [currentStaff?.username, gmt7TodayStr, isRestrictedNow, isAdmin]);
 
-  const filteredTransactions = useMemo(() => {
-    const transactions = (allTransactions || []).filter(Boolean);
+  // Tạo 2 bộ filtered riêng cho group và table, dùng cùng logic
+  const groupFilteredTransactions = useMemo(() => {
+    const transactions = (groupTransactions || []).filter(Boolean);
     if (transactions.length === 0) return [];
     let filtered: AssetTx[] = [];
 
@@ -427,18 +462,76 @@ export default function DailyReportPage() {
       if (a.asset_year !== b.asset_year) return a.asset_year - b.asset_year;
       return (a.asset_code || 0) - (b.asset_code || 0);
     });
-  }, [allTransactions, filterType, customFilters]);
+  }, [groupTransactions, filterType, customFilters]);
+
+  const tableFilteredTransactions = useMemo(() => {
+    const transactions = (tableTransactions || []).filter(Boolean);
+    if (transactions.length === 0) return [];
+    let filtered: AssetTx[] = [];
+
+    if (filterType === "qln_pgd_next_day") {
+      const targetDate = getMorningTargetDate();
+      const targetStr = format(targetDate, "yyyy-MM-dd");
+      const pgdRooms = ["CMT8", "NS", "ĐS", "LĐH"];
+      filtered = transactions.filter((t) => {
+        const matchesDate = format(new Date(t.transaction_date), "yyyy-MM-dd") === targetStr;
+        if (!matchesDate) return false;
+        const isMorning = t.parts_day === "Sáng";
+        const isPgdAfternoon = t.parts_day === "Chiều" && pgdRooms.includes(t.room);
+        return isMorning || isPgdAfternoon;
+      });
+    } else if (filterType === "next_day") {
+      const targetDate = getNextWorkingDay();
+      const targetStr = format(targetDate, "yyyy-MM-dd");
+      filtered = transactions.filter((t) => format(new Date(t.transaction_date), "yyyy-MM-dd") === targetStr);
+    } else if (filterType === "custom") {
+      const start = new Date(customFilters.start + "T00:00:00");
+      const end = new Date(customFilters.end + "T23:59:59");
+      const parts = customFilters.parts_day === "all" ? null : customFilters.parts_day;
+      filtered = transactions.filter((t) => {
+        const dt = new Date(t.transaction_date);
+        const dateMatch = dt >= start && dt <= end;
+        const partsMatch = !parts || t.parts_day === parts;
+        return dateMatch && partsMatch;
+      });
+    } else {
+      let target: Date;
+      let parts: "Sáng" | "Chiều" | null;
+      if (filterType === "morning") {
+        target = getMorningTargetDate();
+        parts = "Sáng";
+      } else if (filterType === "afternoon") {
+        target = new Date();
+        parts = "Chiều";
+      } else {
+        target = new Date();
+        parts = null;
+      }
+      const targetStr = format(target, "yyyy-MM-dd");
+      filtered = transactions.filter((t) => {
+        const dateMatch = format(new Date(t.transaction_date), "yyyy-MM-dd") === targetStr;
+        const partsMatch = !parts || t.parts_day === parts;
+        return dateMatch && partsMatch;
+      });
+    }
+
+    return filtered.filter((t) => !t.is_deleted).sort((a, b) => {
+      if (a.room !== b.room) return a.room.localeCompare(b.room);
+      if (a.asset_year !== b.asset_year) return a.asset_year - b.asset_year;
+      return (a.asset_code || 0) - (b.asset_code || 0);
+    });
+  }, [tableTransactions, filterType, customFilters]);
 
   const startOfCurrentWeek = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
   const endOfCurrentWeek = useMemo(() => endOfWeek(new Date(), { weekStartsOn: 1 }), []);
 
-  // Gom nhóm chỉ tài sản
+  // Gom nhóm dựa trên groupFilteredTransactions
   const groupedRows = useMemo(() => {
-    const txs = filteredTransactions;
+    const txs = groupFilteredTransactions;
     if (!showGrouped) return [];
 
     const freq = new Map<string, number>();
-    (allTransactions || []).forEach((t) => {
+    (groupTransactions || []).forEach((t) => {
       const dt = new Date(t.transaction_date);
       if (isWithinInterval(dt, { start: startOfCurrentWeek, end: endOfCurrentWeek })) {
         const key = `${t.room}-${t.asset_year}-${t.asset_code}`;
@@ -483,7 +576,7 @@ export default function DailyReportPage() {
       }
     }
     return rows;
-  }, [filteredTransactions, showGrouped, startOfCurrentWeek, endOfCurrentWeek, takenTransactionIds, allTransactions]);
+  }, [groupFilteredTransactions, showGrouped, startOfCurrentWeek, endOfCurrentWeek, takenTransactionIds, groupTransactions]);
 
   const todayFormatted = useMemo(() => format(new Date(), "dd/MM/yyyy"), []);
   const nextWorkingDayFormatted = useMemo(() => format(getNextWorkingDay(new Date()), "dd/MM/yyyy"), []);
@@ -515,11 +608,11 @@ export default function DailyReportPage() {
     }
   }, [filterType, customFilters, todayFormatted, nextWorkingDayFormatted, morningDateFormatted, qlnPgdDateFormatted]);
 
-  const totalPages = useMemo(() => Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE), [filteredTransactions]);
+  const totalPages = useMemo(() => Math.ceil(groupFilteredTransactions.length / ITEMS_PER_PAGE), [groupFilteredTransactions]);
   const paginatedTransactions = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredTransactions.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredTransactions, currentPage]);
+    return groupFilteredTransactions.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [groupFilteredTransactions, currentPage]);
 
   const formatGmt7TimeNhan = useCallback((iso?: string | null) => {
     if (!iso) return "-";
@@ -622,12 +715,14 @@ export default function DailyReportPage() {
     setIsEditTxDialogOpen(false);
     setEditingTransaction(null);
     toast.success("Cập nhật giao dịch thành công!");
-    loadAllTransactions(false);
-  }, [editingTransaction, editFormData, currentStaff?.username, isAdmin, canActOnTransaction, loadAllTransactions]);
+    // Làm mới khung trên nhanh, bảng sau
+    loadTransactionsForGroup();
+    scheduleTableLoad();
+  }, [editingTransaction, editFormData, currentStaff?.username, isAdmin, canActOnTransaction, loadTransactionsForGroup, scheduleTableLoad]);
 
   // Xóa giao dịch
   const handleDeleteTransaction = useCallback(async (transactionId: string) => {
-    const t = allTransactions.find((x) => x.id === transactionId);
+    const t = [...groupTransactions, ...tableTransactions].find((x) => x.id === transactionId);
     if (!t) return;
 
     const allowed = t.is_deleted ? isAdmin : canActOnTransaction(t);
@@ -656,8 +751,10 @@ export default function DailyReportPage() {
     }
 
     toast.success("Thao tác xóa thành công!");
-    loadAllTransactions(false);
-  }, [allTransactions, currentStaff?.username, isAdmin, canActOnTransaction, loadAllTransactions]);
+    // Làm mới khung trên nhanh, bảng sau
+    loadTransactionsForGroup();
+    scheduleTableLoad();
+  }, [groupTransactions, tableTransactions, currentStaff?.username, isAdmin, canActOnTransaction, loadTransactionsForGroup, scheduleTableLoad]);
 
   const handleNoteSubmit = useCallback(async () => {
     if (!canManageDailyReport) return;
@@ -786,23 +883,20 @@ export default function DailyReportPage() {
   const [isAssetEntryOpen, setIsAssetEntryOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
-  // Lắng nghe sự kiện thêm tài sản để tự động cập nhật và đóng form
+  // Lắng nghe sự kiện thêm tài sản để cập nhật nhanh khung trên; bảng sẽ cập nhật theo lịch chậm
   useEffect(() => {
     const onSubmitted = () => {
-      setIsAssetEntryOpen(false);
-      loadAllTransactions(false, false);
+      loadTransactionsForGroup();
     };
     const onSubmittedData = (evt: any) => {
       const created = (evt?.detail ?? []) as AssetTx[];
       if (!Array.isArray(created) || created.length === 0) return;
-      // Gộp ngay vào danh sách hiện thời để hiển thị tức thì (sau đó vẫn có background refresh)
-      setAllTransactions((prev) => {
+      setGroupTransactions((prev) => {
         const existingIds = new Set(prev.map((x) => String(x.id)));
         const toAdd = created.filter((x: any) => !existingIds.has(String(x.id)));
         return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
       });
-      setLastRefreshTime(new Date());
-      setIsAssetEntryOpen(false);
+      setGroupLastRefreshTime(new Date());
     };
     if (typeof window !== "undefined") {
       window.addEventListener("asset:submitted", onSubmitted);
@@ -814,7 +908,7 @@ export default function DailyReportPage() {
         window.removeEventListener("asset:submitted:data", onSubmittedData as EventListener);
       }
     };
-  }, [loadAllTransactions]);
+  }, [loadTransactionsForGroup]);
 
   return (
     <div className="p-4 md:p-8">
@@ -832,9 +926,9 @@ export default function DailyReportPage() {
                 <h1 className="text-2xl md:text-3xl font-bold">DS TS cần lấy</h1>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600 mt-1">
                   <span>{todayText}</span>
-                  {lastRefreshTime && (
+                  {groupLastRefreshTime && (
                     <span className="text-xs text-green-600 font-medium">
-                      Cập nhật: {format(lastRefreshTime, "HH:mm:ss")}
+                      Cập nhật: {format(groupLastRefreshTime, "HH:mm:ss")}
                     </span>
                   )}
                 </div>
@@ -851,12 +945,16 @@ export default function DailyReportPage() {
               </div>
               <Button
                 variant="outline"
-                onClick={() => loadAllTransactions(true, true)}
-                disabled={isFetchingData}
+                onClick={() => {
+                  setIsManualRefreshing(true);
+                  Promise.resolve(loadTransactionsForGroup()).finally(() => setIsManualRefreshing(false));
+                  scheduleTableLoad();
+                }}
+                disabled={isBusy}
                 className="gap-2"
                 title="Làm mới dữ liệu"
               >
-                <RefreshCw className={`w-4 h-4 ${isFetchingData ? "animate-spin" : ""}`} /> 
+                <RefreshCw className={`w-4 h-4 ${isBusy ? "animate-spin" : ""}`} /> 
               </Button>
               <Button
                 onClick={() => setShowGrouped((v) => !v)}
@@ -1042,7 +1140,7 @@ export default function DailyReportPage() {
           {/* Khung 'Danh sách tài sản cần lấy' ở cuối trang */}
           <Card className="mt-6">
             <CardHeader>
-              <CardTitle>Danh sách tài sản cần lấy ({filteredTransactions.length})</CardTitle>
+              <CardTitle>Danh sách tài sản cần lấy ({tableFilteredTransactions.length})</CardTitle>
               <CardDescription>{headerDateDisplay}</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -1064,20 +1162,20 @@ export default function DailyReportPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {isLoading ? (
+                    {isTableLoading ? (
                       <TableRow>
                         <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
                           Đang tải dữ liệu...
                         </TableCell>
                       </TableRow>
-                    ) : filteredTransactions.length === 0 ? (
+                    ) : tableFilteredTransactions.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
                           Không có dữ liệu.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredTransactions.map((t) => (
+                      tableFilteredTransactions.map((t) => (
                         <TableRow key={t.id}>
                           {canSeeTakenColumn && (
                             <TableCell>
@@ -1112,7 +1210,7 @@ export default function DailyReportPage() {
                   </TableBody>
                 </Table>
               </div>
-              {filteredTransactions.length > ITEMS_PER_PAGE && (
+              {tableFilteredTransactions.length > ITEMS_PER_PAGE && (
                 <div className="flex justify-center items-center gap-4 p-4">
                   <Button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -1123,11 +1221,11 @@ export default function DailyReportPage() {
                     <ChevronLeft className="w-4 h-4" /> Trước
                   </Button>
                   <span className="text-sm text-muted-foreground">
-                    Trang {currentPage} / {Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE)}
+                    Trang {currentPage} / {Math.ceil(tableFilteredTransactions.length / ITEMS_PER_PAGE)}
                   </span>
                   <Button
-                    onClick={() => setCurrentPage((p) => Math.min(Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE), p + 1))}
-                    disabled={currentPage >= Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE)}
+                    onClick={() => setCurrentPage((p) => Math.min(Math.ceil(tableFilteredTransactions.length / ITEMS_PER_PAGE), p + 1))}
+                    disabled={currentPage >= Math.ceil(tableFilteredTransactions.length / ITEMS_PER_PAGE)}
                     variant="outline"
                     className="gap-2"
                   >
@@ -1211,8 +1309,8 @@ export default function DailyReportPage() {
               transaction={editingTransaction}
               editorUsername={currentStaff?.username || "unknown"}
               onUpdated={(updated) => {
-                // Thay thế đúng bản ghi theo id để tránh tạo dòng mới
-                setAllTransactions((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
+                setGroupTransactions((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
+                setTableTransactions((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
                 setIsEditTxDialogOpen(false);
                 setEditingTransaction(null);
               }}
