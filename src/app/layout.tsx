@@ -5,6 +5,7 @@ import AppHeader from "@/components/app-header";
 import SyncRunner from "@/components/management/SyncRunner";
 import { SonnerToaster } from "@/components/ui/sonner";
 import ServiceWorkerRegister from "@/components/pwa/ServiceWorkerRegister";
+import InstallPrompt from "@/components/pwa/InstallPrompt";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,6 +46,7 @@ export default function RootLayout({
         <SyncRunner />
         <SonnerToaster />
         <ServiceWorkerRegister />
+        <InstallPrompt />
         {children}
       </body>
     </html>
