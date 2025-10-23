@@ -21,6 +21,7 @@ import AssetEntryInlineForm from "@/components/asset-entry/AssetEntryInlineForm"
 import { edgeInvoke } from "@/lib/edge-invoke";
 import EditTransactionDialog from "@/components/asset-entry/EditTransactionDialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import AssetTable from "../../components/daily-report/AssetTable";
 
 type SafeStaff = {
   id: string;
@@ -1212,96 +1213,21 @@ export default function DailyReportPage() {
                   <div className="text-xs text-muted-foreground">Bảng sẽ tải khi bạn cuộn tới đây...</div>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        {canSeeTakenColumn && <TableHead>Đã lấy</TableHead>}
-                        <TableHead>Phòng</TableHead>
-                        <TableHead>Năm TS</TableHead>
-                        <TableHead>Mã TS</TableHead>
-                        <TableHead>Loại</TableHead>
-                        <TableHead>Ngày</TableHead>
-                        <TableHead>Buổi</TableHead>
-                        <TableHead>Ghi chú</TableHead>
-                        <TableHead>CB</TableHead>
-                        <TableHead>Time nhắn</TableHead>
-                        <TableHead className="text-right">Thao tác</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {isTableLoading ? (
-                        <TableRow>
-                          <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
-                            Đang tải dữ liệu...
-                          </TableCell>
-                        </TableRow>
-                      ) : tableFilteredTransactions.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
-                            Không có dữ liệu.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        tablePaginatedTransactions.map((t) => (
-                          <TableRow key={t.id}>
-                            {canSeeTakenColumn && (
-                              <TableCell>
-                                <Switch
-                                  checked={takenTransactionIds.has(t.id)}
-                                  onCheckedChange={() => handleToggleTakenStatus(t.id)}
-                                />
-                              </TableCell>
-                            )}
-                            <TableCell>{t.room}</TableCell>
-                            <TableCell>{t.asset_year}</TableCell>
-                            <TableCell>{t.asset_code}</TableCell>
-                            <TableCell>{t.transaction_type}</TableCell>
-                            <TableCell>{format(new Date(t.transaction_date), "dd/MM/yyyy")}</TableCell>
-                            <TableCell>{t.parts_day}</TableCell>
-                            <TableCell>{t.note || "-"}</TableCell>
-                            <TableCell>{t.staff_code}</TableCell>
-                            <TableCell>{formatGmt7TimeNhan(t.notified_at)}{latestChangeSuffix(t.change_logs)}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                <Button variant="outline" size="sm" onClick={() => handleEditTransaction(t)}>
-                                  <Edit className="w-4 h-4 mr-1" /> Sửa
-                                </Button>
-                                <Button variant="outline" size="sm" onClick={() => handleDeleteTransaction(t.id)}>
-                                  <Trash2 className="w-4 h-4 mr-1" /> Xóa
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-
-              {isTableMountReady && tableFilteredTransactions.length > ITEMS_PER_PAGE && (
-                <div className="flex justify-center items-center gap-4 p-4">
-                  <Button
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    variant="outline"
-                    className="gap-2"
-                  >
-                    <ChevronLeft className="w-4 h-4" /> Trước
-                  </Button>
-                  <span className="text-sm text-muted-foreground">
-                    Trang {currentPage} / {Math.ceil(tableFilteredTransactions.length / ITEMS_PER_PAGE)}
-                  </span>
-                  <Button
-                    onClick={() => setCurrentPage((p) => Math.min(Math.ceil(tableFilteredTransactions.length / ITEMS_PER_PAGE), p + 1))}
-                    disabled={currentPage >= Math.ceil(tableFilteredTransactions.length / ITEMS_PER_PAGE)}
-                    variant="outline"
-                    className="gap-2"
-                  >
-                    Tiếp <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
+                <AssetTable
+                  items={tablePaginatedTransactions}
+                  canSeeTakenColumn={canSeeTakenColumn}
+                  takenTransactionIds={takenTransactionIds}
+                  isLoading={isTableLoading}
+                  onToggleTakenStatus={handleToggleTakenStatus}
+                  onEditTransaction={handleEditTransaction}
+                  onDeleteTransaction={handleDeleteTransaction}
+                  formatGmt7TimeNhan={formatGmt7TimeNhan}
+                  latestChangeSuffix={latestChangeSuffix}
+                  currentPage={currentPage}
+                  totalItems={tableFilteredTransactions.length}
+                  itemsPerPage={ITEMS_PER_PAGE}
+                  onPageChange={setCurrentPage}
+                />
               )}
             </CardContent>
           </Card>
