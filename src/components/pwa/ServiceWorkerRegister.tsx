@@ -46,6 +46,11 @@ const ServiceWorkerRegister = () => {
               }
             });
           });
+
+          // Khi controller thay đổi (worker mới nhận quyền điều khiển), chỉ hiển thị toast, không tự reload
+          navigator.serviceWorker.addEventListener("controllerchange", () => {
+            showUpdateToast();
+          });
         })
         .catch((err) => {
           console.warn("[PWA] Service worker registration failed:", err);
@@ -61,6 +66,7 @@ const ServiceWorkerRegister = () => {
     return () => {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("load", register);
+      // Không cần bỏ listener controllerchange vì nó gắn trên navigator.serviceWorker (sống theo vòng đời app)
     };
   }, []);
 
