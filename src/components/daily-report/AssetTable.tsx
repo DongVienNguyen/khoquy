@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Edit, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 
-type AssetTx = {
+type AssetRow = {
   id: string;
   room: string;
   asset_year: number;
@@ -20,15 +20,18 @@ type AssetTx = {
   notified_at: string;
   is_deleted: boolean;
   change_logs?: any[];
+  // bổ sung để tương thích với kiểu rộng hơn ở page.tsx
+  created_date?: string;
+  updated_date?: string;
 };
 
 interface AssetTableProps {
-  items: AssetTx[];
+  items: AssetRow[];
   canSeeTakenColumn: boolean;
   takenTransactionIds: Set<string>;
   isLoading: boolean;
   onToggleTakenStatus: (id: string) => void;
-  onEditTransaction: (t: AssetTx) => void;
+  onEditTransaction: (t: any) => void;
   onDeleteTransaction: (id: string) => void;
   formatGmt7TimeNhan: (iso?: string | null) => string;
   latestChangeSuffix: (logs?: any[]) => string;
