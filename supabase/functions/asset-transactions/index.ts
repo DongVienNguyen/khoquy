@@ -38,6 +38,14 @@ function gmt7WeekRangeUtc(date: Date): [string, string] {
   return [startUtc.toISOString(), endUtc.toISOString()]
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+function gmt7YmdFrom(date: Date): string {
+  const g = new Date(date.getTime() + 7 * 3600 * 1000);
+  return `${g.getUTCFullYear()}-${pad2(g.getUTCMonth() + 1)}-${pad2(g.getUTCDate())}`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders })
@@ -152,6 +160,55 @@ serve(async (req) => {
         .order("created_date", { ascending: false })
       if (error) throw error
       return new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    }
+
+    // LIST mine by date range (AssetEntry search)
+    if (action === "list_mine_range") {
+      const staff_username: string = String(body?.staff_username || "");
+      let start_ymd: string = String(body?.start_ymd || "");
+      let end_ymd: string = String(body?.end_ymd || "");
+      if (!staff_username || !start_ymd || !end_ymd) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "Thiếu username hoặc khoảng ngày" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Clamp khoảng ngày theo tối đa 30 ngày gần nhất tính từ hiện tại (GMT+7)
+      const now = new Date();
+      const todayYmd = gmt7YmdFrom(now);
+      const earliest = new Date(now.getTime() + 7 * 3600 * 1000);
+      earliest.setUTCDate(earliest.getUTCDate() - 30);
+      const earliestYmd = `${earliest.getUTCFullYear()}-${pad2(earliest.getUTCMonth() + 1)}-${pad2(earliest.getUTCDate())}`;
+
+      if (start_ymd < earliestYmd) start_ymd = earliestYmd;
+      if (end_ymd > todayYmd) end_ymd = todayYmd;
+      if (start_ymd > end_ymd) {
+        return new Response(JSON.stringify({ ok: true, data: [] }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Chuyển start/end YMD thành khoảng UTC tương ứng của GMT+7
+      const [startUtc] = gmt7DayRangeUtcFor(start_ymd);
+      const [, endUtc] = gmt7DayRangeUtcFor(end_ymd); // end của ngày cuối (UTC)
+
+      const { data, error } = await supabase
+        .from("asset_transactions")
+        .select("*")
+        .eq("staff_code", staff_username)
+        .eq("is_deleted", false)
+        .gte("notified_at", startUtc)
+        .lt("notified_at", endUtc)
+        .order("notified_at", { ascending: false })
+        .order("created_date", { ascending: false });
+
+      if (error) throw error;
+      return new Response(JSON.stringify({ ok: true, data }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // UPDATE note (AssetEntry)

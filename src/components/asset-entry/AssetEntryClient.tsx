@@ -1405,7 +1405,7 @@ export default function AssetEntryClient() {
 
             {listOpen && (
               <Suspense fallback={<div className="mt-4 text-sm text-muted-foreground">Đang tải danh sách của bạn...</div>}>
-                <MyTodaySubmissionsLazy />
+                <MyTodaySubmissionsLazy isOpen={listOpen} />
               </Suspense>
             )}
           </div>
