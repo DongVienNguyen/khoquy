@@ -1,5 +1,5 @@
 // Bump cache version để ép cập nhật SW
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v7';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
@@ -18,7 +18,17 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(PRECACHE);
-      await cache.addAll(PRECACHE_URLS);
+      // Thử lần lượt từng mục để tránh install thất bại nếu thiếu tệp
+      for (const url of PRECACHE_URLS) {
+        try {
+          const resp = await fetch(url, { cache: 'no-cache' });
+          if (resp && resp.ok) {
+            await cache.put(url, resp.clone());
+          }
+        } catch (_e) {
+          // Bỏ qua tệp thiếu hoặc lỗi mạng
+        }
+      }
       // Cập nhật SW ngay sau khi cài đặt
       await self.skipWaiting();
     })()
@@ -45,6 +55,8 @@ self.addEventListener('activate', (event) => {
       );
       // Nhận quyền điều khiển ngay
       await self.clients.claim();
+      // Log phiên bản đang chạy
+      console.log('[SW] active version:', CACHE_VERSION);
     })()
   );
 });
@@ -76,7 +88,7 @@ self.addEventListener('fetch', (event) => {
         if (preload && !preload.redirected && !(preload.status >= 300 && preload.status < 400)) {
           return preload;
         }
-        const net = await fetch(request);
+        const net = await fetch(request, { cache: 'no-store' });
         if (net && (net.redirected || (net.status >= 300 && net.status < 400))) {
           try {
             const direct = await fetch(net.url, { credentials: 'include', cache: 'no-store' });
@@ -98,6 +110,22 @@ self.addEventListener('fetch', (event) => {
 
   // Ảnh/icon: cache-first (chỉ cache phản hồi hợp lệ)
   if (/\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i.test(url.pathname)) {
+    event.respondWith(
+      caches.open(RUNTIME).then((cache) =>
+        cache.match(request).then((response) => {
+          if (response) return response;
+          return fetch(request).then(async (networkResponse) => {
+            await putIfCacheable(cache, request, networkResponse);
+            return networkResponse;
+          });
+        })
+      )
+    );
+    return;
+  }
+
+  // Font: cache-first
+  if (/\.(?:woff|woff2|ttf)$/i.test(url.pathname)) {
     event.respondWith(
       caches.open(RUNTIME).then((cache) =>
         cache.match(request).then((response) => {
