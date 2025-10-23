@@ -293,7 +293,7 @@ export default function DailyReportPage() {
     } else {
       setTimeout(run, 400);
     }
-  }, [/* deps set below after loadTransactionsForTable is defined */]);
+  }, [loadTransactionsForTable]);
 
   // cập nhật deps cho scheduleTableLoad sau khi loadTransactionsForTable có mặt
   useEffect(() => {
@@ -521,6 +521,12 @@ export default function DailyReportPage() {
       return (a.asset_code || 0) - (b.asset_code || 0);
     });
   }, [tableTransactions, filterType, customFilters]);
+
+  // Thêm phân trang thực sự cho bảng cuối trang
+  const tablePaginatedTransactions = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return tableFilteredTransactions.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [tableFilteredTransactions, currentPage]);
 
   const startOfCurrentWeek = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
   const endOfCurrentWeek = useMemo(() => endOfWeek(new Date(), { weekStartsOn: 1 }), []);
@@ -1175,7 +1181,7 @@ export default function DailyReportPage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      tableFilteredTransactions.map((t) => (
+                      tablePaginatedTransactions.map((t) => (
                         <TableRow key={t.id}>
                           {canSeeTakenColumn && (
                             <TableCell>
