@@ -4,7 +4,11 @@ function isStaticAsset(pathname: string): boolean {
   if (pathname === "/") return true;
   if (pathname.startsWith("/_next")) return true;
   if (pathname === "/favicon.ico") return true;
-  return /\.(png|jpg|jpeg|svg|gif|ico|webp|css|js|map|woff|woff2|ttf|mp4|webm|pdf)$/.test(pathname);
+  // Cho phép các tệp PWA quan trọng
+  if (pathname === "/sw.js") return true;
+  if (pathname === "/offline.html") return true;
+  if (pathname === "/manifest.webmanifest") return true;
+  return /\.(png|jpg|jpeg|svg|gif|ico|webp|css|js|map|woff|woff2|ttf|mp4|webm|pdf|html|webmanifest)$/.test(pathname);
 }
 
 export function middleware(req: NextRequest) {
