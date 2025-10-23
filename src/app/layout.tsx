@@ -9,6 +9,7 @@ import InstallPrompt from "@/components/pwa/InstallPrompt";
 import OfflineBanner from "@/components/pwa/OfflineBanner";
 import PWAInstallGuide from "@/components/pwa/PWAInstallGuide";
 import UpdateAppButton from "@/components/pwa/UpdateAppButton";
+import PWADebugPanel from "@/components/pwa/PWADebugPanel";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -58,6 +59,7 @@ export default function RootLayout({
         <OfflineBanner />
         <PWAInstallGuide />
         <UpdateAppButton />
+        <PWADebugPanel />
         {children}
       </body>
     </html>
