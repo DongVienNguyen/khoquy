@@ -100,6 +100,12 @@ self.addEventListener('fetch', (event) => {
   // Bypass Supabase và API Next
   if (url.origin.includes('supabase.co') || url.pathname.startsWith('/api')) return;
 
+  // Luôn network-only cho tài nguyên build của Next.js để tránh dùng bản cũ trong cache
+  if (url.pathname.startsWith('/_next/')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
   // Utility: chỉ cache phản hồi hợp lệ (tránh redirect)
   const putIfCacheable = async (cache, req, resp) => {
     try {
@@ -170,8 +176,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // CSS/JS: stale-while-revalidate (chỉ cache phản hồi hợp lệ)
-  if (/\.(?:css|js)$/i.test(url.pathname)) {
+  // CSS: stale-while-revalidate (KHÔNG áp dụng cho /_next/ vì đã network-only ở trên)
+  if (/\.css$/i.test(url.pathname)) {
     event.respondWith(
       caches.open(RUNTIME).then((cache) =>
         cache.match(request).then((response) => {
@@ -183,6 +189,12 @@ self.addEventListener('fetch', (event) => {
         })
       )
     );
+    return;
+  }
+
+  // Script JS: network-only để tránh phục vụ bản cũ từ cache
+  if (request.destination === 'script' || /\.js$/i.test(url.pathname)) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
     return;
   }
 
