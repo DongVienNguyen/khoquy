@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import AssetEntryInlineForm from "@/components/asset-entry/AssetEntryInlineForm";
 import { edgeInvoke } from "@/lib/edge-invoke";
 import EditTransactionDialog from "@/components/asset-entry/EditTransactionDialog";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type SafeStaff = {
   id: string;
@@ -156,8 +157,15 @@ export default function DailyReportPage() {
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
   const [groupLastRefreshTime, setGroupLastRefreshTime] = useState<Date | null>(null);
   const [tableLastRefreshTime, setTableLastRefreshTime] = useState<Date | null>(null);
-  const autoRefreshRef = useRef<any>(null);
-  const hasInitializedFilter = useRef(false);
+
+  // Transition cho state nặng ở bảng
+  const [isTablePending, startTableTransition] = useTransition();
+
+  // Lazy mount bảng với IO + dự phòng timeout
+  const tableSentinelRef = useRef<HTMLDivElement | null>(null);
+  const [isTableMountReady, setIsTableMountReady] = useState(false);
+  const tableLoadScheduledRef = useRef(false);
+
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // Loading flags: ưu tiên khung trên
@@ -204,6 +212,10 @@ export default function DailyReportPage() {
   useEffect(() => {
     localStorage.setItem("autoRefreshEnabled", JSON.stringify(autoRefresh));
   }, [autoRefresh]);
+
+  // Flags/refs for initialization and auto-refresh timer
+  const hasInitializedFilter = useRef<boolean>(false);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Tính khoảng ngày đang hoạt động dựa trên bộ lọc hiện tại
   const getActiveRange = React.useCallback(() => {
@@ -273,12 +285,14 @@ export default function DailyReportPage() {
         parts_day: partsParam,
         include_deleted: true
       });
-      if (!res.ok) {
-        setTableTransactions([]);
-      } else {
-        setTableTransactions(Array.isArray(res.data) ? (res.data as AssetTx[]) : []);
-      }
-      setTableLastRefreshTime(new Date());
+      startTableTransition(() => {
+        if (!res.ok) {
+          setTableTransactions([]);
+        } else {
+          setTableTransactions(Array.isArray(res.data) ? (res.data as AssetTx[]) : []);
+        }
+        setTableLastRefreshTime(new Date());
+      });
     } finally {
       setIsTableLoading(false);
     }
@@ -286,12 +300,14 @@ export default function DailyReportPage() {
 
   // schedule tải bảng sau khi khung trên đã hiển thị
   const scheduleTableLoad = useCallback(() => {
+    if (tableLoadScheduledRef.current) return;
+    tableLoadScheduledRef.current = true;
     const run = () => loadTransactionsForTable();
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
       // @ts-ignore
       window.requestIdleCallback(run, { timeout: 1200 });
     } else {
-      setTimeout(run, 400);
+      setTimeout(run, 500);
     }
   }, [loadTransactionsForTable]);
 
@@ -309,11 +325,16 @@ export default function DailyReportPage() {
     if (canManageDailyReport) loadProcessedNotes();
     if (canSeeTakenColumn) loadTakenStatus();
 
-    // Lên lịch bảng sau
-    scheduleTableLoad();
+    // Lên lịch bảng sau (dự phòng), bảng sẽ mount khi người dùng cuộn xuống
+    setTimeout(() => {
+      if (!isTableMountReady) {
+        setIsTableMountReady(true);
+        scheduleTableLoad();
+      }
+    }, 1200);
 
     return () => {
-      // không cần hủy gì ở đây cho schedule đơn giản
+      // no-op
     };
   }, []);
 
@@ -335,8 +356,35 @@ export default function DailyReportPage() {
     scheduleTableLoad();
   }, [filterType, customFilters.start, customFilters.end, customFilters.parts_day, loadTransactionsForGroup, scheduleTableLoad]);
 
+  // IO: bảng chỉ mount khi cuộn tới sentinel
+  useEffect(() => {
+    if (!tableSentinelRef.current) return;
+    const el = tableSentinelRef.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const e = entries[0];
+        if (e.isIntersecting) {
+          setIsTableMountReady(true);
+          scheduleTableLoad();
+        }
+      },
+      { root: null, rootMargin: "0px", threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.unobserve(el);
+  }, [scheduleTableLoad]);
+
+  // Reload theo filter: luôn ưu tiên khung trên trước, bảng sau; reset lịch bảng để cho phép schedule lại
+  useEffect(() => {
+    tableLoadScheduledRef.current = false;
+    loadTransactionsForGroup();
+    if (isTableMountReady) {
+      scheduleTableLoad();
+    }
+  }, [filterType, customFilters.start, customFilters.end, customFilters.parts_day, isTableMountReady, loadTransactionsForGroup, scheduleTableLoad]);
+
   // Gộp trạng thái bận để khóa nút và hiển thị hiệu ứng quay
-  const isBusy = isGroupLoading || isTableLoading || isManualRefreshing;
+  const isBusy = isGroupLoading || isTableLoading || isManualRefreshing || isTablePending;
 
   const backgroundRefresh = useCallback(async () => {
     if (document.hidden || isGroupLoadingRef.current || isTableLoadingRef.current) return;
@@ -1143,6 +1191,9 @@ export default function DailyReportPage() {
             </Card>
           )}
 
+          {/* Sentinel để kích hoạt lazy-mount bảng */}
+          <div ref={tableSentinelRef} className="h-2" />
+
           {/* Khung 'Danh sách tài sản cần lấy' ở cuối trang */}
           <Card className="mt-6">
             <CardHeader>
@@ -1150,73 +1201,86 @@ export default function DailyReportPage() {
               <CardDescription>{headerDateDisplay}</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {canSeeTakenColumn && <TableHead>Đã lấy</TableHead>}
-                      <TableHead>Phòng</TableHead>
-                      <TableHead>Năm TS</TableHead>
-                      <TableHead>Mã TS</TableHead>
-                      <TableHead>Loại</TableHead>
-                      <TableHead>Ngày</TableHead>
-                      <TableHead>Buổi</TableHead>
-                      <TableHead>Ghi chú</TableHead>
-                      <TableHead>CB</TableHead>
-                      <TableHead>Time nhắn</TableHead>
-                      <TableHead className="text-right">Thao tác</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isTableLoading ? (
+              {!isTableMountReady ? (
+                <div className="p-6 space-y-3">
+                  <Skeleton className="h-6 w-48" />
+                  <div className="space-y-2">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                  <div className="text-xs text-muted-foreground">Bảng sẽ tải khi bạn cuộn tới đây...</div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
-                          Đang tải dữ liệu...
-                        </TableCell>
+                        {canSeeTakenColumn && <TableHead>Đã lấy</TableHead>}
+                        <TableHead>Phòng</TableHead>
+                        <TableHead>Năm TS</TableHead>
+                        <TableHead>Mã TS</TableHead>
+                        <TableHead>Loại</TableHead>
+                        <TableHead>Ngày</TableHead>
+                        <TableHead>Buổi</TableHead>
+                        <TableHead>Ghi chú</TableHead>
+                        <TableHead>CB</TableHead>
+                        <TableHead>Time nhắn</TableHead>
+                        <TableHead className="text-right">Thao tác</TableHead>
                       </TableRow>
-                    ) : tableFilteredTransactions.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
-                          Không có dữ liệu.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      tablePaginatedTransactions.map((t) => (
-                        <TableRow key={t.id}>
-                          {canSeeTakenColumn && (
-                            <TableCell>
-                              <Switch
-                                checked={takenTransactionIds.has(t.id)}
-                                onCheckedChange={() => handleToggleTakenStatus(t.id)}
-                              />
-                            </TableCell>
-                          )}
-                          <TableCell>{t.room}</TableCell>
-                          <TableCell>{t.asset_year}</TableCell>
-                          <TableCell>{t.asset_code}</TableCell>
-                          <TableCell>{t.transaction_type}</TableCell>
-                          <TableCell>{format(new Date(t.transaction_date), "dd/MM/yyyy")}</TableCell>
-                          <TableCell>{t.parts_day}</TableCell>
-                          <TableCell>{t.note || "-"}</TableCell>
-                          <TableCell>{t.staff_code}</TableCell>
-                          <TableCell>{formatGmt7TimeNhan(t.notified_at)}{latestChangeSuffix(t.change_logs)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button variant="outline" size="sm" onClick={() => handleEditTransaction(t)}>
-                                <Edit className="w-4 h-4 mr-1" /> Sửa
-                              </Button>
-                              <Button variant="outline" size="sm" onClick={() => handleDeleteTransaction(t.id)}>
-                                <Trash2 className="w-4 h-4 mr-1" /> Xóa
-                              </Button>
-                            </div>
+                    </TableHeader>
+                    <TableBody>
+                      {isTableLoading ? (
+                        <TableRow>
+                          <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
+                            Đang tải dữ liệu...
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              {tableFilteredTransactions.length > ITEMS_PER_PAGE && (
+                      ) : tableFilteredTransactions.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={canSeeTakenColumn ? 11 : 10} className="h-24 text-center text-muted-foreground">
+                            Không có dữ liệu.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        tablePaginatedTransactions.map((t) => (
+                          <TableRow key={t.id}>
+                            {canSeeTakenColumn && (
+                              <TableCell>
+                                <Switch
+                                  checked={takenTransactionIds.has(t.id)}
+                                  onCheckedChange={() => handleToggleTakenStatus(t.id)}
+                                />
+                              </TableCell>
+                            )}
+                            <TableCell>{t.room}</TableCell>
+                            <TableCell>{t.asset_year}</TableCell>
+                            <TableCell>{t.asset_code}</TableCell>
+                            <TableCell>{t.transaction_type}</TableCell>
+                            <TableCell>{format(new Date(t.transaction_date), "dd/MM/yyyy")}</TableCell>
+                            <TableCell>{t.parts_day}</TableCell>
+                            <TableCell>{t.note || "-"}</TableCell>
+                            <TableCell>{t.staff_code}</TableCell>
+                            <TableCell>{formatGmt7TimeNhan(t.notified_at)}{latestChangeSuffix(t.change_logs)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => handleEditTransaction(t)}>
+                                  <Edit className="w-4 h-4 mr-1" /> Sửa
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => handleDeleteTransaction(t.id)}>
+                                  <Trash2 className="w-4 h-4 mr-1" /> Xóa
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {isTableMountReady && tableFilteredTransactions.length > ITEMS_PER_PAGE && (
                 <div className="flex justify-center items-center gap-4 p-4">
                   <Button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
