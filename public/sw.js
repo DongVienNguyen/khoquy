@@ -1,10 +1,13 @@
 // Bump cache version để ép cập nhật SW
-const CACHE_VERSION = 'v9';
+const CACHE_VERSION = 'v10';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
 // Giới hạn số entry trong RUNTIME cache để tránh vượt quota trên iOS Safari
 const RUNTIME_MAX_ENTRIES = 100;
+
+// Giới hạn kích thước ước lượng cho một mục cache (2MB) để tránh chiếm dụng dung lượng lớn
+const MAX_ITEM_SIZE_BYTES = 2 * 1024 * 1024;
 
 const PRECACHE_URLS = [
   '/offline.html',
@@ -109,10 +112,14 @@ self.addEventListener('fetch', (event) => {
   // Utility: chỉ cache phản hồi hợp lệ (tránh redirect)
   const putIfCacheable = async (cache, req, resp) => {
     try {
-      if (resp && resp.ok && !resp.redirected && (resp.type === 'basic' || resp.type === 'default')) {
-        await cache.put(req, resp.clone());
-        await enforceCacheLimit(cache);
-      }
+      if (!resp || !resp.ok || resp.redirected) return;
+      if (!(resp.type === 'basic' || resp.type === 'default')) return;
+      // Bỏ qua cache các phản hồi quá lớn (2MB) để giảm rủi ro tràn quota trên iOS Safari
+      const lenHeader = resp.headers?.get('content-length');
+      const size = lenHeader ? parseInt(lenHeader, 10) : NaN;
+      if (!Number.isNaN(size) && size > MAX_ITEM_SIZE_BYTES) return;
+      await cache.put(req, resp.clone());
+      await enforceCacheLimit(cache);
     } catch (_e) {}
   };
 
