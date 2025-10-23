@@ -1,5 +1,5 @@
 // Bump cache version để ép cập nhật SW
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
