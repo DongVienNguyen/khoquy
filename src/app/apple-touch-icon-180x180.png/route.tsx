@@ -12,7 +12,7 @@ export const GET = async () => {
           justifyContent: 'center',
           background: '#0f172a',
           color: '#ffffff',
-          fontSize: 64,
+          fontSize: 76,
           fontWeight: 700,
           letterSpacing: -1
         }}

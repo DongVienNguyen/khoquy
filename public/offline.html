@@ -1,64 +1,46 @@
 <!doctype html>
 <html lang="vi">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Ngoại tuyến</title>
-  <meta name="theme-color" content="#0f172a" />
-  <link rel="icon" href="/favicon.ico" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
-  <style>
-    :root { color-scheme: light dark; }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
-    body {
-      display: grid;
-      place-items: center;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
-      background: #0f172a;
-      color: #e5e7eb;
-    }
-    .card {
-      width: 100%;
-      max-width: 560px;
-      padding: 24px;
-      border-radius: 16px;
-      background: rgba(2,6,23,0.7);
-      backdrop-filter: saturate(140%) blur(6px);
-      border: 1px solid rgba(148,163,184,0.2);
-    }
-    h1 {
-      margin: 0 0 8px;
-      font-size: 22px;
-      line-height: 1.2;
-    }
-    p { margin: 0 0 16px; color: #cbd5e1; }
-    .actions { display: flex; gap: 12px; }
-    .btn {
-      appearance: none;
-      border: none;
-      border-radius: 10px;
-      padding: 10px 14px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .primary { background: #22c55e; color: #062e0d; }
-    .secondary { background: #0b1220; color: #e5e7eb; border: 1px solid rgba(148,163,184,0.25); }
-    .tip { margin-top: 16px; font-size: 14px; color: #94a3b8; }
-    .small { font-size: 12px; opacity: 0.8; }
-  </style>
-</head>
-<body>
-  <main class="card" role="main" aria-label="Trang ngoại tuyến">
-    <h1>Không có kết nối mạng</h1>
-    <p>Ứng dụng đang ở chế độ ngoại tuyến. Vui lòng kiểm tra kết nối rồi thử lại.</p>
-    <div class="actions">
-      <button class="btn primary" onclick="location.reload()">Thử lại</button>
-      <a class="btn secondary" href="/" rel="noopener">Về trang chính</a>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Offline</title>
+    <style>
+      :root { color-scheme: light dark }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        background: #0f172a;
+        color: #ffffff;
+      }
+      .card {
+        background: rgba(255,255,255,0.08);
+        backdrop-filter: blur(6px);
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 560px;
+        width: calc(100% - 32px);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+      }
+      h1 { margin: 0 0 8px; font-size: 20px }
+      p { margin: 0 0 12px; opacity: 0.9 }
+      .btn {
+        display: inline-block;
+        padding: 10px 14px;
+        border-radius: 8px;
+        background: #1f2937;
+        color: #fff;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Không có kết nối mạng</h1>
+      <p>Bạn đang ngoại tuyến. Một số tính năng có thể không hoạt động. Vui lòng kiểm tra kết nối của bạn.</p>
+      <a class="btn" href="/">Thử lại</a>
     </div>
-    <p class="tip">Mẹo: Trên iPhone, hãy mở lại ứng dụng sau vài giây nếu bạn vừa bật lại mạng.</p>
-    <p class="small">Đã cài đặt hỗ trợ PWA & ngoại tuyến cơ bản.</p>
-  </main>
-</body>
+  </body>
 </html>

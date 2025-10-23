@@ -7,13 +7,13 @@ export const GET = async () => {
         style={{
           width: '100%',
           height: '100%',
+          background: '#0f172a',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#0f172a',
           color: '#ffffff',
-          fontSize: 160,
-          fontWeight: 700,
+          fontSize: 200,
+          fontWeight: 800,
           letterSpacing: -2
         }}
       >

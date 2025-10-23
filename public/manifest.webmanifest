@@ -1,39 +1,28 @@
 {
+  "id": "/",
   "name": "Thông báo TS",
-  "short_name": "CRC",
+  "short_name": "Thông báo TS",
   "description": "Thông báo kho quỹ lấy TS",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "lang": "vi",
-  "dir": "ltr",
-  "theme_color": "#0f172a",
   "background_color": "#0f172a",
-  "orientation": "portrait-primary",
+  "theme_color": "#0f172a",
+  "orientation": "any",
   "icons": [
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-192x192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512x512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
     {
-      "src": "/icons/icon-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/icon-192x192-maskable.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/icons/icon-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/icon-512x512-maskable.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "name": "Mở trang chính",
+      "short_name": "Trang chính",
+      "description": "Đi tới trang chính",
+      "url": "/",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" }]
     }
-  ]
+  ],
+  "prefer_related_applications": false
 }
