@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AppHeader from "@/components/app-header";
@@ -22,8 +22,6 @@ export const metadata: Metadata = {
   title: "Thông báo TS",
   description: "Thông báo kho quỹ lấy TS",
   manifest: "/manifest.webmanifest",
-  themeColor: "#0f172a",
-  viewport: "width=device-width, initial-scale=1, viewport-fit=cover",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -31,6 +29,13 @@ export const metadata: Metadata = {
   icons: {
     apple: "/apple-touch-icon-180x180.png",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0f172a",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

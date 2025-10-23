@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { SonnerToaster } from "@/components/ui/sonner";
 import { Package, User as UserIcon, Lock as LockIcon, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -205,7 +204,6 @@ export default function SignInPage() {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-b from-muted/40 to-background p-6">
-      <SonnerToaster />
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="flex flex-col items-center mb-6">
