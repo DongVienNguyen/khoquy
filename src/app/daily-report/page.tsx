@@ -532,6 +532,39 @@ export default function DailyReportPage() {
     return `${hh}:${mm} - ${dd}/${mo}`;
   }, []);
 
+  // Thêm mô tả thay đổi gần nhất, nối sau 'Time nhắn'
+  const latestChangeSuffix = useCallback((logs?: any[]) => {
+    const entries = Array.isArray(logs) ? logs : [];
+    if (entries.length === 0) return "";
+    const last = entries[entries.length - 1];
+    const lastTime = last?.time;
+    const editedBy = last?.edited_by || null;
+    const recent: any[] = [];
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i]?.time === lastTime) recent.push(entries[i]);
+      else break;
+    }
+    recent.reverse();
+    if (recent.length === 0) return "";
+    const labels: Record<string, string> = {
+      transaction_date: "Ngày",
+      parts_day: "Buổi",
+      room: "Phòng",
+      transaction_type: "Loại",
+      asset_year: "Năm TS",
+      asset_code: "Mã TS",
+      note: "Ghi chú",
+    };
+    const parts = recent.map((c) => {
+      const label = labels[c.field] || c.field;
+      const oldVal = (c.old_value ?? "-").toString();
+      const newVal = (c.new_value ?? "-").toString();
+      return `${label}: ${oldVal}→${newVal}`;
+    });
+    const by = editedBy ? ` (${editedBy})` : "";
+    return ` | Sửa${by}: ${parts.join("; ")}`;
+  }, []);
+
   const handleToggleTakenStatus = useCallback(async (transactionId: string) => {
     if (currentStaff?.department !== "NQ") return;
     const res = await edgeInvoke<any>("asset-transactions", {
@@ -1062,7 +1095,7 @@ export default function DailyReportPage() {
                           <TableCell>{t.parts_day}</TableCell>
                           <TableCell>{t.note || "-"}</TableCell>
                           <TableCell>{t.staff_code}</TableCell>
-                          <TableCell>{formatGmt7TimeNhan(t.notified_at)}</TableCell>
+                          <TableCell>{formatGmt7TimeNhan(t.notified_at)}{latestChangeSuffix(t.change_logs)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button variant="outline" size="sm" onClick={() => handleEditTransaction(t)}>
@@ -1177,10 +1210,11 @@ export default function DailyReportPage() {
               onOpenChange={setIsEditTxDialogOpen}
               transaction={editingTransaction}
               editorUsername={currentStaff?.username || "unknown"}
-              onUpdated={() => {
+              onUpdated={(updated) => {
+                // Thay thế đúng bản ghi theo id để tránh tạo dòng mới
+                setAllTransactions((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
                 setIsEditTxDialogOpen(false);
                 setEditingTransaction(null);
-                loadAllTransactions(false);
               }}
             />
           )}
