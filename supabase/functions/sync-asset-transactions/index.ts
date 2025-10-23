@@ -173,6 +173,17 @@ serve(async (req) => {
       const key = makeNaturalKey(record);
       const existing = existingMap.get(key);
 
+      // Giữ trạng thái xóa cục bộ: nếu DB đã is_deleted=true, không được "hồi sinh" từ nguồn ngoài
+      if (existing) {
+        if (existing.is_deleted) {
+          record.is_deleted = true;
+          record.deleted_at = existing.deleted_at ?? record.deleted_at;
+          record.deleted_by = existing.deleted_by ?? record.deleted_by;
+          // Giữ logs hiện có để không mất log xóa/người sửa
+          record.change_logs = Array.isArray(existing.change_logs) ? existing.change_logs : record.change_logs;
+        }
+      }
+
       if (!existing) {
         inserts.push({
           ...record,
