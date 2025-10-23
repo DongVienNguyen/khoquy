@@ -323,7 +323,42 @@ export default function DailyReportPage() {
     runGroup();
 
     // Gọi ghi chú và trạng thái đã lấy
-    if (canManageDailyReport) loadProcessedNotes();
+    // Luôn tải ghi chú ngay khi mount để hiển thị cùng khung trên, không phụ thuộc quyền
+    loadProcessedNotes();
+    // Trạng thái đã lấy chỉ tải khi có quyền NQ
+    if (canSeeTakenColumn) loadTakenStatus();
+
+    // Lên lịch bảng sau (dự phòng), bảng sẽ mount khi người dùng cuộn xuống
+    setTimeout(() => {
+      if (!isTableMountReady) {
+        setIsTableMountReady(true);
+        scheduleTableLoad();
+      }
+    }, 1200);
+
+    return () => {
+      // no-op
+    };
+  }, []);
+
+  // Thêm cơ chế đảm bảo: khi quyền NQ sẵn sàng, tải lại ghi chú một lần
+  const ensuredNotesAfterAuthRef = useRef(false);
+  useEffect(() => {
+    if (canManageDailyReport && !ensuredNotesAfterAuthRef.current) {
+      loadProcessedNotes();
+      ensuredNotesAfterAuthRef.current = true;
+    }
+  }, [canManageDailyReport, loadProcessedNotes]);
+
+  useEffect(() => {
+    const runGroup = () => loadTransactionsForGroup();
+    // Gọi ngay khung trên
+    runGroup();
+
+    // Gọi ghi chú và trạng thái đã lấy
+    // Luôn tải ghi chú ngay khi mount để hiển thị cùng khung trên, không phụ thuộc quyền
+    loadProcessedNotes();
+    // Trạng thái đã lấy chỉ tải khi có quyền NQ
     if (canSeeTakenColumn) loadTakenStatus();
 
     // Lên lịch bảng sau (dự phòng), bảng sẽ mount khi người dùng cuộn xuống
