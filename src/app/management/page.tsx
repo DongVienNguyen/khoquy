@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { SonnerToaster } from "@/components/ui/sonner";
 import { 
   Settings, Trash as TrashIcon, Archive, Download, Upload, Plus, Edit, Lock, AlertCircle, 
-  BarChart3, Users, Database, ChevronUp, ChevronDown, Loader2 
+  BarChart3, Users, Database, ChevronUp, ChevronDown, Loader2, Wrench 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import StatsOverview from "@/components/management/StatsOverview";
+import ManagementPWADebugTab from "@/components/management/ManagementPWADebugTab";
 import AISettingsTab from "@/components/management/AISettingsTab";
 
 type SafeStaff = {
@@ -320,7 +321,7 @@ export default function ManagementPage() {
   const [message, setMessage] = useState<{ type: "" | "success" | "error" | "info"; text: string }>({ type: "", text: "" });
 
   // Tabs
-  const [tab, setTab] = useState<"stats" | "data" | "overview" | "ai">("stats");
+  const [tab, setTab] = useState<"stats" | "data" | "overview" | "ai" | "pwa">("stats");
 
   // Data tab states
   const [selectedEntity, setSelectedEntity] = useState<string>("");
@@ -1273,6 +1274,9 @@ export default function ManagementPage() {
         <Button variant={tab === "ai" ? "default" : "outline"} onClick={() => setTab("ai")} className="flex items-center gap-2">
           <Settings className="w-4 h-4" /> AI Setting
         </Button>
+        <Button variant={tab === "pwa" ? "default" : "outline"} onClick={() => setTab("pwa")} className="flex items-center gap-2">
+          <Wrench className="w-4 h-4" /> PWA Debug
+        </Button>
       </div>
 
       {tab === "stats" && (
@@ -1650,6 +1654,12 @@ export default function ManagementPage() {
       {tab === "ai" && (
         <div className="space-y-6">
           <AISettingsTab />
+        </div>
+      )}
+
+      {tab === "pwa" && (
+        <div className="space-y-6">
+          <ManagementPWADebugTab />
         </div>
       )}
 

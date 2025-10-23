@@ -21,9 +21,8 @@ function getRole(): string {
   }
 }
 
-const PWADebugPanel: React.FC = () => {
+const ManagementPWADebugTab: React.FC = () => {
   const [isAdmin, setIsAdmin] = React.useState(false);
-  const [open, setOpen] = React.useState(false);
   const [online, setOnline] = React.useState(true);
   const [scope, setScope] = React.useState<string | null>(null);
   const [hasController, setHasController] = React.useState(false);
@@ -93,7 +92,13 @@ const PWADebugPanel: React.FC = () => {
     };
   }, [refreshAll]);
 
-  if (!isAdmin) return null;
+  if (!isAdmin) {
+    return (
+      <div className="p-4 text-sm text-slate-600">
+        Chức năng này chỉ dành cho Admin.
+      </div>
+    );
+  }
 
   const checkUpdate = async () => {
     if (!("serviceWorker" in navigator)) {
@@ -167,8 +172,73 @@ const PWADebugPanel: React.FC = () => {
     }
   };
 
-  // Đã chuyển chức năng vào tab trong trang Management; không render nút nổi.
-  return null;
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-gradient-to-r from-slate-600 to-slate-700 rounded-xl flex items-center justify-center">
+          <Wrench className="w-6 h-6 text-white" />
+        </div>
+        <div>
+          <div className="text-xl font-semibold">PWA Debug</div>
+          <div className="text-slate-600 text-sm">Công cụ kiểm tra và bảo trì PWA</div>
+        </div>
+      </div>
+
+      <div className="border rounded-lg shadow-sm">
+        <div className="p-4 border-b bg-slate-50 font-medium">Trạng thái</div>
+        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div>Online: {online ? "Có" : "Không"}</div>
+          <div>Controller: {hasController ? "Có" : "Không"}</div>
+          <div>Waiting: {waiting ? "Có" : "Không"}</div>
+          <div>Installing: {installing ? "Có" : "Không"}</div>
+          <div className="sm:col-span-2 break-all">Scope: {scope || "-"}</div>
+        </div>
+      </div>
+
+      <div className="border rounded-lg shadow-sm">
+        <div className="p-4 border-b bg-slate-50 font-medium">Caches</div>
+        <div className="p-4 space-y-1 max-h-48 overflow-auto pr-1 text-sm">
+          {cachesInfo.length === 0 ? (
+            <div className="text-muted-foreground">Không có cache</div>
+          ) : (
+            cachesInfo.map((c) => (
+              <div key={c.name} className="flex items-center justify-between">
+                <span className="truncate">{c.name}</span>
+                <span className="text-muted-foreground">entries: {c.entries >= 0 ? c.entries : "?"}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="border rounded-lg shadow-sm">
+        <div className="p-4 border-b bg-slate-50 font-medium">Hành động</div>
+        <div className="p-4 flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={refreshAll} disabled={busy}>
+            Làm mới
+          </Button>
+          <Button size="sm" variant="outline" onClick={checkUpdate} disabled={busy}>
+            Kiểm tra cập nhật
+          </Button>
+          <Button size="sm" variant="outline" onClick={applyUpdate} disabled={busy}>
+            Áp dụng cập nhật
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => window.location.reload()} disabled={busy}>
+            Tải lại
+          </Button>
+          <Button size="sm" variant="destructive" onClick={clearRuntimeCaches} disabled={busy}>
+            Xóa runtime cache
+          </Button>
+          <Button size="sm" variant="destructive" onClick={clearAllCaches} disabled={busy}>
+            Xóa toàn bộ cache
+          </Button>
+          <Button size="sm" variant="destructive" onClick={unregisterSW} disabled={busy}>
+            Unregister SW
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
-export default PWADebugPanel;
+export default ManagementPWADebugTab;
