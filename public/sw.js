@@ -77,6 +77,19 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Thêm message handler để kích hoạt skipWaiting theo yêu cầu của người dùng
+self.addEventListener('message', (event) => {
+  try {
+    const data = event?.data;
+    if (data && data.type === 'SKIP_WAITING') {
+      // Cho worker đang chờ chuyển sang active ngay
+      self.skipWaiting();
+    }
+  } catch (_e) {
+    // ignore
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);

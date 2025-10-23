@@ -7,6 +7,8 @@ import { SonnerToaster } from "@/components/ui/sonner";
 import ServiceWorkerRegister from "@/components/pwa/ServiceWorkerRegister";
 import InstallPrompt from "@/components/pwa/InstallPrompt";
 import OfflineBanner from "@/components/pwa/OfflineBanner";
+import PWAInstallGuide from "@/components/pwa/PWAInstallGuide";
+import UpdateAppButton from "@/components/pwa/UpdateAppButton";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,6 +56,8 @@ export default function RootLayout({
         <ServiceWorkerRegister />
         <InstallPrompt />
         <OfflineBanner />
+        <PWAInstallGuide />
+        <UpdateAppButton />
         {children}
       </body>
     </html>
