@@ -132,5 +132,25 @@ export default function SyncRunner() {
     startRunner();
   }, [enabled, intervalMinutes, startRunner]);
 
+  // Kích hoạt đồng bộ khi có mạng trở lại và khi tab quay lại foreground
+  React.useEffect(() => {
+    const onOnline = () => {
+      if (enabled) {
+        runOnce();
+      }
+    };
+    const onVis = () => {
+      if (enabled && document.visibilityState === "visible") {
+        runOnce();
+      }
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [enabled, runOnce]);
+
   return null;
 }

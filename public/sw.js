@@ -1,7 +1,10 @@
 // Bump cache version để ép cập nhật SW
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
+
+// Giới hạn số entry trong RUNTIME cache để tránh vượt quota trên iOS Safari
+const RUNTIME_MAX_ENTRIES = 100;
 
 const PRECACHE_URLS = [
   '/offline.html',
@@ -13,6 +16,19 @@ const PRECACHE_URLS = [
   '/apple-touch-icon-180x180.png',
   '/favicon.ico'
 ];
+
+async function enforceCacheLimit(cache) {
+  try {
+    const keys = await cache.keys();
+    // Giữ tối đa RUNTIME_MAX_ENTRIES mục (FIFO đơn giản)
+    while (keys.length > RUNTIME_MAX_ENTRIES) {
+      await cache.delete(keys[0]);
+      keys.shift();
+    }
+  } catch (_e) {
+    // ignore
+  }
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -76,6 +92,7 @@ self.addEventListener('fetch', (event) => {
     try {
       if (resp && resp.ok && !resp.redirected && (resp.type === 'basic' || resp.type === 'default')) {
         await cache.put(req, resp.clone());
+        await enforceCacheLimit(cache);
       }
     } catch (_e) {}
   };

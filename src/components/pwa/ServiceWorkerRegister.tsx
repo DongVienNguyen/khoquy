@@ -1,24 +1,27 @@
 "use client";
 
 import { useEffect } from "react";
+import { toast } from "sonner";
 
 const ServiceWorkerRegister = () => {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
-    let reloaded = false;
     let regRef: ServiceWorkerRegistration | null = null;
+
+    const showUpdateToast = () => {
+      toast.info("Có phiên bản mới của ứng dụng", {
+        action: {
+          label: "Tải lại",
+          onClick: () => window.location.reload(),
+        },
+      });
+    };
 
     const onVis = () => {
       if (document.visibilityState === "visible" && regRef) {
         regRef.update?.();
       }
-    };
-
-    const onControllerChange = () => {
-      if (reloaded) return;
-      reloaded = true;
-      window.location.reload();
     };
 
     const register = () => {
@@ -28,9 +31,21 @@ const ServiceWorkerRegister = () => {
           regRef = reg;
           // Khi quay lại tab → check update
           document.addEventListener("visibilitychange", onVis);
-          // Tự reload 1 lần khi SW mới kích hoạt
-          navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
           console.log("[PWA] Service worker registered:", reg.scope);
+
+          // Nếu đã có worker mới sẵn sàng chờ activate
+          if (reg.waiting && navigator.serviceWorker.controller) {
+            showUpdateToast();
+          }
+          // Lắng nghe updatefound và trạng thái worker mới
+          reg.addEventListener("updatefound", () => {
+            const newWorker = reg.installing;
+            newWorker?.addEventListener("statechange", () => {
+              if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+                showUpdateToast();
+              }
+            });
+          });
         })
         .catch((err) => {
           console.warn("[PWA] Service worker registration failed:", err);
@@ -45,7 +60,6 @@ const ServiceWorkerRegister = () => {
 
     return () => {
       document.removeEventListener("visibilitychange", onVis);
-      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
       window.removeEventListener("load", register);
     };
   }, []);
