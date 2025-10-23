@@ -195,6 +195,14 @@ export default function DailyReportPage() {
     localStorage.setItem("autoRefreshEnabled", JSON.stringify(autoRefresh));
   }, [autoRefresh]);
 
+  // Tính khoảng ngày đang hoạt động dựa trên bộ lọc hiện tại
+  const getActiveRange = React.useCallback(() => {
+    if (filterType === "custom") {
+      return { start: customFilters.start, end: customFilters.end };
+    }
+    return getScopedDateRange();
+  }, [filterType, customFilters]);
+
   const loadProcessedNotes = useCallback(async () => {
     const res = await edgeInvoke<ProcessedNote[]>("asset-transactions", { action: "list_notes" });
     if (!res.ok) return;
@@ -223,8 +231,15 @@ export default function DailyReportPage() {
     setIsFetchingData(true);
     setIsLoading(true);
     try {
-      const range = getScopedDateRange();
-      const res = await edgeInvoke<AssetTx[]>("asset-transactions", { action: "list_range", start: range.start, end: range.end, parts_day: null, include_deleted: true });
+      const range = getActiveRange();
+      const partsParam = filterType === "custom" && customFilters.parts_day !== "all" ? customFilters.parts_day : null;
+      const res = await edgeInvoke<AssetTx[]>("asset-transactions", {
+        action: "list_range",
+        start: range.start,
+        end: range.end,
+        parts_day: partsParam,
+        include_deleted: true
+      });
       if (!res.ok) {
         setAllTransactions([]);
       } else {
@@ -236,7 +251,7 @@ export default function DailyReportPage() {
       setIsFetchingData(false);
       if (isManual) setIsManualRefreshing(false);
     }
-  }, []);
+  }, [getActiveRange, filterType, customFilters]);
 
   useEffect(() => {
     const run = () => loadAllTransactions(true, false);
@@ -270,12 +285,25 @@ export default function DailyReportPage() {
     hasInitializedFilter.current = true;
   }, []);
 
+  // Khi dùng bộ lọc "Tùy chọn", tải lại dữ liệu theo khoảng ngày/ca đã chọn
+  useEffect(() => {
+    if (filterType !== "custom") return;
+    loadAllTransactions(false, false);
+  }, [filterType, customFilters.start, customFilters.end, customFilters.parts_day, loadAllTransactions]);
+
   const backgroundRefresh = useCallback(async () => {
     if (document.hidden || isFetchingDataRef.current) return;
     setIsFetchingData(true);
     try {
-      const range = getScopedDateRange();
-      const resTx = await edgeInvoke<AssetTx[]>("asset-transactions", { action: "list_range", start: range.start, end: range.end, parts_day: null, include_deleted: true });
+      const range = getActiveRange();
+      const partsParam = filterType === "custom" && customFilters.parts_day !== "all" ? customFilters.parts_day : null;
+      const resTx = await edgeInvoke<AssetTx[]>("asset-transactions", {
+        action: "list_range",
+        start: range.start,
+        end: range.end,
+        parts_day: partsParam,
+        include_deleted: true
+      });
 
       const doNotes = canManageDailyReportRef.current;
       const doTaken = canSeeTakenColumnRef.current && !!currentUsernameRef.current;
@@ -295,7 +323,7 @@ export default function DailyReportPage() {
     } finally {
       setIsFetchingData(false);
     }
-  }, []);
+  }, [getActiveRange, filterType, customFilters]);
 
   useEffect(() => {
     if (autoRefreshRef.current) {
