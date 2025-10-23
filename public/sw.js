@@ -1,4 +1,5 @@
-const CACHE_VERSION = 'v3';
+// Bump cache version để ép cập nhật SW
+const CACHE_VERSION = 'v4';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
@@ -15,7 +16,12 @@ const PRECACHE_URLS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(PRECACHE).then((cache) => cache.addAll(PRECACHE_URLS))
+    (async () => {
+      const cache = await caches.open(PRECACHE);
+      await cache.addAll(PRECACHE_URLS);
+      // Cập nhật SW ngay sau khi cài đặt
+      await self.skipWaiting();
+    })()
   );
 });
 
@@ -37,6 +43,8 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
+      // Nhận quyền điều khiển ngay
+      await self.clients.claim();
     })()
   );
 });
@@ -51,28 +59,56 @@ self.addEventListener('fetch', (event) => {
   // Bypass Supabase và API Next
   if (url.origin.includes('supabase.co') || url.pathname.startsWith('/api')) return;
 
-  // Navigation: ưu tiên preload/network, fallback offline.html
-  if (request.mode === 'navigate') {
+  // Utility: chỉ cache phản hồi hợp lệ (tránh redirect)
+  const putIfCacheable = async (cache, req, resp) => {
+    try {
+      if (resp && resp.ok && !resp.redirected && (resp.type === 'basic' || resp.type === 'default')) {
+        await cache.put(req, resp.clone());
+      }
+    } catch (_e) {}
+  };
+
+  // Navigation: network-first, không trả về response.redirected; fallback offline.html
+  if (request.mode === 'navigate' || request.destination === 'document') {
     event.respondWith((async () => {
       try {
         const preload = event.preloadResponse ? await event.preloadResponse : null;
-        if (preload) return preload;
-        return await fetch(request);
+        if (preload && !preload.redirected) {
+          return preload;
+        }
+        // Thử fetch bình thường
+        const net = await fetch(request);
+        // Nếu fetch trả về một phản hồi đã qua redirect, iOS Safari sẽ lỗi nếu SW trả thẳng
+        if (net && net.redirected) {
+          // Cố gắng theo URL cuối và lấy tài liệu 200 OK không redirect
+          try {
+            const direct = await fetch(net.url, { credentials: 'include', cache: 'no-store' });
+            if (direct.ok && !direct.redirected) {
+              return direct;
+            }
+          } catch (_e) {}
+          // Không trả redirect; dùng offline fallback để tránh lỗi Safari
+          const offline = await caches.match('/offline.html');
+          return offline || new Response('<h1>Offline</h1>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+        }
+        return net;
       } catch (_e) {
-        return await caches.match('/offline.html');
+        // Offline hoặc lỗi mạng: trả offline.html (200)
+        const offline = await caches.match('/offline.html');
+        return offline || new Response('<h1>Offline</h1>', { status: 200, headers: { 'Content-Type': 'text/html' } });
       }
     })());
     return;
   }
 
-  // Ảnh/icon: cache-first
+  // Ảnh/icon: cache-first (chỉ cache phản hồi hợp lệ)
   if (/\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i.test(url.pathname)) {
     event.respondWith(
       caches.open(RUNTIME).then((cache) =>
         cache.match(request).then((response) => {
           if (response) return response;
-          return fetch(request).then((networkResponse) => {
-            cache.put(request, networkResponse.clone());
+          return fetch(request).then(async (networkResponse) => {
+            await putIfCacheable(cache, request, networkResponse);
             return networkResponse;
           });
         })
@@ -81,13 +117,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // CSS/JS: stale-while-revalidate
+  // CSS/JS: stale-while-revalidate (chỉ cache phản hồi hợp lệ)
   if (/\.(?:css|js)$/i.test(url.pathname)) {
     event.respondWith(
       caches.open(RUNTIME).then((cache) =>
         cache.match(request).then((response) => {
-          const fetchPromise = fetch(request).then((networkResponse) => {
-            cache.put(request, networkResponse.clone());
+          const fetchPromise = fetch(request).then(async (networkResponse) => {
+            await putIfCacheable(cache, request, networkResponse);
             return networkResponse;
           });
           return response || fetchPromise;
