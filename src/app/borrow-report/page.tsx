@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BarChart3, Download, Calendar as CalendarIcon, Filter, FileUp, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { BarChart3, Download, Calendar as CalendarIcon, Filter, FileUp, ChevronLeft, ChevronRight, Loader2, RefreshCcw } from "lucide-react";
 import { SonnerToaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
@@ -29,11 +29,27 @@ type AssetTx = {
   is_deleted: boolean;
 };
 
+// (Thêm) Kiểu dữ liệu sau tiền xử lý (open borrows)
+type OpenBorrow = {
+  room: string;
+  asset_year: number;
+  asset_code: number;
+  transaction_date: string; // last_borrow_date
+  parts_day: "Sáng" | "Chiều" | null;
+  note: string | null;
+  staff_code: string | null; // latest
+  staff_codes: string[] | null; // unique since last export
+  transaction_count: number;
+};
+
 const ITEMS_PER_PAGE = 30;
 
 export default function BorrowReportPage() {
   const [allTransactions, setAllTransactions] = useState<AssetTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // (Thêm) Dữ liệu đã tổng hợp từ view
+  const [openBorrows, setOpenBorrows] = useState<OpenBorrow[]>([]);
 
   // Bộ lọc thời gian
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => ({
@@ -116,130 +132,111 @@ export default function BorrowReportPage() {
     }
   }, [sortKey, sortDirection]);
 
-  // Khoảng mở rộng để truy vấn
-  const getExtendedRange = useCallback((startISO: string, endISO: string) => {
-    const start = addDays(new Date(startISO), -60);
-    const end = addDays(new Date(endISO), 60);
-    return {
-      start: format(start, "yyyy-MM-dd"),
-      end: format(end, "yyyy-MM-dd"),
-    };
+  // (Thêm) Hàm gọi refresh thủ công
+  const manualRefresh = useCallback(async () => {
+    try {
+      toast.info("Đang làm mới dữ liệu báo cáo...");
+      const res = await edgeInvoke<{ last_refresh: string }>("asset-transactions", { action: "refresh_open_borrows" });
+      const ts = res?.data?.last_refresh ? new Date(res.data.last_refresh) : null;
+      toast.success(ts ? `Đã làm mới lúc ${format(ts, "dd/MM/yyyy HH:mm")}` : "Đã làm mới dữ liệu.");
+      // Sau refresh, tải lại danh sách
+      await loadOpenBorrows();
+    } catch (e: any) {
+      toast.error(friendlyErrorMessage(e?.error));
+    }
   }, []);
 
-  // Tải giao dịch theo khoảng mở rộng
+  // (Thêm) Tải danh sách từ view theo khoảng ngày
+  const loadOpenBorrows = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await edgeInvoke<OpenBorrow[]>("asset-transactions", {
+        action: "list_open_borrows",
+        start: dateRange.start,
+        end: dateRange.end,
+        room: selectedRoom !== "all" ? selectedRoom : null,
+        parts_day: null,
+      });
+      const list: OpenBorrow[] = Array.isArray(res.data) ? (res.data as OpenBorrow[]) : [];
+      setOpenBorrows(list);
+    } catch (e: any) {
+      setOpenBorrows([]);
+      toast.error(friendlyErrorMessage(e?.error));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [dateRange.start, dateRange.end, selectedRoom]);
+
+  // (Thêm) Auto-refresh nếu dữ liệu cũ hơn 4 giờ, sau đó tải danh sách
   useEffect(() => {
     let cancelled = false;
-    let idleHandle: any;
 
-    const load = async () => {
-      setIsLoading(true);
+    const checkAndRefresh = async () => {
       try {
-        const { start, end } = getExtendedRange(dateRange.start, dateRange.end);
-        const res = await edgeInvoke<AssetTx[]>("asset-transactions", { action: "list_range", start, end, parts_day: null, include_deleted: false });
-        if (!cancelled) {
-          const list: AssetTx[] = Array.isArray(res.data) ? (res.data as AssetTx[]) : [];
-          setAllTransactions(list);
+        const res = await edgeInvoke<string | null>("asset-transactions", { action: "get_open_borrows_last_refresh" });
+        const last = res?.data ? new Date(String(res.data)) : null;
+        const now = new Date();
+        const fourHoursMs = 4 * 60 * 60 * 1000;
+
+        if (!last || now.getTime() - last.getTime() > fourHoursMs) {
+          await edgeInvoke("asset-transactions", { action: "refresh_open_borrows" });
         }
-      } catch (e: any) {
-        if (!cancelled) {
-          setAllTransactions([]);
-          toast.error(friendlyErrorMessage(e?.error));
-        }
+      } catch {
+        // Bỏ qua lỗi kiểm tra refresh để không cản trở tải danh sách
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) {
+          loadOpenBorrows();
+        }
       }
     };
 
-    const run = () => load();
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      // @ts-ignore
-      idleHandle = window.requestIdleCallback(run, { timeout: 1000 });
-    } else {
-      idleHandle = setTimeout(run, 50);
-    }
+    checkAndRefresh();
 
-    return () => {
-      if (typeof window !== "undefined" && "cancelIdleCallback" in window && idleHandle) {
-        // @ts-ignore
-        window.cancelIdleCallback(idleHandle);
-      } else if (idleHandle) {
-        clearTimeout(idleHandle);
-      }
-      cancelled = true;
-    };
-  }, [dateRange.start, dateRange.end, getExtendedRange]);
+    return () => { cancelled = true; };
+  }, [loadOpenBorrows]);
 
   // Reset trang khi filter thay đổi
   useEffect(() => {
     setCurrentPage(1);
   }, [dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, debouncedSearch, sortKey, sortDirection]);
 
-  // Lọc & gom nhóm
+  // (Sửa) Lọc & gom nhóm giờ dựa trên openBorrows đã tiền xử lý
   const filteredTransactions = useMemo(() => {
-    if (!allTransactions.length) return [];
+    if (!openBorrows.length) return [];
 
-    const exportedKeys = new Set<string>();
-    for (const t of allTransactions) {
-      if (t.transaction_type === "Xuất kho") {
-        exportedKeys.add(`${t.room}-${t.asset_year}-${t.asset_code}`);
-      }
-    }
-
-    const borrowed = allTransactions.filter((t) => {
-      if (t.transaction_type !== "Mượn TS") return false;
-      const key = `${t.room}-${t.asset_year}-${t.asset_code}`;
-      return !exportedKeys.has(key);
-    });
-
-    const startDate = new Date(dateRange.start + "T00:00:00");
-    const endDate = new Date(dateRange.end + "T23:59:59");
-    const dateRoomFiltered = borrowed.filter((t) => {
+    const dateFiltered = openBorrows.filter((t) => {
       const dt = new Date(t.transaction_date);
+      const startDate = new Date(dateRange.start + "T00:00:00");
+      const endDate = new Date(dateRange.end + "T23:59:59");
       const okDate = dt >= startDate && dt <= endDate;
       const okRoom = selectedRoom === "all" || t.room === selectedRoom;
       return okDate && okRoom;
     });
 
-    const advFiltered = dateRoomFiltered.filter((t) => {
+    const advFiltered = dateFiltered.filter((t) => {
       const yearOk = assetYearFilter ? String(t.asset_year).trim() === String(assetYearFilter).trim() : true;
       const codeOk = assetCodeFilter ? String(t.asset_code).includes(String(assetCodeFilter).trim()) : true;
-      const staffOk = staffCodeFilter ? String(t.staff_code || "").toLowerCase().includes(staffCodeFilter.trim().toLowerCase()) : true;
+      const staffOk = staffCodeFilter
+        ? (
+            (t.staff_code ? String(t.staff_code).toLowerCase().includes(staffCodeFilter.trim().toLowerCase()) : false) ||
+            (Array.isArray(t.staff_codes) ? t.staff_codes.some((s) => String(s || "").toLowerCase().includes(staffCodeFilter.trim().toLowerCase())) : false)
+          )
+        : true;
       const s = debouncedSearch;
       const searchOk = s
         ? (
-          String(t.room || "").toLowerCase().includes(s.toLowerCase()) ||
-          String(t.asset_year || "").includes(s) ||
-          String(t.asset_code || "").includes(s) ||
-          String(t.staff_code || "").toLowerCase().includes(s.toLowerCase()) ||
-          String(t.note || "").toLowerCase().includes(s.toLowerCase())
-        )
+            String(t.room || "").toLowerCase().includes(s.toLowerCase()) ||
+            String(t.asset_year || "").includes(s) ||
+            String(t.asset_code || "").includes(s) ||
+            (t.staff_code ? String(t.staff_code).toLowerCase().includes(s.toLowerCase()) : false) ||
+            (Array.isArray(t.staff_codes) ? t.staff_codes.some((sc) => String(sc || "").toLowerCase().includes(s.toLowerCase())) : false) ||
+            String(t.note || "").toLowerCase().includes(s.toLowerCase())
+          )
         : true;
       return yearOk && codeOk && staffOk && searchOk;
     });
 
-    const map = new Map<string, any>();
-    for (const t of advFiltered) {
-      const key = `${t.room}-${t.asset_year}-${t.asset_code}`;
-      if (!map.has(key)) {
-        map.set(key, {
-          ...t,
-          transaction_count: 1,
-          staff_codes: t.staff_code ? [t.staff_code] : [],
-        });
-      } else {
-        const ex = map.get(key);
-        ex.transaction_count += 1;
-        if (t.staff_code && !ex.staff_codes.includes(t.staff_code)) ex.staff_codes.push(t.staff_code);
-        if (new Date(t.transaction_date) > new Date(ex.transaction_date)) {
-          ex.transaction_date = t.transaction_date;
-          ex.parts_day = t.parts_day;
-          ex.note = t.note;
-          ex.staff_code = t.staff_code;
-        }
-      }
-    }
-
-    const arr = Array.from(map.values());
+    const arr = [...advFiltered];
 
     const numericKeys = new Set(["asset_year", "asset_code"]);
     arr.sort((a: any, b: any) => {
@@ -251,6 +248,9 @@ export default function BorrowReportPage() {
       } else if (sortKey === "transaction_date") {
         va = new Date(va).getTime();
         vb = new Date(vb).getTime();
+      } else if (sortKey === "staff_code") {
+        va = (a.staff_code ?? "").toString().toLowerCase();
+        vb = (b.staff_code ?? "").toString().toLowerCase();
       } else {
         va = (va ?? "").toString().toLowerCase();
         vb = (vb ?? "").toString().toLowerCase();
@@ -260,7 +260,7 @@ export default function BorrowReportPage() {
     });
 
     return arr;
-  }, [allTransactions, dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, debouncedSearch, sortKey, sortDirection]);
+  }, [openBorrows, dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, debouncedSearch, sortKey, sortDirection]);
 
   const paginatedTransactions = useMemo(() => {
     const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -284,6 +284,7 @@ export default function BorrowReportPage() {
     setSortDirection("asc");
   }, []);
 
+  // (Sửa) Export CSV dùng dữ liệu openBorrows đã tổng hợp
   const exportToCSV = useCallback(() => {
     if (!filteredTransactions.length) {
       toast.info("Không có dữ liệu để xuất.");
@@ -315,7 +316,7 @@ export default function BorrowReportPage() {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [filteredTransactions]);
+  }, [filteredTransactions, dateRange.start, dateRange.end]);
 
   const exportToPDF = useCallback(() => {
     window.print();
@@ -376,6 +377,14 @@ export default function BorrowReportPage() {
             >
               <Download className="w-4 h-4 mr-2" />
               Xuất PDF
+            </Button>
+            <Button
+              onClick={manualRefresh}
+              variant="outline"
+              className="bg-white hover:bg-slate-50 border-slate-300 text-slate-700"
+            >
+              <RefreshCcw className="w-4 h-4 mr-2" />
+              Làm mới dữ liệu
             </Button>
           </div>
         </div>

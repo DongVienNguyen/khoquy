@@ -211,6 +211,83 @@ serve(async (req) => {
       });
     }
 
+    // LIST open borrows from materialized view (BorrowReport)
+    if (action === "list_open_borrows") {
+      const start: string = String(body?.start || "");
+      const end: string = String(body?.end || "");
+      const room: string | null = body?.room ? String(body.room) : null;
+      const parts_day: string | null = body?.parts_day ? String(body.parts_day) : null;
+
+      if (!start || !end) {
+        return new Response(JSON.stringify({ ok: false, error: "Thiếu khoảng ngày" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let query = supabase
+        .from("borrow_open_assets")
+        .select("*")
+        .gte("last_borrow_date", start)
+        .lte("last_borrow_date", end);
+
+      if (room && room !== "all") {
+        query = query.eq("room", room);
+      }
+      if (parts_day) {
+        query = query.eq("parts_day", parts_day);
+      }
+
+      const { data, error } = await query
+        .order("room", { ascending: true })
+        .order("asset_year", { ascending: true })
+        .order("asset_code", { ascending: true });
+
+      if (error) throw error;
+
+      // Map dữ liệu trả về theo format UI kỳ vọng
+      const mapped = (data || []).map((row: any) => ({
+        room: row.room,
+        asset_year: row.asset_year,
+        asset_code: row.asset_code,
+        transaction_date: row.last_borrow_date, // dùng tên cũ để UI hiển thị "Ngày (gần nhất)"
+        parts_day: row.parts_day,
+        note: row.note,
+        staff_code: row.staff_code_latest,
+        staff_codes: Array.isArray(row.staff_codes) ? row.staff_codes : [],
+        transaction_count: row.transaction_count || 1,
+      }));
+
+      return new Response(JSON.stringify({ ok: true, data: mapped }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // REFRESH view thủ công và trả về thời điểm refresh
+    if (action === "refresh_open_borrows") {
+      const { error: refErr } = await supabase.rpc("refresh_borrow_open_assets");
+      if (refErr) throw refErr;
+
+      const { data: lastRef, error: lastErr } = await supabase.rpc("get_borrow_open_assets_last_refresh");
+      if (lastErr) throw lastErr;
+
+      return new Response(JSON.stringify({ ok: true, data: { last_refresh: lastRef } }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Lấy thời điểm refresh gần nhất
+    if (action === "get_open_borrows_last_refresh") {
+      const { data, error } = await supabase.rpc("get_borrow_open_assets_last_refresh");
+      if (error) throw error;
+      return new Response(JSON.stringify({ ok: true, data }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // UPDATE note (AssetEntry)
     if (action === "update_note") {
       const id: string = String(body?.id || "")
