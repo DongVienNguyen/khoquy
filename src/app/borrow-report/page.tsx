@@ -14,6 +14,7 @@ import { BarChart3, Download, Calendar as CalendarIcon, Filter, FileUp, ChevronL
 import { SonnerToaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
+import OpenBorrowsAutoRefresh from "@/components/management/OpenBorrowsAutoRefresh";
 
 type AssetTx = {
   id: string;
@@ -353,6 +354,7 @@ export default function BorrowReportPage() {
   return (
     <div className="p-4 md:p-8">
       <SonnerToaster />
+      <OpenBorrowsAutoRefresh />
       <style>{`
         @media print {
           body * { visibility: hidden; }
