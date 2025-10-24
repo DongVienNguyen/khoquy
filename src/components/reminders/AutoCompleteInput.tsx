@@ -94,7 +94,9 @@ const AutoCompleteInput = React.forwardRef<HTMLDivElement, Props>((props, ref) =
             if (pick) {
               e.preventDefault();
               onChange(pick);
-              if (e.key === "Enter") setOpen(false);
+              // Đóng dropdown sau khi chọn để lần Tab tiếp theo không bị chặn
+              setOpen(false);
+              setHighlight(-1);
             }
           }
         }}
