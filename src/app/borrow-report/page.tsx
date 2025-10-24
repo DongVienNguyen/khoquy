@@ -51,6 +51,9 @@ export default function BorrowReportPage() {
   // (Thêm) Dữ liệu đã tổng hợp từ view
   const [openBorrows, setOpenBorrows] = useState<OpenBorrow[]>([]);
 
+  // (Thêm) Lưu thời điểm refresh gần nhất
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+
   // Bộ lọc thời gian
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => ({
     start: format(new Date(), "yyyy-MM-dd"),
@@ -138,6 +141,7 @@ export default function BorrowReportPage() {
       toast.info("Đang làm mới dữ liệu báo cáo...");
       const res = await edgeInvoke<{ last_refresh: string }>("asset-transactions", { action: "refresh_open_borrows" });
       const ts = res?.data?.last_refresh ? new Date(res.data.last_refresh) : null;
+      if (ts) setLastRefreshTime(ts);
       toast.success(ts ? `Đã làm mới lúc ${format(ts, "dd/MM/yyyy HH:mm")}` : "Đã làm mới dữ liệu.");
       // Sau refresh, tải lại danh sách
       await loadOpenBorrows();
@@ -175,6 +179,7 @@ export default function BorrowReportPage() {
       try {
         const res = await edgeInvoke<string | null>("asset-transactions", { action: "get_open_borrows_last_refresh" });
         const last = res?.data ? new Date(String(res.data)) : null;
+        if (last) setLastRefreshTime(last);
         const now = new Date();
         const fourHoursMs = 4 * 60 * 60 * 1000;
 
@@ -358,6 +363,9 @@ export default function BorrowReportPage() {
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Báo cáo tài sản đã mượn</h1>
               <p className="text-slate-600">TS cần cắt bìa kiểm tra hàng quý</p>
+              <p className="text-slate-500 text-sm">
+                Cập nhật: {lastRefreshTime ? format(lastRefreshTime, "HH:mm:ss - dd/MM/yyyy") : "Chưa có"}
+              </p>
             </div>
           </div>
           <div className="flex gap-2">
@@ -473,6 +481,61 @@ export default function BorrowReportPage() {
               </div>
             </PopoverContent>
           </Popover>
+        </div>
+
+        {/* (Thêm) Thanh bộ lọc chi tiết */}
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="space-y-1">
+            <Label>Phòng</Label>
+            <Select value={selectedRoom} onValueChange={setSelectedRoom}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Chọn phòng..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tất cả</SelectItem>
+                <SelectItem value="QLN">QLN</SelectItem>
+                <SelectItem value="CMT8">CMT8</SelectItem>
+                <SelectItem value="NS">NS</SelectItem>
+                <SelectItem value="ĐS">ĐS</SelectItem>
+                <SelectItem value="LĐH">LĐH</SelectItem>
+                <SelectItem value="DVKH">DVKH</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Năm TS</Label>
+            <Input
+              value={assetYearFilter}
+              onChange={(e) => setAssetYearFilter(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))}
+              placeholder="vd: 24"
+              inputMode="numeric"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Mã TS</Label>
+            <Input
+              value={assetCodeFilter}
+              onChange={(e) => setAssetCodeFilter(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+              placeholder="vd: 259"
+              inputMode="numeric"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>CB</Label>
+            <Input
+              value={staffCodeFilter}
+              onChange={(e) => setStaffCodeFilter(e.target.value)}
+              placeholder="Mã NV (CB)"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Tìm kiếm</Label>
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Tìm kiếm tổng hợp..."
+            />
+          </div>
         </div>
       </div>
 
