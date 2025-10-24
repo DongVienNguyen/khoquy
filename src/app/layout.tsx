@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AppHeader from "@/components/app-header";
 import SyncRunner from "@/components/management/SyncRunner";
+import OpenBorrowsAutoRefresh from "@/components/management/OpenBorrowsAutoRefresh";
 import { SonnerToaster } from "@/components/ui/sonner";
 import ServiceWorkerRegister from "@/components/pwa/ServiceWorkerRegister";
 import InstallPrompt from "@/components/pwa/InstallPrompt";
@@ -60,6 +61,7 @@ export default function RootLayout({
         <PWAInstallGuide />
         <UpdateAppButton />
         <PWADebugPanel />
+        <OpenBorrowsAutoRefresh />
         {children}
       </body>
     </html>
