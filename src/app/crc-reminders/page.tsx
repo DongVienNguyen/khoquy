@@ -502,6 +502,7 @@ export default function CRCRemindersPage() {
                       placeholder="Nhập tên LĐP duyệt CRC"
                       className="h-12"
                       onOpenSuggestions={ensureLDPCRCLoaded}
+                      stayAfterTabSelect
                     />
                   </div>
                 </div>
@@ -516,6 +517,7 @@ export default function CRCRemindersPage() {
                       placeholder="Nhập tên CB làm CRC"
                       className="h-12"
                       onOpenSuggestions={ensureCBCRCLoaded}
+                      stayAfterTabSelect
                     />
                   </div>
                 </div>
@@ -530,6 +532,7 @@ export default function CRCRemindersPage() {
                       placeholder="Nhập tên Thủ quỹ duyệt CRC"
                       className="h-12"
                       onOpenSuggestions={ensureQUYCRCLoaded}
+                      stayAfterTabSelect
                     />
                   </div>
                 </div>
