@@ -143,7 +143,8 @@ export default function BorrowReportPage() {
   const manualRefresh = useCallback(async () => {
     try {
       toast.info("Đang làm mới dữ liệu báo cáo...");
-      const res = await edgeInvoke<{ last_refresh: string }>("asset-transactions", { action: "refresh_open_borrows" });
+      // GỌI EDGE FUNCTION refresh-open-borrows
+      const res = await edgeInvoke<{ last_refresh: string }>("refresh-open-borrows", {});
       const ts = res?.data?.last_refresh ? new Date(res.data.last_refresh) : null;
       if (ts) setLastRefreshTime(ts);
       toast.success(ts ? `Đã làm mới lúc ${format(ts, "dd/MM/yyyy HH:mm")}` : "Đã làm mới dữ liệu.");
@@ -188,7 +189,8 @@ export default function BorrowReportPage() {
         const fourHoursMs = 4 * 60 * 60 * 1000;
 
         if (!last || now.getTime() - last.getTime() > fourHoursMs) {
-          await edgeInvoke("asset-transactions", { action: "refresh_open_borrows" });
+          // QUÁ 4 GIỜ → GỌI EDGE FUNCTION refresh-open-borrows
+          await edgeInvoke("refresh-open-borrows", {});
         }
       } catch {
         // Bỏ qua lỗi kiểm tra refresh để không cản trở tải danh sách
