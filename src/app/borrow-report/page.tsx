@@ -67,6 +67,8 @@ export default function BorrowReportPage() {
   const [staffCodeFilter, setStaffCodeFilter] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  // (Thêm) Bộ lọc Buổi
+  const [selectedPartsDay, setSelectedPartsDay] = useState<"all" | "Sáng" | "Chiều">("all");
 
   // Sắp xếp + phân trang
   const [sortKey, setSortKey] = useState<"room" | "asset_year" | "asset_code" | "transaction_date" | "staff_code">("room");
@@ -96,15 +98,17 @@ export default function BorrowReportPage() {
       }
       if (s?.sortKey) setSortKey(s.sortKey);
       if (s?.sortDirection) setSortDirection(s.sortDirection);
+      // (Thêm) Khôi phục Buổi
+      if (s?.selectedPartsDay) setSelectedPartsDay(s.selectedPartsDay);
     } catch {}
   }, []);
 
   useEffect(() => {
     localStorage.setItem(
       "borrow_report_filters_v1",
-      JSON.stringify({ dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, searchTerm, sortKey, sortDirection })
+      JSON.stringify({ dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, searchTerm, sortKey, sortDirection, selectedPartsDay })
     );
-  }, [dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, searchTerm, sortKey, sortDirection]);
+  }, [dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, searchTerm, sortKey, sortDirection, selectedPartsDay]);
 
   // Ranges nhanh
   const setQuickRange = useCallback((type: "7d" | "30d" | "mtd" | "ytd") => {
@@ -159,7 +163,7 @@ export default function BorrowReportPage() {
         start: dateRange.start,
         end: dateRange.end,
         room: selectedRoom !== "all" ? selectedRoom : null,
-        parts_day: null,
+        parts_day: selectedPartsDay !== "all" ? selectedPartsDay : null,
       });
       const list: OpenBorrow[] = Array.isArray(res.data) ? (res.data as OpenBorrow[]) : [];
       setOpenBorrows(list);
@@ -169,7 +173,7 @@ export default function BorrowReportPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [dateRange.start, dateRange.end, selectedRoom]);
+  }, [dateRange.start, dateRange.end, selectedRoom, selectedPartsDay]);
 
   // (Thêm) Auto-refresh nếu dữ liệu cũ hơn 4 giờ, sau đó tải danh sách
   useEffect(() => {
@@ -203,7 +207,7 @@ export default function BorrowReportPage() {
   // Reset trang khi filter thay đổi
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, debouncedSearch, sortKey, sortDirection]);
+  }, [dateRange, selectedRoom, selectedPartsDay, assetYearFilter, assetCodeFilter, staffCodeFilter, debouncedSearch, sortKey, sortDirection]);
 
   // (Sửa) Lọc & gom nhóm giờ dựa trên openBorrows đã tiền xử lý
   const filteredTransactions = useMemo(() => {
@@ -221,6 +225,7 @@ export default function BorrowReportPage() {
     const advFiltered = dateFiltered.filter((t) => {
       const yearOk = assetYearFilter ? String(t.asset_year).trim() === String(assetYearFilter).trim() : true;
       const codeOk = assetCodeFilter ? String(t.asset_code).includes(String(assetCodeFilter).trim()) : true;
+      const partsOk = selectedPartsDay === "all" ? true : (t.parts_day === selectedPartsDay);
       const staffOk = staffCodeFilter
         ? (
             (t.staff_code ? String(t.staff_code).toLowerCase().includes(staffCodeFilter.trim().toLowerCase()) : false) ||
@@ -238,7 +243,7 @@ export default function BorrowReportPage() {
             String(t.note || "").toLowerCase().includes(s.toLowerCase())
           )
         : true;
-      return yearOk && codeOk && staffOk && searchOk;
+      return yearOk && codeOk && partsOk && staffOk && searchOk;
     });
 
     const arr = [...advFiltered];
@@ -265,7 +270,7 @@ export default function BorrowReportPage() {
     });
 
     return arr;
-  }, [openBorrows, dateRange, selectedRoom, assetYearFilter, assetCodeFilter, staffCodeFilter, debouncedSearch, sortKey, sortDirection]);
+  }, [openBorrows, dateRange, selectedRoom, selectedPartsDay, assetYearFilter, assetCodeFilter, staffCodeFilter, debouncedSearch, sortKey, sortDirection]);
 
   const paginatedTransactions = useMemo(() => {
     const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -287,6 +292,7 @@ export default function BorrowReportPage() {
     setDebouncedSearch("");
     setSortKey("room");
     setSortDirection("asc");
+    setSelectedPartsDay("all");
   }, []);
 
   // (Sửa) Export CSV dùng dữ liệu openBorrows đã tổng hợp
@@ -484,7 +490,7 @@ export default function BorrowReportPage() {
         </div>
 
         {/* (Thêm) Thanh bộ lọc chi tiết */}
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-6 gap-3">
           <div className="space-y-1">
             <Label>Phòng</Label>
             <Select value={selectedRoom} onValueChange={setSelectedRoom}>
@@ -499,6 +505,20 @@ export default function BorrowReportPage() {
                 <SelectItem value="ĐS">ĐS</SelectItem>
                 <SelectItem value="LĐH">LĐH</SelectItem>
                 <SelectItem value="DVKH">DVKH</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {/* (Thêm) Buổi */}
+          <div className="space-y-1">
+            <Label>Buổi</Label>
+            <Select value={selectedPartsDay} onValueChange={(v) => setSelectedPartsDay(v as "all" | "Sáng" | "Chiều")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Chọn buổi..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tất cả</SelectItem>
+                <SelectItem value="Sáng">Sáng</SelectItem>
+                <SelectItem value="Chiều">Chiều</SelectItem>
               </SelectContent>
             </Select>
           </div>
