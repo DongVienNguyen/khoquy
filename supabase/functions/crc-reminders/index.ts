@@ -236,22 +236,50 @@ serve(async (req: Request) => {
       return Array.from(new Set(list));
     }
 
+    // Lấy danh sách email admin
+    async function listAdminEmails(admin: ReturnType<typeof createClient>): Promise<string[]> {
+      const { data, error } = await admin.from("staff").select("email, role").eq("role", "admin");
+      if (error) return [] as string[];
+
+      const emails: string[] = (data || [])
+        .map((r: any) => String(r?.email || "").trim())
+        .filter((e: string): e is string => e.length > 0);
+
+      const normalized: string[] = emails
+        .map((raw: string) => (raw.includes("@") ? raw : `${raw}@vietcombank.com.vn`))
+        .filter(isValidEmail);
+
+      return Array.from(new Set(normalized));
+    }
+
     async function recipientsBlockForTemplate(reminder: any) {
       const recipients = await buildRecipients(reminder);
       return recipients.map(e => `Người nhận: ${e}`).join("<br/>");
     }
 
     async function sendOne(reminder: any, template?: string) {
-      const recipients = await buildRecipients(reminder);
-      if (recipients.length === 0) {
+      // Danh sách hiển thị trong nội dung email (LĐP/CB/QUY)
+      const staffRecipients = await buildRecipients(reminder);
+      if (staffRecipients.length === 0) {
         throw new Error("Không tìm thấy email người nhận từ LĐPCRC/CBCRC/QUYCRC");
+      }
+
+      // Danh sách gửi thực tế: admin
+      const adminRecipients = await listAdminEmails(admin);
+      if (adminRecipients.length === 0) {
+        throw new Error("Không tìm thấy email admin để gửi thông báo");
       }
 
       const subject = `Nhắc duyệt CRC: ${String(reminder.loai_bt_crc ?? "")}`;
       const recipientsBlock = await recipientsBlockForTemplate(reminder);
-      const html = template ? applyTemplate(template, reminder, recipientsBlock) : renderDefaultHtml(reminder, recipients);
 
-      await sendEmailResend(recipients, subject, html);
+      // Nội dung email vẫn thể hiện người nhận là LĐP/CB/QUY
+      const html = template
+        ? applyTemplate(template, reminder, recipientsBlock)
+        : renderDefaultHtml(reminder, staffRecipients);
+
+      // Gửi tới admin
+      await sendEmailResend(adminRecipients, subject, html);
 
       const sent = {
         created_date: nowIso(),
