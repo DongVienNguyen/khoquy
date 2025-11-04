@@ -1203,7 +1203,7 @@ export default function DailyReportPage() {
                         <div key={note.id} className="flex items-start justify-between rounded border p-2">
                           <div className="flex-1">
                             <div className="text-sm font-semibold text-slate-700">{note.room}</div>
-                            <div className="mt-1 text-base whitespace-pre-line">{note.content}</div>
+                            <div className="mt-1 text-base whitespace-pre-line font-semibold">{note.content}</div>
                           </div>
                           {canManageDailyReport && (
                             <div className="flex items-center gap-1">
