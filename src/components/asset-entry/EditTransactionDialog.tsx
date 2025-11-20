@@ -95,7 +95,7 @@ export default function EditTransactionDialog({ open, onOpenChange, transaction,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Chỉnh sửa giao dịch</DialogTitle>
         </DialogHeader>

@@ -494,8 +494,23 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ ok: false, error: "Hành động không hợp lệ" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } })
-  } catch (e) {
-    console.error("asset-transactions error:", e)
-    return new Response(JSON.stringify({ ok: false, error: "Lỗi hệ thống, vui lòng thử lại." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+  } catch (e: any) {
+    console.error("asset-transactions error:", e);
+
+    const message =
+      e && typeof e.message === "string"
+        ? e.message
+        : "Lỗi hệ thống, vui lòng thử lại.";
+
+    return new Response(
+      JSON.stringify({ ok: false, error: message }),
+      {
+        status: 400,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      }
+    );
   }
 })

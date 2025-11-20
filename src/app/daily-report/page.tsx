@@ -1183,7 +1183,6 @@ export default function DailyReportPage() {
                   </Table>
                 </div>
 
-                {/* Ghi chú xử lý trong cùng khung, đặt ở dưới cùng */}
                 <div className="border-t mt-4 p-4">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm font-semibold flex items-center gap-2">
@@ -1269,7 +1268,7 @@ export default function DailyReportPage() {
 
           {/* Dialog: Thêm ghi chú (đơn giản hóa: chỉ Phòng + Nội dung) */}
           <Dialog open={isNotesDialogOpen} onOpenChange={setIsNotesDialogOpen}>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg" aria-describedby={undefined}>
               <DialogHeader>
                 <DialogTitle>Thêm ghi chú</DialogTitle>
               </DialogHeader>
@@ -1300,7 +1299,7 @@ export default function DailyReportPage() {
 
           {/* Dialog: Sửa ghi chú (đơn giản hóa: chỉ Phòng + Nội dung) */}
           <Dialog open={isEditNoteDialogOpen} onOpenChange={setIsEditNoteDialogOpen}>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg" aria-describedby={undefined}>
               <DialogHeader>
                 <DialogTitle>Sửa ghi chú</DialogTitle>
               </DialogHeader>
