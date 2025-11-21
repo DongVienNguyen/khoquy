@@ -360,17 +360,34 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
     if (action === "create_note") {
-      const note = body?.note || {}
+      const raw = body?.note || {}
+
+      const room = raw.room ? String(raw.room) : ""
+      const operation_type = raw.operation_type ? String(raw.operation_type) : ""
+      const content = typeof raw.content === "string" ? raw.content.trim() : ""
+      const staff_code = raw.staff_code ? String(raw.staff_code) : ""
+      const created_by = raw.created_by ? String(raw.created_by) : null
+      const mail_to_nv = raw.mail_to_nv ? String(raw.mail_to_nv) : null
+
+      // Validate các trường bắt buộc để tránh lỗi NOT NULL từ database
+      if (!room || !operation_type || !content || !staff_code) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "Thiếu thông tin ghi chú (phòng, loại, nội dung hoặc mã NV)." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      const now = nowIso()
       const { data, error } = await supabase.from("processed_notes").insert({
-        created_date: nowIso(),
-        updated_date: nowIso(),
-        created_by: note.created_by || null,
-        room: note.room,
-        operation_type: note.operation_type,
-        content: note.content,
-        staff_code: note.staff_code,
+        created_date: now,
+        updated_date: now,
+        created_by,
+        room,
+        operation_type,
+        content,
+        staff_code,
         is_done: false,
-        mail_to_nv: note.mail_to_nv || null,
+        mail_to_nv,
       }).select("*")
       if (error) throw error
       return new Response(JSON.stringify({ ok: true, data: data && data[0] }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } })

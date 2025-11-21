@@ -18,7 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { FileText, Calendar as CalendarIcon, Filter, ListTree, ChevronLeft, ChevronRight, Plus, CheckCircle, Edit, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import AssetEntryInlineForm from "@/components/asset-entry/AssetEntryInlineForm";
-import { edgeInvoke } from "@/lib/edge-invoke";
+import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 import EditTransactionDialog from "@/components/asset-entry/EditTransactionDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import AssetTable from "../../components/daily-report/AssetTable";
@@ -864,7 +864,8 @@ export default function DailyReportPage() {
       },
     });
     if (!res.ok) {
-      toast.error("Lỗi khi tạo ghi chú.");
+      // Hiện lỗi chi tiết để dễ debug nếu còn lỗi server
+      toast.error(friendlyErrorMessage(res.error));
       return;
     }
     toast.success("Đã tạo ghi chú");
