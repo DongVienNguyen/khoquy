@@ -173,7 +173,8 @@ export default function SignInPage() {
         localStorage.setItem("loggedInStaff", JSON.stringify(staff));
         // Set cookie cho middleware
         try {
-          const cookieBase = ["path=/", "SameSite=Lax", "Max-Age=604800"]; // 7 ngày
+          // Đổi từ 7 ngày thành ~10 năm để phiên không tự hết hạn
+          const cookieBase = ["path=/", "SameSite=Lax", "Max-Age=315360000"]; // ~10 năm
           if (typeof window !== "undefined" && window.location.protocol === "https:") cookieBase.push("Secure");
           document.cookie = [`staffRole=${encodeURIComponent(staff.role)}`, ...cookieBase].join("; ");
           document.cookie = [`staffDept=${encodeURIComponent(staff.department || "")}`, ...cookieBase].join("; ");
