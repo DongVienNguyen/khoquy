@@ -1095,11 +1095,11 @@ export default function AssetEntryClient() {
 
                   {formData.room === "QLN" ? (
                     <Textarea
-                      rows={2}
+                      rows={1}
                       placeholder="Ghi chú (tùy chọn)"
                       value={formData.note}
                       onChange={(e) => setFormData((p) => ({ ...p, note: e.target.value }))}
-                      className="text-base"
+                      className="h-10 text-base resize-none"
                     />
                   ) : requiresNoteDropdown ? (
                     <Select value={formData.note} onValueChange={(v) => setFormData((p) => ({ ...p, note: v }))}>
@@ -1399,7 +1399,7 @@ export default function AssetEntryClient() {
 
           <div ref={todayRef} className="rounded-lg bg-card border p-6 shadow-sm">
             <button className="w-full flex items-center justify-between text-left" onClick={() => setListOpen((o) => !o)}>
-              <span className="font-semibold">Thông báo đã gửi hôm nay</span>
+              <span className="font-semibold">Thông báo đã gửi</span>
               <span className="text-muted-foreground">{listOpen ? "Thu gọn" : "Mở"}</span>
             </button>
 
