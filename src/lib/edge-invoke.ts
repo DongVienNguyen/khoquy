@@ -78,7 +78,8 @@ export function friendlyErrorMessage(err?: EdgeError): string {
   } else if (friendlyCode === "RATE-LIMIT") {
     tip = "Giảm ảnh xuống ≤ 5 tấm, hoặc thử lại sau 30s.";
   } else if (friendlyCode === "VALIDATION") {
-    tip = "Kiểm tra định dạng mã TS (vd: 259.24) và thử lại.";
+    // Gợi ý chung, không nhắc đến mã TS 259.24 nữa
+    tip = "Kiểm tra lại dữ liệu đã nhập và thử lại.";
   }
   return `[${friendlyCode}] ${err.message}. ${tip}`;
 }
