@@ -186,8 +186,10 @@ export default function CRCRemindersPage() {
       await loadReminders();
       setTimeout(() => {
         try {
-          const el = loaiCRCRef.current as any;
-          if (el?.focus) el.focus();
+          const container: any = loaiCRCRef.current;
+          if (!container) return;
+          const input = typeof container.querySelector === "function" ? container.querySelector("input") : null;
+          (input || container).focus?.();
         } catch {}
       }, 0);
     } catch {
@@ -399,21 +401,6 @@ export default function CRCRemindersPage() {
             <p className="text-slate-600">Quản lý và gửi nhắc nhở duyệt chứng từ CRC</p>
           </div>
         </div>
-      </div>
-
-      <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="shadow-sm">
-          <CardContent className="p-3">
-            <div className="text-xs text-slate-500">Chờ gửi</div>
-            <div className="text-xl font-bold">{reminders.length}</div>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm">
-          <CardContent className="p-3">
-            <div className="text-xs text-slate-500">Đã gửi</div>
-            <div className="text-xl font-bold">{sentReminders.length}</div>
-          </CardContent>
-        </Card>
       </div>
 
       {message.text && (
@@ -662,6 +649,21 @@ export default function CRCRemindersPage() {
             </CardContent>
           </Card>
         )}
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="shadow-sm">
+            <CardContent className="p-3">
+              <div className="text-xs text-slate-500">Chờ gửi</div>
+              <div className="text-xl font-bold">{reminders.length}</div>
+            </CardContent>
+          </Card>
+          <Card className="shadow-sm">
+            <CardContent className="p-3">
+              <div className="text-xs text-slate-500">Đã gửi</div>
+              <div className="text-xl font-bold">{sentReminders.length}</div>
+            </CardContent>
+          </Card>
+        </div>
 
         <Card className="border-0 shadow-xl shadow-slate-100/50">
           <CardHeader className="bg-gradient-to-r from-slate-50 to-green-50 border-b border-slate-200">
