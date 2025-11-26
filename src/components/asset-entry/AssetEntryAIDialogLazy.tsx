@@ -128,14 +128,17 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     });
   }, []);
 
-  const handleFileUpload = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    if (files.length > 0) {
-      addPendingFiles(files);
-      toast.success(`Đã thêm ${Math.min(files.length, AI_MAX_IMAGES)} ảnh vào danh sách.`);
-    }
-    event.target.value = "";
-  }, [addPendingFiles]);
+  const handleFileUpload = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
+      if (files.length > 0) {
+        addPendingFiles(files);
+        toast.success(`Đã thêm ${Math.min(files.length, AI_MAX_IMAGES)} ảnh vào danh sách.`);
+      }
+      event.target.value = "";
+    },
+    [addPendingFiles]
+  );
 
   const handlePasteFromClipboard = React.useCallback(async () => {
     try {
@@ -151,7 +154,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         for (const type of item.types || []) {
           if (String(type).startsWith("image/")) {
             const blob: Blob = await item.getType(type);
-            const fname = `clipboard-${Date.now()}-${idx++}.${type.includes("png") ? "png" : (type.includes("webp") ? "webp" : "jpg")}`;
+            const fname = `clipboard-${Date.now()}-${idx++}.${type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg"}`;
             images.push(new File([blob], fname, { type: blob.type }));
           }
         }
@@ -162,10 +165,156 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
       }
       addPendingFiles(images);
       toast.success(`Đã dán ${images.length} ảnh từ clipboard.`);
-    } catch (_e) {
+    } catch {
       toast.error("Không thể đọc ảnh từ clipboard. Hãy cho phép quyền hoặc thử lại.");
     }
   }, [addPendingFiles]);
+
+  const processImages = React.useCallback(
+    async (files: File[]) => {
+      setIsProcessingImage(true);
+      setAiStatus({
+        stage: "starting",
+        progress: 0,
+        total: files.length,
+        detail: "Đang chuẩn bị xử lý hình ảnh...",
+      });
+      setMessage({ type: "", text: "" });
+
+      try {
+        const images: string[] = [];
+        let index = 0;
+
+        for (const file of files) {
+          index += 1;
+          setAiStatus({
+            stage: "uploading",
+            progress: index - 1,
+            total: files.length,
+            detail: `Đang tối ưu ảnh ${index}/${files.length}...`,
+          });
+          const dataUrl = await compressImageToDataUrl(file);
+          images.push(dataUrl);
+          setAiStatus({
+            stage: "progress",
+            progress: index,
+            total: files.length,
+            detail: `Đã nạp ${index}/${files.length} ảnh`,
+          });
+        }
+
+        setAiStatus({
+          stage: "extracting",
+          progress: files.length,
+          total: files.length,
+          detail: "Đang phân tích bằng AI...",
+        });
+
+        const { data, error } = await edgeInvoke<any>("ai-extract-asset-codes", {
+          images,
+          rate_limit_key: currentStaff?.username || "anon",
+        });
+
+        if (!data && error) {
+          setAiStatus({
+            stage: "error",
+            progress: 0,
+            total: files.length,
+            detail: "AI lỗi khi phân tích hình ảnh.",
+          });
+          setMessage({ type: "error", text: friendlyErrorMessage(error) });
+          return;
+        }
+
+        const payload: any = data && (data as any).data ? (data as any).data : data;
+        const meta = payload?.meta || {};
+        const abVariant = meta?.ab_variant || "";
+        const modelName = meta?.model || "";
+        const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
+
+        if (!aiCodes.length) {
+          setAiStatus({
+            stage: "done",
+            progress: files.length,
+            total: files.length,
+            detail: "Không tìm thấy mã tài sản hợp lệ.",
+          });
+          setMessage({ type: "error", text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh." });
+          return;
+        }
+
+        const uniqueCodes = Array.from(new Set(aiCodes)).filter((formatted) => isAssetValid(formatted));
+        if (!uniqueCodes.length) {
+          setAiStatus({
+            stage: "done",
+            progress: files.length,
+            total: files.length,
+            detail: "Không tìm thấy mã hợp lệ theo định dạng.",
+          });
+          setMessage({ type: "error", text: "Không tìm thấy mã hợp lệ theo định dạng X.YY." });
+          return;
+        }
+
+        setMultipleAssets((prev) => {
+          const existing = prev.filter((a) => a.trim());
+          const merged = Array.from(new Set([...existing, ...uniqueCodes]));
+          return merged.length > 0 ? merged : [""];
+        });
+
+        const needsCodes: string[] = Array.isArray(payload?.needs_confirmation?.codes) ? payload.needs_confirmation.codes : [];
+        const needsOptions: Record<string, string[]> = payload?.needs_confirmation?.options || {};
+        const needsCount = needsCodes.length;
+
+        if (needsCount > 0) {
+          const initialSelections: Record<string, string> = {};
+          needsCodes.forEach((c) => {
+            const opts = needsOptions[c] || [];
+            if (opts.length > 0) initialSelections[c] = opts[0];
+          });
+          onNeedConfirm({ options: needsOptions, selections: initialSelections });
+          setMessage({
+            type: "success",
+            text: `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${needsCodes.join(", ")}).`,
+          });
+        } else {
+          setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
+        }
+
+        const modelInfo = modelName ? ` • Model: ${modelName}${abVariant ? ` (${abVariant})` : ""}` : "";
+        setAiStatus({
+          stage: "done",
+          progress: files.length,
+          total: files.length,
+          detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}`,
+        });
+
+        // Đóng popup sau khi xử lý xong
+        setOpen(false);
+      } catch {
+        setAiStatus({
+          stage: "error",
+          progress: 0,
+          total: 0,
+          detail: "Có lỗi xảy ra khi xử lý hình ảnh.",
+        });
+        setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
+      } finally {
+        setIsProcessingImage(false);
+        // Giữ thông tin một chút rồi xóa trạng thái
+        setTimeout(
+          () =>
+            setAiStatus({
+              stage: "",
+              progress: 0,
+              total: 0,
+              detail: "",
+            }),
+          1200
+        );
+      }
+    },
+    [currentStaff, isAssetValid, onNeedConfirm, setMessage]
+  );
 
   const handleProcessPending = React.useCallback(async () => {
     if (pendingImages.length === 0) {
@@ -174,87 +323,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     }
     await processImages(pendingImages);
     setPendingImages([]);
-  }, [pendingImages]);
-
-  const processImages = React.useCallback(async (files: File[]) => {
-    setIsProcessingImage(true);
-    setAiStatus({ stage: "starting", progress: 0, total: files.length, detail: "Đang chuẩn bị xử lý hình ảnh..." });
-    setMessage({ type: "", text: "" });
-    try {
-      const images: string[] = [];
-      let index = 0;
-      for (const file of files) {
-        index += 1;
-        setAiStatus({ stage: "uploading", progress: index - 1, total: files.length, detail: `Đang tối ưu ảnh ${index}/${files.length}...` });
-        const dataUrl = await compressImageToDataUrl(file);
-        images.push(dataUrl);
-        setAiStatus({ stage: "progress", progress: index, total: files.length, detail: `Đã nạp ${index}/${files.length} ảnh` });
-      }
-
-      setAiStatus({ stage: "extracting", progress: 0, total: files.length, detail: "Đang phân tích bằng AI..." });
-
-      const { data, error } = await edgeInvoke<any>("ai-extract-asset-codes", {
-        images,
-        rate_limit_key: currentStaff?.username || "anon",
-      });
-
-      if (!data && error) {
-        setAiStatus({ stage: "error", progress: 0, total: files.length, detail: "AI lỗi khi phân tích hình ảnh." });
-        setMessage({ type: "error", text: friendlyErrorMessage(error) });
-        return;
-      }
-
-      const payload: any = (data && (data as any).data) ? (data as any).data : data;
-      const meta = payload?.meta || {};
-      const abVariant = meta?.ab_variant || "";
-      const modelName = meta?.model || "";
-      const aiCodes: string[] = Array.isArray(payload?.codes) ? payload.codes : [];
-
-      if (!aiCodes.length) {
-        setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: "Không tìm thấy mã tài sản hợp lệ." });
-        setMessage({ type: "error", text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh." });
-        return;
-      }
-
-      const uniqueCodes = Array.from(new Set(aiCodes)).filter((formatted) => isAssetValid(formatted));
-      if (!uniqueCodes.length) {
-        setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: "Không tìm thấy mã hợp lệ theo định dạng." });
-        setMessage({ type: "error", text: "Không tìm thấy mã hợp lệ theo định dạng X.YY." });
-        return;
-      }
-
-      setMultipleAssets((prev) => {
-        const existing = prev.filter((a) => a.trim());
-        const merged = Array.from(new Set([...existing, ...uniqueCodes]));
-        return merged.length > 0 ? merged : [""];
-      });
-
-      const needsCodes: string[] = Array.isArray(payload?.needs_confirmation?.codes) ? payload.needs_confirmation.codes : [];
-      const needsOptions: Record<string, string[]> = payload?.needs_confirmation?.options || {};
-      const needsCount = needsCodes.length;
-      if (needsCount > 0) {
-        const initialSelections: Record<string, string> = {};
-        needsCodes.forEach((c) => {
-          const opts = needsOptions[c] || [];
-          if (opts.length > 0) initialSelections[c] = opts[0];
-        });
-        onNeedConfirm({ options: needsOptions, selections: initialSelections });
-        setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${needsCodes.join(", ")}).` });
-      } else {
-        setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
-      }
-
-      setOpen(false);
-      const modelInfo = modelName ? ` • Model: ${modelName}${abVariant ? ` (${abVariant})` : ""}` : "";
-      setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}` });
-    } catch (_err) {
-      setAiStatus({ stage: "error", progress: 0, total: 0, detail: "Có lỗi xảy ra khi xử lý hình ảnh." });
-      setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
-    } finally {
-      setIsProcessingImage(false);
-      setTimeout(() => setAiStatus({ stage: "", progress: 0, total: 0, detail: "" }), 1200);
-    }
-  }, [isAssetValid, currentStaff, onNeedConfirm, setMessage]);
+  }, [pendingImages, processImages]);
 
   return (
     <>
@@ -322,7 +391,9 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             {pendingImages.length > 0 && (
               <div className="p-3 rounded-md border bg-slate-50 text-sm">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="font-medium">Đã chọn {pendingImages.length}/{AI_MAX_IMAGES} ảnh</div>
+                  <div className="font-medium">
+                    Đã chọn {pendingImages.length}/{AI_MAX_IMAGES} ảnh
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
@@ -361,7 +432,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
               </div>
             )}
 
-            {(isProcessingImage || aiStatus.stage) && (
+            {(isProcessingImage || Boolean(aiStatus.stage) || Boolean(aiStatus.detail)) && (
               <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
                 <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
                 <div>
