@@ -62,6 +62,8 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     total: 0,
     detail: "",
   });
+  // Khóa dialog: khi đang xử lý thì chặn mọi cố gắng đóng (kể cả click ra ngoài)
+  const [forceOpen, setForceOpen] = React.useState<boolean>(false);
 
   const AI_MAX_IMAGES = 10;
 
@@ -178,6 +180,9 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
   const processImages = React.useCallback(
     async (files: File[]) => {
+      // Khi bắt đầu xử lý: khóa dialog luôn mở
+      setForceOpen(true);
+      setOpen(true);
       setIsProcessingImage(true);
       setAiStatus({
         stage: "starting",
@@ -293,8 +298,6 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           total: files.length,
           detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}`,
         });
-
-        // Không đóng popup ngay tại đây, để finally xử lý đóng sau khi hiển thị trạng thái một chút
       } catch {
         setAiStatus({
           stage: "error",
@@ -305,7 +308,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
       } finally {
         setIsProcessingImage(false);
-        // Giữ thông tin trạng thái ~1.2s rồi reset và tự đóng popup + xóa danh sách ảnh
+        // Hiển thị trạng thái cuối một chút rồi tự đóng popup và dọn danh sách ảnh
         setTimeout(() => {
           setAiStatus({
             stage: "",
@@ -313,12 +316,13 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             total: 0,
             detail: "",
           });
+          setForceOpen(false);
           setOpen(false);
           setPendingImages([]);
         }, 1200);
       }
     },
-    [currentStaff, isAssetValid, onNeedConfirm, setMessage]
+    [currentStaff, isAssetValid, onNeedConfirm, setMessage, setMultipleAssets]
   );
 
   const handleProcessPending = React.useCallback(async () => {
@@ -327,7 +331,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
       return;
     }
     await processImages(pendingImages);
-    setPendingImages([]);
+    // Danh sách sẽ được dọn trong finally; không cần dọn lại ngay
   }, [pendingImages, processImages]);
 
   return (
@@ -357,8 +361,20 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
       <Dialog
         open={open}
         onOpenChange={(v) => {
+          // Nếu đang xử lý hoặc đang khóa thì bỏ qua mọi yêu cầu đóng (click ra ngoài, ESC, vv.)
+          if (!v && (isProcessingImage || forceOpen)) {
+            return;
+          }
           setOpen(v);
-          if (!v) setPendingImages([]);
+          if (!v) {
+            setPendingImages([]);
+            setAiStatus({
+              stage: "",
+              progress: 0,
+              total: 0,
+              detail: "",
+            });
+          }
         }}
       >
         <DialogContent className="max-w-md">
