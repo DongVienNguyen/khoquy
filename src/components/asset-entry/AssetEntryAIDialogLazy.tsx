@@ -294,8 +294,8 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}`,
         });
 
-        // Đóng popup sau khi xử lý xong (giống daily-report)
-        setOpen(false);
+        // KHÔNG tự đóng popup ở đây nữa; để người dùng tự đóng sau khi xem tiến trình/kết quả
+        // setOpen(false);
       } catch {
         setAiStatus({
           stage: "error",
@@ -306,7 +306,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
       } finally {
         setIsProcessingImage(false);
-        // Giữ thông tin một chút rồi xóa trạng thái
+        // Giữ thông tin một chút rồi xóa trạng thái để lần sau sạch sẽ
         setTimeout(
           () =>
             setAiStatus({
