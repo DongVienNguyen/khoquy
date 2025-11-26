@@ -558,7 +558,6 @@ const AssetEntryInlineForm: React.FC = () => {
         setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
       }
 
-      setIsImageDialogOpen(false);
       const modelInfo = modelName ? ` • Model: ${modelName}${abVariant ? ` (${abVariant})` : ""}` : "";
       setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}` });
     } catch {

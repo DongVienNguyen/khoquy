@@ -308,18 +308,10 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
       } finally {
         setIsProcessingImage(false);
-        // Hiển thị trạng thái cuối một chút rồi tự đóng popup và dọn danh sách ảnh
-        setTimeout(() => {
-          setAiStatus({
-            stage: "",
-            progress: 0,
-            total: 0,
-            detail: "",
-          });
-          setForceOpen(false);
-          setOpen(false);
-          setPendingImages([]);
-        }, 1200);
+        // Kết thúc xử lý: bỏ khóa, NHƯNG KHÔNG tự đóng popup nữa.
+        // Người dùng sẽ tự đóng popup khi xem xong kết quả.
+        setForceOpen(false);
+        // Giữ nguyên aiStatus & pendingImages để người dùng xem / xử lý tiếp nếu muốn.
       }
     },
     [currentStaff, isAssetValid, onNeedConfirm, setMessage, setMultipleAssets]
