@@ -438,7 +438,12 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                 <div className="mt-3 flex gap-2">
                   <Button
                     type="button"
-                    onClick={handleProcessPending}
+                    onClick={(e) => {
+                      // Ngăn hoàn toàn việc click này trở thành submit của form cha
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleProcessPending();
+                    }}
                     className="flex-1 bg-green-600 hover:bg-green-700"
                     disabled={isProcessingImage || pendingImages.length === 0}
                   >
