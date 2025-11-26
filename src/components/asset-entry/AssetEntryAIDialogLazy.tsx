@@ -294,8 +294,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}`,
         });
 
-        // KHÔNG tự đóng popup ở đây nữa; để người dùng tự đóng sau khi xem tiến trình/kết quả
-        // setOpen(false);
+        // Không đóng popup ngay tại đây, để finally xử lý đóng sau khi hiển thị trạng thái một chút
       } catch {
         setAiStatus({
           stage: "error",
@@ -306,17 +305,17 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
       } finally {
         setIsProcessingImage(false);
-        // Giữ thông tin một chút rồi xóa trạng thái để lần sau sạch sẽ
-        setTimeout(
-          () =>
-            setAiStatus({
-              stage: "",
-              progress: 0,
-              total: 0,
-              detail: "",
-            }),
-          1200
-        );
+        // Giữ thông tin trạng thái ~1.2s rồi reset và tự đóng popup + xóa danh sách ảnh
+        setTimeout(() => {
+          setAiStatus({
+            stage: "",
+            progress: 0,
+            total: 0,
+            detail: "",
+          });
+          setOpen(false);
+          setPendingImages([]);
+        }, 1200);
       }
     },
     [currentStaff, isAssetValid, onNeedConfirm, setMessage]
@@ -372,6 +371,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-2">
               <Button
+                type="button"
                 onClick={() => document.getElementById("file-input-lazy")?.click()}
                 className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
                 disabled={isProcessingImage}
@@ -379,6 +379,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                 <Upload className="w-5 h-5" /> Upload từ thiết bị
               </Button>
               <Button
+                type="button"
                 onClick={() => document.getElementById("camera-input-lazy")?.click()}
                 className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2"
                 disabled={isProcessingImage}
@@ -386,6 +387,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                 <Camera className="w-5 h-5" /> Chụp ảnh
               </Button>
               <Button
+                type="button"
                 onClick={handlePasteFromClipboard}
                 className="w-full h-12 bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2"
                 disabled={isProcessingImage}
@@ -419,6 +421,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                 </div>
                 <div className="mt-3 flex gap-2">
                   <Button
+                    type="button"
                     onClick={handleProcessPending}
                     className="flex-1 bg-green-600 hover:bg-green-700"
                     disabled={isProcessingImage || pendingImages.length === 0}
