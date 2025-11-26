@@ -614,7 +614,8 @@ const AssetEntryInlineForm: React.FC = () => {
       return;
     }
     await processImages(pendingImages);
-    setPendingImages([]);
+    // KHÔNG xóa pendingImages ở đây nữa, để block 'Nhập dữ liệu' vẫn hiển thị
+    // Người dùng có thể xem lại danh sách ảnh và trạng thái, chỉ xóa khi bấm Hủy hoặc đóng popup.
   }, [pendingImages, processImages]);
 
   return (
