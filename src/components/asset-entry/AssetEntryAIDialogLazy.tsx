@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Upload, Camera, Loader2 } from "lucide-react";
-import { SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/env";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 
 type SafeStaff = {
@@ -57,7 +56,13 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   const [open, setOpen] = React.useState<boolean>(autoOpen);
   const [pendingImages, setPendingImages] = React.useState<File[]>([]);
   const [isProcessingImage, setIsProcessingImage] = React.useState<boolean>(false);
-  const [aiStatus, setAiStatus] = React.useState<AiStatus>({ stage: "", progress: 0, total: 0, detail: "" });
+  const [aiStatus, setAiStatus] = React.useState<AiStatus>({
+    stage: "",
+    progress: 0,
+    total: 0,
+    detail: "",
+  });
+
   const AI_MAX_IMAGES = 10;
 
   const compressImageToDataUrl = (file: File): Promise<string> =>
@@ -97,6 +102,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             }, "image/jpeg", quality);
             return;
           }
+
           try {
             const dataUrl = canvas.toDataURL("image/jpeg", quality);
             resolve(dataUrl);
@@ -205,7 +211,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
         setAiStatus({
           stage: "extracting",
-          progress: files.length,
+          progress: 0,
           total: files.length,
           detail: "Đang phân tích bằng AI...",
         });
@@ -288,7 +294,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}`,
         });
 
-        // Đóng popup sau khi xử lý xong
+        // Đóng popup sau khi xử lý xong (giống daily-report)
         setOpen(false);
       } catch {
         setAiStatus({
@@ -432,7 +438,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
               </div>
             )}
 
-            {(isProcessingImage || Boolean(aiStatus.stage) || Boolean(aiStatus.detail)) && (
+            {(isProcessingImage || aiStatus.stage) && (
               <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
                 <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
                 <div>
