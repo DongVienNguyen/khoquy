@@ -801,8 +801,28 @@ const AssetEntryInlineForm: React.FC = () => {
                               ))}
                             </div>
                             <div className="mt-3 flex gap-2">
-                              <Button onClick={handleProcessPending} className="flex-1 bg-green-600 hover:bg-green-700" disabled={isProcessingImage || pendingImages.length === 0}>Nhập dữ liệu</Button>
-                              <Button type="button" variant="outline" className="flex-1" onClick={() => setPendingImages([])} disabled={isProcessingImage}>Hủy</Button>
+                              <Button
+                                type="button"
+                                onClick={(e) => {
+                                  // Ngăn hoàn toàn việc click này trở thành submit của form cha
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  void handleProcessPending();
+                                }}
+                                className="flex-1 bg-green-600 hover:bg-green-700"
+                                disabled={isProcessingImage || pendingImages.length === 0}
+                              >
+                                Nhập dữ liệu
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => setPendingImages([])}
+                                disabled={isProcessingImage}
+                              >
+                                Hủy
+                              </Button>
                             </div>
                           </div>
                         )}
