@@ -3,7 +3,7 @@
 import React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Upload, Camera, Loader2 } from "lucide-react";
 import { SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/env";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
@@ -32,7 +32,6 @@ type AiStatus = { stage: string; progress: number; total: number; detail: string
 function pickCompressionTarget(file?: File): { dim: number; quality: number } {
   const mem = (navigator as any).deviceMemory as number | undefined;
   const isLow = mem && mem <= 4;
-  // Nếu file lớn > 6MB, giảm thêm
   const large = file && typeof file.size === "number" && file.size > 6 * 1024 * 1024;
   if (isLow || large) return { dim: 1200, quality: 0.6 };
   return { dim: 1600, quality: 0.75 };
@@ -259,23 +258,68 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setPendingImages([]); }}>
+      {/* Nút AI luôn hiển thị, không bị mất sau khi đóng popup */}
+      <Button
+        type="button"
+        variant="ghost"
+        className="text-green-600 hover:text-green-700 flex items-center gap-1"
+        onClick={() => setOpen(true)}
+        disabled={isProcessingImage}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="w-6 h-6"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M3 8a4 4 0 0 1 4-4h2l2-2h4l2 2h2a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" />
+          <circle cx="12" cy="13" r="4" />
+        </svg>
+        <span className="text-base font-semibold">AI</span>
+      </Button>
+
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          setOpen(v);
+          if (!v) setPendingImages([]);
+        }}
+      >
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Chọn cách nhập hình ảnh</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Chọn cách nhập hình ảnh</DialogTitle>
+            <DialogDescription>
+              Chọn ảnh từ thiết bị, chụp ảnh mới hoặc dán ảnh từ clipboard, hệ thống sẽ tự đọc mã tài sản.
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-2">
-              <Button onClick={() => document.getElementById("file-input-lazy")?.click()} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+              <Button
+                onClick={() => document.getElementById("file-input-lazy")?.click()}
+                className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+                disabled={isProcessingImage}
+              >
                 <Upload className="w-5 h-5" /> Upload từ thiết bị
               </Button>
-              <Button onClick={() => document.getElementById("camera-input-lazy")?.click()} className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+              <Button
+                onClick={() => document.getElementById("camera-input-lazy")?.click()}
+                className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2"
+                disabled={isProcessingImage}
+              >
                 <Camera className="w-5 h-5" /> Chụp ảnh
               </Button>
-              <Button onClick={handlePasteFromClipboard} className="w-full h-12 bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2" disabled={isProcessingImage}>
+              <Button
+                onClick={handlePasteFromClipboard}
+                className="w-full h-12 bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2"
+                disabled={isProcessingImage}
+              >
                 <Upload className="w-5 h-5" /> Dán ảnh từ clipboard
               </Button>
             </div>
 
-            {(pendingImages.length > 0) && (
+            {pendingImages.length > 0 && (
               <div className="p-3 rounded-md border bg-slate-50 text-sm">
                 <div className="flex items-center justify-between mb-2">
                   <div className="font-medium">Đã chọn {pendingImages.length}/{AI_MAX_IMAGES} ảnh</div>
@@ -291,7 +335,9 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                 </div>
                 <div className="max-h-40 overflow-auto space-y-1">
                   {pendingImages.map((f, i) => (
-                    <div key={i} className="truncate">{f.name || `Ảnh ${i + 1}`}</div>
+                    <div key={i} className="truncate">
+                      {f.name || `Ảnh ${i + 1}`}
+                    </div>
                   ))}
                 </div>
                 <div className="mt-3 flex gap-2">
@@ -322,7 +368,15 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                   <div className="font-medium">{aiStatus.detail || "Đang xử lý..."}</div>
                   {aiStatus.total > 0 && (
                     <div className="mt-2 h-2 bg-slate-200 rounded">
-                      <div className="h-2 bg-green-600 rounded" style={{ width: `${Math.min(100, Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100))}%` }}></div>
+                      <div
+                        className="h-2 bg-green-600 rounded"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100)
+                          )}%`,
+                        }}
+                      ></div>
                     </div>
                   )}
                 </div>

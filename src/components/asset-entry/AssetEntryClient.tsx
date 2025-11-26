@@ -1010,7 +1010,7 @@ export default function AssetEntryClient() {
   }, [currentStaff]);
 
   const [datePickerMounted, setDatePickerMounted] = useState(false);
-  const [aiMounted, setAiMounted] = useState(false);
+  const [aiMounted] = useState(false); // REMOVED: không còn dùng để ẩn/hiện nút AI, giữ lại nếu cần sau này
 
   const MyTodaySubmissionsLazy = dynamic(() => import("@/components/asset-entry/MyTodaySubmissions"), {
     ssr: false,
@@ -1202,29 +1202,18 @@ export default function AssetEntryClient() {
                   <div className="flex items-center justify-between">
                     <Label className="text-sm font-medium">Nhiều TS chọn nút AI nhập bằng hình:</Label>
 
-                    {!aiMounted ? (
-                      <Button type="button" variant="ghost" className="text-green-600 hover:text-green-700 flex items-center gap-1" onClick={() => setAiMounted(true)}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 8a4 4 0 0 1 4-4h2l2-2h4l2 2h2a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" />
-                          <circle cx="12" cy="13" r="4" />
-                        </svg>
-                        <span className="text-base font-semibold">AI</span>
-                      </Button>
-                    ) : (
-                      <Suspense fallback={<div className="text-sm text-muted-foreground">Đang tải AI...</div>}>
-                        <AssetEntryAIDialogLazy
-                          isAssetValid={isAssetValid}
-                          setMultipleAssets={setMultipleAssets}
-                          currentStaff={currentStaff}
-                          onNeedConfirm={({ options, selections }) => {
-                            setAiNeedsConfirm({ options, selections });
-                            setIsAiConfirmOpen(true);
-                          }}
-                          setMessage={setMessage}
-                          autoOpen
-                        />
-                      </Suspense>
-                    )}
+                    <Suspense fallback={<div className="text-sm text-muted-foreground">Đang tải AI...</div>}>
+                      <AssetEntryAIDialogLazy
+                        isAssetValid={isAssetValid}
+                        setMultipleAssets={setMultipleAssets}
+                        currentStaff={currentStaff}
+                        onNeedConfirm={({ options, selections }) => {
+                          setAiNeedsConfirm({ options, selections });
+                          setIsAiConfirmOpen(true);
+                        }}
+                        setMessage={setMessage}
+                      />
+                    </Suspense>
                   </div>
 
                   {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
