@@ -21,7 +21,7 @@ type SafeStaff = {
   email: string | null;
   role: "admin" | "user";
   department: string | null;
-  account_status: "active" | "locked";
+  account_status: "locked" | "active";
 };
 
 type Props = {
@@ -64,6 +64,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   onNeedConfirm,
   setMessage,
 }) => {
+  const [isDialogOpen, setIsDialogOpen] = React.useState(false);
   const [pendingImages, setPendingImages] = React.useState<File[]>([]);
   const [isProcessingImage, setIsProcessingImage] = React.useState<boolean>(false);
   const [aiStatus, setAiStatus] = React.useState<AiStatus>({
@@ -367,11 +368,16 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   return (
     <>
       <Dialog
+        open={isDialogOpen}
         onOpenChange={(open) => {
-          // Khi dialog đóng (bấm X hoặc click ra ngoài), dọn state phụ
+          // Nếu đang xử lý hoặc còn danh sách ảnh, bỏ qua mọi yêu cầu đóng
           if (!open) {
+            if (isProcessingImage || pendingImages.length > 0) {
+              return;
+            }
             resetState();
           }
+          setIsDialogOpen(open);
         }}
       >
         <DialogTrigger asChild>
