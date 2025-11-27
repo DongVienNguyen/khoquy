@@ -378,6 +378,11 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           setMessage({ type: "success", text: successMessage });
           // Tự động đóng dialog sau 2 giây nếu thành công
           setTimeout(() => {
+            // Reset state inline thay vì gọi resetState
+            setPendingImages([]);
+            setAiStatus({ stage: "", progress: 0, total: 0, detail: "" });
+            setIsProcessingImage(false);
+            setProcessingComplete(false);
             onOpenChange(false);
           }, 2000);
         } else if (errorMessage) {
@@ -412,6 +417,12 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     if (!open) {
       resetState();
     }
+    
+    // Reset state khi mở dialog để đảm bảo UI sạch
+    if (open) {
+      resetState();
+    }
+    
     onOpenChange(open);
   }, [isProcessingImage, resetState, onOpenChange]);
 
