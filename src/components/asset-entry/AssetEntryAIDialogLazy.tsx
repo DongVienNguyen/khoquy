@@ -3,7 +3,14 @@
 import React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Upload, Camera, Loader2 } from "lucide-react";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 
@@ -21,9 +28,14 @@ type Props = {
   isAssetValid: (value: string) => boolean;
   setMultipleAssets: React.Dispatch<React.SetStateAction<string[]>>;
   currentStaff: SafeStaff | null;
-  onNeedConfirm: (payload: { options: Record<string, string[]>; selections: Record<string, string> }) => void;
-  setMessage: React.Dispatch<React.SetStateAction<{ type: "" | "success" | "error"; text: string }>>;
-  autoOpen?: boolean;
+  onNeedConfirm: (payload: {
+    options: Record<string, string[]>;
+    selections: Record<string, string>;
+  }) => void;
+  setMessage: React.Dispatch<
+    React.SetStateAction<{ type: "" | "success" | "error"; text: string }>
+  >;
+  autoOpen?: boolean; // hiện tại không dùng, giữ lại cho tương thích API
 };
 
 type AiStatus = { stage: string; progress: number; total: number; detail: string };
@@ -51,9 +63,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   currentStaff,
   onNeedConfirm,
   setMessage,
-  autoOpen = false,
 }) => {
-  const [open, setOpen] = React.useState<boolean>(autoOpen);
   const [pendingImages, setPendingImages] = React.useState<File[]>([]);
   const [isProcessingImage, setIsProcessingImage] = React.useState<boolean>(false);
   const [aiStatus, setAiStatus] = React.useState<AiStatus>({
@@ -62,8 +72,6 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     total: 0,
     detail: "",
   });
-  // Khóa dialog: khi đang xử lý thì chặn mọi cố gắng đóng (kể cả click ra ngoài)
-  const [forceOpen, setForceOpen] = React.useState<boolean>(false);
 
   const AI_MAX_IMAGES = 10;
 
@@ -90,18 +98,22 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           ctx.drawImage(img, 0, 0, width, height);
 
           if (canvas.toBlob) {
-            canvas.toBlob(async (blob) => {
-              try {
-                if (!blob) {
+            canvas.toBlob(
+              async (blob) => {
+                try {
+                  if (!blob) {
+                    resolve(canvas.toDataURL("image/jpeg", quality));
+                    return;
+                  }
+                  const dataUrl = await blobToDataURL(blob);
+                  resolve(dataUrl);
+                } catch {
                   resolve(canvas.toDataURL("image/jpeg", quality));
-                  return;
                 }
-                const dataUrl = await blobToDataURL(blob);
-                resolve(dataUrl);
-              } catch {
-                resolve(canvas.toDataURL("image/jpeg", quality));
-              }
-            }, "image/jpeg", quality);
+              },
+              "image/jpeg",
+              quality,
+            );
             return;
           }
 
@@ -141,11 +153,13 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
       const files = Array.from(event.target.files || []);
       if (files.length > 0) {
         addPendingFiles(files);
-        toast.success(`Đã thêm ${Math.min(files.length, AI_MAX_IMAGES)} ảnh vào danh sách.`);
+        toast.success(
+          `Đã thêm ${Math.min(files.length, AI_MAX_IMAGES)} ảnh vào danh sách.`,
+        );
       }
       event.target.value = "";
     },
-    [addPendingFiles]
+    [addPendingFiles],
   );
 
   const handlePasteFromClipboard = React.useCallback(async () => {
@@ -162,7 +176,9 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         for (const type of item.types || []) {
           if (String(type).startsWith("image/")) {
             const blob: Blob = await item.getType(type);
-            const fname = `clipboard-${Date.now()}-${idx++}.${type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg"}`;
+            const fname = `clipboard-${Date.now()}-${idx++}.${
+              type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg"
+            }`;
             images.push(new File([blob], fname, { type: blob.type }));
           }
         }
@@ -180,9 +196,6 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
   const processImages = React.useCallback(
     async (files: File[]) => {
-      // Khi bắt đầu xử lý: khóa dialog luôn mở
-      setForceOpen(true);
-      setOpen(true);
       setIsProcessingImage(true);
       setAiStatus({
         stage: "starting",
@@ -250,11 +263,16 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             total: files.length,
             detail: "Không tìm thấy mã tài sản hợp lệ.",
           });
-          setMessage({ type: "error", text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh." });
+          setMessage({
+            type: "error",
+            text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh.",
+          });
           return;
         }
 
-        const uniqueCodes = Array.from(new Set(aiCodes)).filter((formatted) => isAssetValid(formatted));
+        const uniqueCodes = Array.from(new Set(aiCodes)).filter((formatted) =>
+          isAssetValid(formatted),
+        );
         if (!uniqueCodes.length) {
           setAiStatus({
             stage: "done",
@@ -262,7 +280,10 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             total: files.length,
             detail: "Không tìm thấy mã hợp lệ theo định dạng.",
           });
-          setMessage({ type: "error", text: "Không tìm thấy mã hợp lệ theo định dạng X.YY." });
+          setMessage({
+            type: "error",
+            text: "Không tìm thấy mã hợp lệ theo định dạng X.YY.",
+          });
           return;
         }
 
@@ -272,8 +293,13 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           return merged.length > 0 ? merged : [""];
         });
 
-        const needsCodes: string[] = Array.isArray(payload?.needs_confirmation?.codes) ? payload.needs_confirmation.codes : [];
-        const needsOptions: Record<string, string[]> = payload?.needs_confirmation?.options || {};
+        const needsCodes: string[] = Array.isArray(
+          payload?.needs_confirmation?.codes,
+        )
+          ? payload.needs_confirmation.codes
+          : [];
+        const needsOptions: Record<string, string[]> =
+          payload?.needs_confirmation?.options || {};
         const needsCount = needsCodes.length;
 
         if (needsCount > 0) {
@@ -285,13 +311,20 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           onNeedConfirm({ options: needsOptions, selections: initialSelections });
           setMessage({
             type: "success",
-            text: `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${needsCodes.join(", ")}).`,
+            text: `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${needsCodes.join(
+              ", ",
+            )}).`,
           });
         } else {
-          setMessage({ type: "success", text: `Đã điền ${uniqueCodes.length} mã tài sản.` });
+          setMessage({
+            type: "success",
+            text: `Đã điền ${uniqueCodes.length} mã tài sản.`,
+          });
         }
 
-        const modelInfo = modelName ? ` • Model: ${modelName}${abVariant ? ` (${abVariant})` : ""}` : "";
+        const modelInfo = modelName
+          ? ` • Model: ${modelName}${abVariant ? ` (${abVariant})` : ""}`
+          : "";
         setAiStatus({
           stage: "done",
           progress: files.length,
@@ -305,16 +338,15 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           total: 0,
           detail: "Có lỗi xảy ra khi xử lý hình ảnh.",
         });
-        setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
+        setMessage({
+          type: "error",
+          text: "Có lỗi xảy ra khi xử lý hình ảnh!",
+        });
       } finally {
         setIsProcessingImage(false);
-        // Kết thúc xử lý: bỏ khóa, NHƯNG KHÔNG tự đóng popup nữa.
-        // Người dùng sẽ tự đóng popup khi xem xong kết quả.
-        setForceOpen(false);
-        // Giữ nguyên aiStatus & pendingImages để người dùng xem / xử lý tiếp nếu muốn.
       }
     },
-    [currentStaff, isAssetValid, onNeedConfirm, setMessage, setMultipleAssets]
+    [currentStaff, isAssetValid, onNeedConfirm, setMessage, setMultipleAssets],
   );
 
   const handleProcessPending = React.useCallback(async () => {
@@ -323,59 +355,56 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
       return;
     }
     await processImages(pendingImages);
-    // Danh sách sẽ được dọn trong finally; không cần dọn lại ngay
+    // Không tự đóng dialog, không tự xóa danh sách ở đây.
   }, [pendingImages, processImages]);
+
+  const resetState = React.useCallback(() => {
+    setPendingImages([]);
+    setAiStatus({ stage: "", progress: 0, total: 0, detail: "" });
+    setIsProcessingImage(false);
+  }, []);
 
   return (
     <>
-      {/* Nút AI luôn hiển thị, không bị mất sau khi đóng popup */}
-      <Button
-        type="button"
-        variant="ghost"
-        className="text-green-600 hover:text-green-700 flex items-center gap-1"
-        onClick={() => setOpen(true)}
-        disabled={isProcessingImage}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-6 h-6"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M3 8a4 4 0 0 1 4-4h2l2-2h4l2 2h2a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" />
-          <circle cx="12" cy="13" r="4" />
-        </svg>
-        <span className="text-base font-semibold">AI</span>
-      </Button>
-
       <Dialog
-        open={open}
-        onOpenChange={(v) => {
-          // Nếu đang xử lý hoặc đang khóa thì bỏ qua mọi yêu cầu đóng (click ra ngoài, ESC, vv.)
-          if (!v && (isProcessingImage || forceOpen)) {
-            return;
-          }
-          setOpen(v);
-          if (!v) {
-            setPendingImages([]);
-            setAiStatus({
-              stage: "",
-              progress: 0,
-              total: 0,
-              detail: "",
-            });
+        onOpenChange={(open) => {
+          // Khi dialog đóng (bấm X hoặc click ra ngoài), dọn state phụ
+          if (!open) {
+            resetState();
           }
         }}
       >
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            className="text-green-600 hover:text-green-700 flex items-center gap-1"
+            disabled={isProcessingImage}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="w-6 h-6"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M3 8a4 4 0 0 1 4-4h2l2-2h4l2 2h2a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" />
+              <circle cx="12" cy="13" r="4" />
+            </svg>
+            <span className="text-base font-semibold">AI</span>
+          </Button>
+        </DialogTrigger>
+
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Chọn cách nhập hình ảnh</DialogTitle>
             <DialogDescription>
-              Chọn ảnh từ thiết bị, chụp ảnh mới hoặc dán ảnh từ clipboard, hệ thống sẽ tự đọc mã tài sản.
+              Chọn ảnh từ thiết bị, chụp ảnh mới hoặc dán ảnh từ clipboard, hệ thống
+              sẽ tự đọc mã tài sản.
             </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-2">
               <Button
@@ -431,7 +460,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                   <Button
                     type="button"
                     onClick={(e) => {
-                      // Ngăn hoàn toàn việc click này trở thành submit của form cha
+                      // Ngăn không cho click này trở thành submit form cha
                       e.preventDefault();
                       e.stopPropagation();
                       void handleProcessPending();
@@ -456,9 +485,15 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
             {(isProcessingImage || aiStatus.stage) && (
               <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
-                <Loader2 className={`w-4 h-4 mt-0.5 ${isProcessingImage ? "animate-spin" : ""}`} />
+                <Loader2
+                  className={`w-4 h-4 mt-0.5 ${
+                    isProcessingImage ? "animate-spin" : ""
+                  }`}
+                />
                 <div>
-                  <div className="font-medium">{aiStatus.detail || "Đang xử lý..."}</div>
+                  <div className="font-medium">
+                    {aiStatus.detail || "Đang xử lý..."}
+                  </div>
                   {aiStatus.total > 0 && (
                     <div className="mt-2 h-2 bg-slate-200 rounded">
                       <div
@@ -466,7 +501,10 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                         style={{
                           width: `${Math.min(
                             100,
-                            Math.round((aiStatus.progress / Math.max(aiStatus.total, 1)) * 100)
+                            Math.round(
+                              (aiStatus.progress / Math.max(aiStatus.total, 1)) *
+                                100,
+                            ),
                           )}%`,
                         }}
                       ></div>
@@ -479,8 +517,23 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         </DialogContent>
       </Dialog>
 
-      <input id="file-input-lazy" type="file" accept="image/*" multiple onChange={handleFileUpload} className="hidden" />
-      <input id="camera-input-lazy" type="file" accept="image/*" multiple capture="environment" onChange={handleFileUpload} className="hidden" />
+      <input
+        id="file-input-lazy"
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+      <input
+        id="camera-input-lazy"
+        type="file"
+        accept="image/*"
+        multiple
+        capture="environment"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
     </>
   );
 };
