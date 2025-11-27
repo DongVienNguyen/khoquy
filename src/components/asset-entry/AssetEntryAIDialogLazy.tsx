@@ -79,6 +79,26 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   });
   const [processingComplete, setProcessingComplete] = React.useState<boolean>(false);
 
+  // Sử dụng ref để lưu trữ state xử lý, tránh mất khi component re-render
+  const processingStateRef = React.useRef<{
+    isProcessing: boolean;
+    status: AiStatus;
+    complete: boolean;
+  }>({
+    isProcessing: false,
+    status: { stage: "", progress: 0, total: 0, detail: "" },
+    complete: false,
+  });
+
+  // Sync ref với state
+  React.useEffect(() => {
+    processingStateRef.current = {
+      isProcessing: isProcessingImage,
+      status: aiStatus,
+      complete: processingComplete,
+    };
+  }, [isProcessingImage, aiStatus, processingComplete]);
+
   const compressImageToDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const imgReader = new FileReader();
@@ -200,6 +220,12 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
   const processImages = React.useCallback(
     async (files: File[]) => {
+      // Lưu trữ kết quả tạm thời để cập nhật parent state sau khi hoàn tất
+      let extractedCodes: string[] = [];
+      let needsConfirmData: { options: Record<string, string[]>; selections: Record<string, string> } | null = null;
+      let successMessage = "";
+      let errorMessage = "";
+
       setIsProcessingImage(true);
       setProcessingComplete(false);
       setAiStatus({
@@ -208,7 +234,6 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         total: files.length,
         detail: "Đang chuẩn bị xử lý hình ảnh...",
       });
-      setMessage({ type: "", text: "" });
 
       try {
         const images: string[] = [];
@@ -251,7 +276,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             total: files.length,
             detail: "AI lỗi khi phân tích hình ảnh.",
           });
-          setMessage({ type: "error", text: friendlyErrorMessage(error) });
+          errorMessage = friendlyErrorMessage(error);
           setProcessingComplete(true);
           return;
         }
@@ -269,10 +294,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             total: files.length,
             detail: "Không tìm thấy mã tài sản hợp lệ.",
           });
-          setMessage({
-            type: "error",
-            text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh.",
-          });
+          errorMessage = "Không tìm thấy mã tài sản hợp lệ trong hình ảnh.";
           setProcessingComplete(true);
           return;
         }
@@ -287,19 +309,13 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             total: files.length,
             detail: "Không tìm thấy mã hợp lệ theo định dạng.",
           });
-          setMessage({
-            type: "error",
-            text: "Không tìm thấy mã hợp lệ theo định dạng X.YY.",
-          });
+          errorMessage = "Không tìm thấy mã hợp lệ theo định dạng X.YY.";
           setProcessingComplete(true);
           return;
         }
 
-        setMultipleAssets((prev) => {
-          const existing = prev.filter((a) => a.trim());
-          const merged = Array.from(new Set([...existing, ...uniqueCodes]));
-          return merged.length > 0 ? merged : [""];
-        });
+        // Lưu kết quả vào biến tạm
+        extractedCodes = uniqueCodes;
 
         const needsCodes: string[] = Array.isArray(
           payload?.needs_confirmation?.codes,
@@ -316,18 +332,10 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             const opts = needsOptions[c] || [];
             if (opts.length > 0) initialSelections[c] = opts[0];
           });
-          onNeedConfirm({ options: needsOptions, selections: initialSelections });
-          setMessage({
-            type: "success",
-            text: `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${needsCodes.join(
-              ", ",
-            )}).`,
-          });
+          needsConfirmData = { options: needsOptions, selections: initialSelections };
+          successMessage = `Đã điền ${uniqueCodes.length} mã; có ${needsCount} mã cần xác nhận (${needsCodes.join(", ")}).`;
         } else {
-          setMessage({
-            type: "success",
-            text: `Đã điền ${uniqueCodes.length} mã tài sản.`,
-          });
+          successMessage = `Đã điền ${uniqueCodes.length} mã tài sản.`;
         }
 
         const modelInfo = modelName
@@ -341,11 +349,6 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         });
         
         setProcessingComplete(true);
-        
-        // Tự động đóng dialog sau 2 giây nếu thành công
-        setTimeout(() => {
-          onOpenChange(false);
-        }, 2000);
       } catch {
         setAiStatus({
           stage: "error",
@@ -353,13 +356,33 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           total: 0,
           detail: "Có lỗi xảy ra khi xử lý hình ảnh.",
         });
-        setMessage({
-          type: "error",
-          text: "Có lỗi xảy ra khi xử lý hình ảnh!",
-        });
+        errorMessage = "Có lỗi xảy ra khi xử lý hình ảnh!";
         setProcessingComplete(true);
       } finally {
         setIsProcessingImage(false);
+
+        // Cập nhật parent state SAU KHI đã hoàn tất xử lý
+        if (extractedCodes.length > 0) {
+          setMultipleAssets((prev) => {
+            const existing = prev.filter((a) => a.trim());
+            const merged = Array.from(new Set([...existing, ...extractedCodes]));
+            return merged.length > 0 ? merged : [""];
+          });
+        }
+
+        if (needsConfirmData) {
+          onNeedConfirm(needsConfirmData);
+        }
+
+        if (successMessage) {
+          setMessage({ type: "success", text: successMessage });
+          // Tự động đóng dialog sau 2 giây nếu thành công
+          setTimeout(() => {
+            onOpenChange(false);
+          }, 2000);
+        } else if (errorMessage) {
+          setMessage({ type: "error", text: errorMessage });
+        }
       }
     },
     [currentStaff, isAssetValid, onNeedConfirm, setMessage, setMultipleAssets, onOpenChange],
@@ -382,7 +405,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
   const handleOpenChange = React.useCallback((open: boolean) => {
     // Chỉ cho phép đóng nếu không đang xử lý
-    if (!open && isProcessingImage) {
+    if (!open && (isProcessingImage || processingStateRef.current.isProcessing)) {
       return;
     }
     
@@ -393,11 +416,15 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   }, [isProcessingImage, resetState, onOpenChange]);
 
   const handleClose = React.useCallback(() => {
-    if (!isProcessingImage) {
+    if (!isProcessingImage && !processingStateRef.current.isProcessing) {
       resetState();
       onOpenChange(false);
     }
   }, [isProcessingImage, resetState, onOpenChange]);
+
+  // Sử dụng ref state để render, tránh mất UI khi parent re-render
+  const showInputSection = !isProcessingImage && !processingComplete && !processingStateRef.current.isProcessing;
+  const showProgressSection = isProcessingImage || processingComplete || processingStateRef.current.isProcessing;
 
   return (
     <>
@@ -427,9 +454,9 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {isProcessingImage || processingComplete ? "Xử lý hình ảnh" : "Chọn cách nhập hình ảnh"}
+              {showProgressSection ? "Xử lý hình ảnh" : "Chọn cách nhập hình ảnh"}
             </DialogTitle>
-            {!isProcessingImage && !processingComplete && (
+            {showInputSection && (
               <DialogDescription>
                 Chọn ảnh từ thiết bị, chụp ảnh mới hoặc dán ảnh từ clipboard, hệ thống
                 sẽ tự đọc mã tài sản.
@@ -438,7 +465,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           </DialogHeader>
 
           <div className="space-y-4">
-            {!isProcessingImage && !processingComplete && (
+            {showInputSection && (
               <>
                 <div className="grid grid-cols-1 gap-2">
                   <Button
@@ -513,7 +540,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
               </>
             )}
 
-            {(isProcessingImage || (processingComplete && aiStatus.stage)) && (
+            {showProgressSection && (
               <div className="p-4 rounded-md border bg-slate-50">
                 <div className="flex items-start gap-3">
                   {isProcessingImage && (
@@ -521,7 +548,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
                   )}
                   <div className="flex-1">
                     <div className="font-medium text-base mb-2">
-                      {aiStatus.detail || "Đang xử lý..."}
+                      {aiStatus.detail || processingStateRef.current.status.detail || "Đang xử lý..."}
                     </div>
                     {aiStatus.total > 0 && isProcessingImage && (
                       <div className="mt-3">
