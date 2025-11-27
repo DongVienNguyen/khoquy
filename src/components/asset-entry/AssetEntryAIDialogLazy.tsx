@@ -77,6 +77,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     total: 0,
     detail: "",
   });
+  const [processingComplete, setProcessingComplete] = React.useState<boolean>(false);
 
   const compressImageToDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -368,14 +369,23 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   }, []);
 
   const handleOpenChange = React.useCallback((open: boolean) => {
-    if (!open && (isProcessingImage || pendingImages.length > 0)) {
+    // Chỉ cho phép đóng nếu không đang xử lý
+    if (!open && isProcessingImage) {
       return;
     }
+    
     if (!open) {
       resetState();
     }
     onOpenChange(open);
-  }, [isProcessingImage, pendingImages.length, resetState, onOpenChange]);
+  }, [isProcessingImage, resetState, onOpenChange]);
+
+  const handleClose = React.useCallback(() => {
+    if (!isProcessingImage) {
+      resetState();
+      onOpenChange(false);
+    }
+  }, [isProcessingImage, resetState, onOpenChange]);
 
   return (
     <>
