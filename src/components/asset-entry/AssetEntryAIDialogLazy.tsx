@@ -376,11 +376,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
         if (successMessage) {
           setMessage({ type: "success", text: successMessage });
-          // Đóng dialog NGAY LẬP TỨC sau khi xử lý xong
-          setPendingImages([]);
-          setAiStatus({ stage: "", progress: 0, total: 0, detail: "" });
-          setIsProcessingImage(false);
-          setProcessingComplete(false);
+          // Đóng dialog NGAY LẬP TỨC sau khi xử lý xong (không reset state tại đây để tránh flash UI)
           onOpenChange(false);
         } else if (errorMessage) {
           setMessage({ type: "error", text: errorMessage });
@@ -407,17 +403,20 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     setProcessingComplete(false);
   }, []);
 
+  // Tự động reset state mỗi khi dialog đóng
+  React.useEffect(() => {
+    if (!isOpen) {
+      resetState();
+    }
+  }, [isOpen, resetState]);
+
   const handleOpenChange = React.useCallback((open: boolean) => {
-    // Chỉ cho phép đóng nếu không đang xử lý
+    // Chỉ cho phép đóng nếu không đang xử lý (user click Close/overlay)
     if (!open && (isProcessingImage || processingStateRef.current.isProcessing)) {
       return;
     }
     
-    if (!open) {
-      resetState();
-    }
-    
-    // Reset state khi mở dialog để đảm bảo UI sạch
+    // Khi mở dialog, luôn reset state để UI sạch
     if (open) {
       resetState();
     }

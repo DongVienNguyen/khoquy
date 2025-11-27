@@ -560,6 +560,10 @@ const AssetEntryInlineForm: React.FC = () => {
 
       const modelInfo = modelName ? ` • Model: ${modelName}${abVariant ? ` (${abVariant})` : ""}` : "";
       setAiStatus({ stage: "done", progress: files.length, total: files.length, detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}` });
+
+      // ✅ Sau khi xử lý thành công, tự đóng popup "Chọn cách nhập hình ảnh"
+      setIsImageDialogOpen(false);
+      setPendingImages([]);
     } catch {
       setAiStatus({ stage: "error", progress: 0, total: 0, detail: "Có lỗi xảy ra khi xử lý hình ảnh." });
       setMessage({ type: "error", text: "Có lỗi xảy ra khi xử lý hình ảnh!" });
