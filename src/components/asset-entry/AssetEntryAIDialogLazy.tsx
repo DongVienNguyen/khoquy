@@ -201,6 +201,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
   const processImages = React.useCallback(
     async (files: File[]) => {
       setIsProcessingImage(true);
+      setProcessingComplete(false);
       setAiStatus({
         stage: "starting",
         progress: 0,
@@ -251,6 +252,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             detail: "AI lỗi khi phân tích hình ảnh.",
           });
           setMessage({ type: "error", text: friendlyErrorMessage(error) });
+          setProcessingComplete(true);
           return;
         }
 
@@ -271,6 +273,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             type: "error",
             text: "Không tìm thấy mã tài sản hợp lệ trong hình ảnh.",
           });
+          setProcessingComplete(true);
           return;
         }
 
@@ -288,6 +291,7 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
             type: "error",
             text: "Không tìm thấy mã hợp lệ theo định dạng X.YY.",
           });
+          setProcessingComplete(true);
           return;
         }
 
@@ -333,8 +337,15 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           stage: "done",
           progress: files.length,
           total: files.length,
-          detail: `Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}`,
+          detail: `✅ Đã điền ${uniqueCodes.length} mã tài sản.${modelInfo}`,
         });
+        
+        setProcessingComplete(true);
+        
+        // Tự động đóng dialog sau 2 giây nếu thành công
+        setTimeout(() => {
+          onOpenChange(false);
+        }, 2000);
       } catch {
         setAiStatus({
           stage: "error",
@@ -346,11 +357,12 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
           type: "error",
           text: "Có lỗi xảy ra khi xử lý hình ảnh!",
         });
+        setProcessingComplete(true);
       } finally {
         setIsProcessingImage(false);
       }
     },
-    [currentStaff, isAssetValid, onNeedConfirm, setMessage, setMultipleAssets],
+    [currentStaff, isAssetValid, onNeedConfirm, setMessage, setMultipleAssets, onOpenChange],
   );
 
   const handleProcessPending = React.useCallback(async () => {
@@ -359,13 +371,13 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
       return;
     }
     await processImages(pendingImages);
-    // Không tự đóng dialog, không tự xóa danh sách ở đây.
   }, [pendingImages, processImages]);
 
   const resetState = React.useCallback(() => {
     setPendingImages([]);
     setAiStatus({ stage: "", progress: 0, total: 0, detail: "" });
     setIsProcessingImage(false);
+    setProcessingComplete(false);
   }, []);
 
   const handleOpenChange = React.useCallback((open: boolean) => {
@@ -414,118 +426,135 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
 
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Chọn cách nhập hình ảnh</DialogTitle>
-            <DialogDescription>
-              Chọn ảnh từ thiết bị, chụp ảnh mới hoặc dán ảnh từ clipboard, hệ thống
-              sẽ tự đọc mã tài sản.
-            </DialogDescription>
+            <DialogTitle>
+              {isProcessingImage || processingComplete ? "Xử lý hình ảnh" : "Chọn cách nhập hình ảnh"}
+            </DialogTitle>
+            {!isProcessingImage && !processingComplete && (
+              <DialogDescription>
+                Chọn ảnh từ thiết bị, chụp ảnh mới hoặc dán ảnh từ clipboard, hệ thống
+                sẽ tự đọc mã tài sản.
+              </DialogDescription>
+            )}
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-2">
-              <Button
-                type="button"
-                onClick={() => document.getElementById("file-input-lazy")?.click()}
-                className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
-                disabled={isProcessingImage}
-              >
-                <Upload className="w-5 h-5" /> Upload từ thiết bị
-              </Button>
-              <Button
-                type="button"
-                onClick={() => document.getElementById("camera-input-lazy")?.click()}
-                className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2"
-                disabled={isProcessingImage}
-              >
-                <Camera className="w-5 h-5" /> Chụp ảnh
-              </Button>
-              <Button
-                type="button"
-                onClick={handlePasteFromClipboard}
-                className="w-full h-12 bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2"
-                disabled={isProcessingImage}
-              >
-                <Upload className="w-5 h-5" /> Dán ảnh từ clipboard
-              </Button>
-            </div>
+            {!isProcessingImage && !processingComplete && (
+              <>
+                <div className="grid grid-cols-1 gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => document.getElementById("file-input-lazy")?.click()}
+                    className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+                  >
+                    <Upload className="w-5 h-5" /> Upload từ thiết bị
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => document.getElementById("camera-input-lazy")?.click()}
+                    className="w-full h-12 bg-green-600 hover:bg-green-700 text-white flex items-center gap-2"
+                  >
+                    <Camera className="w-5 h-5" /> Chụp ảnh
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handlePasteFromClipboard}
+                    className="w-full h-12 bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2"
+                  >
+                    <Upload className="w-5 h-5" /> Dán ảnh từ clipboard
+                  </Button>
+                </div>
 
-            {pendingImages.length > 0 && (
-              <div className="p-3 rounded-md border bg-slate-50 text-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-medium">
-                    Đã chọn {pendingImages.length}/{AI_MAX_IMAGES} ảnh
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPendingImages([])}
-                    disabled={isProcessingImage}
-                  >
-                    Xóa danh sách
-                  </Button>
-                </div>
-                <div className="max-h-40 overflow-auto space-y-1">
-                  {pendingImages.map((f, i) => (
-                    <div key={i} className="truncate">
-                      {f.name || `Ảnh ${i + 1}`}
+                {pendingImages.length > 0 && (
+                  <div className="p-3 rounded-md border bg-slate-50 text-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="font-medium">
+                        Đã chọn {pendingImages.length}/{AI_MAX_IMAGES} ảnh
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPendingImages([])}
+                      >
+                        Xóa danh sách
+                      </Button>
                     </div>
-                  ))}
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    type="button"
-                    onClick={(e) => {
-                      // Ngăn không cho click này trở thành submit form cha
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void handleProcessPending();
-                    }}
-                    className="flex-1 bg-green-600 hover:bg-green-700"
-                    disabled={isProcessingImage || pendingImages.length === 0}
-                  >
-                    Nhập dữ liệu
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setPendingImages([])}
-                    disabled={isProcessingImage}
-                  >
-                    Hủy
-                  </Button>
-                </div>
-              </div>
+                    <div className="max-h-40 overflow-auto space-y-1">
+                      {pendingImages.map((f, i) => (
+                        <div key={i} className="truncate">
+                          {f.name || `Ảnh ${i + 1}`}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleProcessPending();
+                        }}
+                        className="flex-1 bg-green-600 hover:bg-green-700"
+                        disabled={pendingImages.length === 0}
+                      >
+                        Nhập dữ liệu
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => setPendingImages([])}
+                      >
+                        Hủy
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
-            {(isProcessingImage || aiStatus.stage) && (
-              <div className="p-3 rounded-md border bg-slate-50 text-sm flex items-start gap-3">
-                <Loader2
-                  className={`w-4 h-4 mt-0.5 ${
-                    isProcessingImage ? "animate-spin" : ""
-                  }`}
-                />
-                <div>
-                  <div className="font-medium">
-                    {aiStatus.detail || "Đang xử lý..."}
-                  </div>
-                  {aiStatus.total > 0 && (
-                    <div className="mt-2 h-2 bg-slate-200 rounded">
-                      <div
-                        className="h-2 bg-green-600 rounded"
-                        style={{
-                          width: `${Math.min(
-                            100,
-                            Math.round(
-                              (aiStatus.progress / Math.max(aiStatus.total, 1)) *
-                                100,
-                            ),
-                          )}%`,
-                        }}
-                      ></div>
-                    </div>
+            {(isProcessingImage || (processingComplete && aiStatus.stage)) && (
+              <div className="p-4 rounded-md border bg-slate-50">
+                <div className="flex items-start gap-3">
+                  {isProcessingImage && (
+                    <Loader2 className="w-5 h-5 mt-0.5 flex-shrink-0 animate-spin text-green-600" />
                   )}
+                  <div className="flex-1">
+                    <div className="font-medium text-base mb-2">
+                      {aiStatus.detail || "Đang xử lý..."}
+                    </div>
+                    {aiStatus.total > 0 && isProcessingImage && (
+                      <div className="mt-3">
+                        <div className="flex justify-between text-xs text-slate-600 mb-1">
+                          <span>Tiến độ</span>
+                          <span>{aiStatus.progress}/{aiStatus.total}</span>
+                        </div>
+                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-green-600 rounded-full transition-all duration-300"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.round(
+                                  (aiStatus.progress / Math.max(aiStatus.total, 1)) * 100,
+                                ),
+                              )}%`,
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                    {processingComplete && !isProcessingImage && (
+                      <Button
+                        type="button"
+                        onClick={handleClose}
+                        className="mt-4 w-full"
+                        variant="outline"
+                      >
+                        Đóng
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
