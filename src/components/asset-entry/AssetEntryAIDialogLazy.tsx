@@ -25,6 +25,8 @@ type SafeStaff = {
 };
 
 type Props = {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
   isAssetValid: (value: string) => boolean;
   setMultipleAssets: React.Dispatch<React.SetStateAction<string[]>>;
   currentStaff: SafeStaff | null;
@@ -35,10 +37,11 @@ type Props = {
   setMessage: React.Dispatch<
     React.SetStateAction<{ type: "" | "success" | "error"; text: string }>
   >;
-  autoOpen?: boolean; // hiện tại không dùng, giữ lại cho tương thích API
 };
 
 type AiStatus = { stage: string; progress: number; total: number; detail: string };
+
+const AI_MAX_IMAGES = 10;
 
 function pickCompressionTarget(file?: File): { dim: number; quality: number } {
   const mem = (navigator as any).deviceMemory as number | undefined;
@@ -58,13 +61,14 @@ async function blobToDataURL(blob: Blob): Promise<string> {
 }
 
 const AssetEntryAIDialogLazy: React.FC<Props> = ({
+  isOpen,
+  onOpenChange,
   isAssetValid,
   setMultipleAssets,
   currentStaff,
   onNeedConfirm,
   setMessage,
 }) => {
-  const [isDialogOpen, setIsDialogOpen] = React.useState(false);
   const [pendingImages, setPendingImages] = React.useState<File[]>([]);
   const [isProcessingImage, setIsProcessingImage] = React.useState<boolean>(false);
   const [aiStatus, setAiStatus] = React.useState<AiStatus>({
@@ -73,8 +77,6 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     total: 0,
     detail: "",
   });
-
-  const AI_MAX_IMAGES = 10;
 
   const compressImageToDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -365,21 +367,19 @@ const AssetEntryAIDialogLazy: React.FC<Props> = ({
     setIsProcessingImage(false);
   }, []);
 
+  const handleOpenChange = React.useCallback((open: boolean) => {
+    if (!open && (isProcessingImage || pendingImages.length > 0)) {
+      return;
+    }
+    if (!open) {
+      resetState();
+    }
+    onOpenChange(open);
+  }, [isProcessingImage, pendingImages.length, resetState, onOpenChange]);
+
   return (
     <>
-      <Dialog
-        open={isDialogOpen}
-        onOpenChange={(open) => {
-          // Nếu đang xử lý hoặc còn danh sách ảnh, bỏ qua mọi yêu cầu đóng
-          if (!open) {
-            if (isProcessingImage || pendingImages.length > 0) {
-              return;
-            }
-            resetState();
-          }
-          setIsDialogOpen(open);
-        }}
-      >
+      <Dialog open={isOpen} onOpenChange={handleOpenChange}>
         <DialogTrigger asChild>
           <Button
             type="button"

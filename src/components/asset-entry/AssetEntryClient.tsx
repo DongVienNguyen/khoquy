@@ -99,6 +99,7 @@ export default function AssetEntryClient() {
 
   const [isAiConfirmOpen, setIsAiConfirmOpen] = useState(false);
   const [aiNeedsConfirm, setAiNeedsConfirm] = useState<{ options: Record<string, string[]>; selections: Record<string, string> } | null>(null);
+  const [isAiDialogOpen, setIsAiDialogOpen] = useState(false);
 
   const assetInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const attemptedAutofocusRef = useRef<boolean>(false);
@@ -1204,6 +1205,8 @@ export default function AssetEntryClient() {
 
                     <Suspense fallback={<div className="text-sm text-muted-foreground">Đang tải AI...</div>}>
                       <AssetEntryAIDialogLazy
+                        isOpen={isAiDialogOpen}
+                        onOpenChange={setIsAiDialogOpen}
                         isAssetValid={isAssetValid}
                         setMultipleAssets={setMultipleAssets}
                         currentStaff={currentStaff}
