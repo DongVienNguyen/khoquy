@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 import AssetCodeInputRow from "@/components/asset-entry/AssetCodeInputRow";
 import DatePickerLazy from "@/components/asset-entry/DatePickerLazy";
+import AssetEntryAIDialogLazy from "@/components/asset-entry/AssetEntryAIDialogLazy";
 
 type SafeStaff = {
   id: string;
@@ -1067,10 +1068,6 @@ export default function AssetEntryClient() {
     ssr: false,
     loading: () => <div className="mt-4 text-sm text-muted-foreground">Đang tải danh sách của bạn...</div>,
   });
-  const AssetEntryAIDialogLazy = dynamic(() => import("@/components/asset-entry/AssetEntryAIDialogLazy"), {
-    ssr: false,
-    loading: () => <div className="text-sm text-muted-foreground">Đang tải AI...</div>,
-  });
 
   return (
     <div className="w-full">
@@ -1236,20 +1233,18 @@ export default function AssetEntryClient() {
                   <div className="flex items-center justify-between">
                     <Label className="text-sm font-medium">Nhiều TS chọn nút AI nhập bằng hình:</Label>
 
-                    <Suspense fallback={<div className="text-sm text-muted-foreground">Đang tải AI...</div>}>
-                      <AssetEntryAIDialogLazy
-                        isOpen={isAiDialogOpen}
-                        onOpenChange={setIsAiDialogOpen}
-                        isAssetValid={isAssetValid}
-                        setMultipleAssets={setMultipleAssets}
-                        currentStaff={currentStaff}
-                        onNeedConfirm={({ options, selections }) => {
-                          setAiNeedsConfirm({ options, selections });
-                          setIsAiConfirmOpen(true);
-                        }}
-                        setMessage={setMessage}
-                      />
-                    </Suspense>
+                    <AssetEntryAIDialogLazy
+                      isOpen={isAiDialogOpen}
+                      onOpenChange={setIsAiDialogOpen}
+                      isAssetValid={isAssetValid}
+                      setMultipleAssets={setMultipleAssets}
+                      currentStaff={currentStaff}
+                      onNeedConfirm={({ options, selections }) => {
+                        setAiNeedsConfirm({ options, selections });
+                        setIsAiConfirmOpen(true);
+                      }}
+                      setMessage={setMessage}
+                    />
                   </div>
 
                   {(showAllAssets ? multipleAssets : multipleAssets.slice(0, 5)).map((val, idx) => {
