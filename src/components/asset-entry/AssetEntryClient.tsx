@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea";
 import { edgeInvoke, friendlyErrorMessage } from "@/lib/edge-invoke";
 import AssetCodeInputRow from "@/components/asset-entry/AssetCodeInputRow";
+import DatePickerLazy from "@/components/asset-entry/DatePickerLazy";
 
 type SafeStaff = {
   id: string;
@@ -256,11 +257,13 @@ export default function AssetEntryClient() {
     };
   }, [getDefaultPartsDay]);
 
+  // Ngày nhỏ nhất có thể chọn trong lịch: luôn là hôm nay (GMT+7), không phụ thuộc ngày đang chọn
   const minDate = useMemo(() => {
-    const d = formData.transaction_date ? new Date(formData.transaction_date) : new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, [formData.transaction_date]);
+    const now = new Date();
+    const gmt7 = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    // Dùng năm/tháng/ngày của GMT+7 nhưng ở mốc 00:00 để so sánh
+    return new Date(gmt7.getUTCFullYear(), gmt7.getUTCMonth(), gmt7.getUTCDate());
+  }, []);
 
   useEffect(() => {
     // Gia hạn cookie linkUser nếu tồn tại, để giảm việc phải dùng lại link
@@ -867,9 +870,34 @@ export default function AssetEntryClient() {
       setMessage({ type: "error", text: "Không thể lưu dữ liệu trong giờ nghỉ. Vui lòng nhắn Zalo!" });
       return;
     }
+
+    // Chặn chọn ngày/buổi đã qua:
+    // - Ngày trước hôm nay: không cho
+    // - Nếu hôm nay đang là buổi chiều: không cho chọn buổi sáng hôm nay
+    if (formData.transaction_date && formData.parts_day) {
+      const now = new Date();
+      const selectedDate = new Date(formData.transaction_date);
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      selectedDate.setHours(0, 0, 0, 0);
+
+      const isPastDay = selectedDate < today;
+      const isSameDay = selectedDate.getTime() === today.getTime();
+      const nowIsAfternoon = now.getHours() >= 12;
+
+      if (isPastDay || (isSameDay && nowIsAfternoon && formData.parts_day === "Sáng")) {
+        setMessage({
+          type: "error",
+          text: "Không thể chọn buổi đã qua. Vui lòng chọn từ buổi hiện tại trở đi.",
+        });
+        return;
+      }
+    }
+
     if (!validateAllAssets()) return;
     setIsConfirmOpen(true);
-  }, [isRestrictedTime, currentStaff, validateAllAssets]);
+  }, [isRestrictedTime, currentStaff, formData.transaction_date, formData.parts_day, validateAllAssets]);
 
   function simpleHash(str: string): string {
     let h = 0;
@@ -884,6 +912,28 @@ export default function AssetEntryClient() {
       return;
     }
     if (!validateAllAssets() || !currentStaff || !formData.transaction_date) return;
+
+    // Lặp lại kiểm tra ngày/buổi đã qua để an toàn khi submit
+    if (formData.transaction_date && formData.parts_day) {
+      const now = new Date();
+      const selectedDate = new Date(formData.transaction_date);
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      selectedDate.setHours(0, 0, 0, 0);
+
+      const isPastDay = selectedDate < today;
+      const isSameDay = selectedDate.getTime() === today.getTime();
+      const nowIsAfternoon = now.getHours() >= 12;
+
+      if (isPastDay || (isSameDay && nowIsAfternoon && formData.parts_day === "Sáng")) {
+        setMessage({
+          type: "error",
+          text: "Không thể chọn buổi đã qua. Vui lòng chọn từ buổi hiện tại trở đi.",
+        });
+        return;
+      }
+    }
 
     setIsLoading(true);
     // Giữ thông báo hiện tại cho đến khi có kết quả mới
@@ -1017,14 +1067,6 @@ export default function AssetEntryClient() {
     ssr: false,
     loading: () => <div className="mt-4 text-sm text-muted-foreground">Đang tải danh sách của bạn...</div>,
   });
-  const DatePickerLazy = dynamic(() => import("@/components/asset-entry/DatePickerLazy"), {
-    ssr: false,
-    loading: () => (
-      <div className="h-10 flex items-center justify-center border rounded-md text-sm text-muted-foreground">
-        Đang tải lịch...
-      </div>
-    ),
-  });
   const AssetEntryAIDialogLazy = dynamic(() => import("@/components/asset-entry/AssetEntryAIDialogLazy"), {
     ssr: false,
     loading: () => <div className="text-sm text-muted-foreground">Đang tải AI...</div>,
@@ -1145,20 +1187,12 @@ export default function AssetEntryClient() {
                     </div>
                   </div>
 
-                  {!datePickerMounted ? (
-                    <Button variant="outline" className="h-10 w-full justify-center" onClick={() => setDatePickerMounted(true)}>
-                      {formatDateShort(formData.transaction_date)}
-                    </Button>
-                  ) : (
-                    <Suspense fallback={<div className="h-10 flex items-center justify-center border rounded-md text-sm text-muted-foreground">Đang tải lịch...</div>}>
-                      <DatePickerLazy
-                        selected={formData.transaction_date}
-                        minDate={minDate}
-                        onSelect={(date) => setFormData((p) => ({ ...p, transaction_date: date }))}
-                        formatDateShort={formatDateShort}
-                      />
-                    </Suspense>
-                  )}
+                  <DatePickerLazy
+                    selected={formData.transaction_date}
+                    minDate={minDate}
+                    onSelect={(date) => setFormData((p) => ({ ...p, transaction_date: date }))}
+                    formatDateShort={formatDateShort}
+                  />
                 </div>
               </div>
 
