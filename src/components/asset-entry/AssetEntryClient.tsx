@@ -1156,7 +1156,6 @@ export default function AssetEntryClient() {
                         minDate={minDate}
                         onSelect={(date) => setFormData((p) => ({ ...p, transaction_date: date }))}
                         formatDateShort={formatDateShort}
-                        autoOpen
                       />
                     </Suspense>
                   )}

@@ -10,7 +10,6 @@ type DatePickerLazyProps = {
   minDate: Date;
   onSelect: (date: Date) => void;
   formatDateShort: (date: Date | null) => string;
-  autoOpen?: boolean;
 };
 
 const DatePickerLazy: React.FC<DatePickerLazyProps> = ({
@@ -18,9 +17,8 @@ const DatePickerLazy: React.FC<DatePickerLazyProps> = ({
   minDate,
   onSelect,
   formatDateShort,
-  autoOpen = false,
 }) => {
-  const [open, setOpen] = React.useState<boolean>(autoOpen);
+  const [open, setOpen] = React.useState<boolean>(false);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
