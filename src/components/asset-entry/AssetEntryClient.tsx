@@ -867,6 +867,51 @@ export default function AssetEntryClient() {
     return basicValid && noteValid && filledAssets.length > 0 && filledAssets.every(isAssetValid);
   }, [formData, requiresNoteDropdown, multipleAssets, isAssetValid]);
 
+  // Yêu cầu chạm 2 lần để đổi buổi (Sáng/Chiều): lần đầu chỉ hiện toast, lần hai mới áp dụng
+  const [sessionConfirmNeeded, setSessionConfirmNeeded] = useState<"Sáng" | "Chiều" | null>(null);
+
+  const handleSessionChange = useCallback(
+    (target: "Sáng" | "Chiều", v: CheckedState) => {
+      setFormData((prev) => {
+        const current = prev.parts_day;
+        let next: "" | "Sáng" | "Chiều" = current;
+
+        if (target === "Sáng") {
+          if (v) {
+            next = "Sáng";
+          } else if (current === "Sáng") {
+            next = "";
+          }
+        } else {
+          if (v) {
+            next = "Chiều";
+          } else if (current === "Chiều") {
+            next = "";
+          }
+        }
+
+        // Nếu kết quả không thay đổi thì không làm gì
+        if (next === current) return prev;
+
+        // Lần chạm đầu: chỉ báo toast, không đổi giá trị
+        if (sessionConfirmNeeded !== target) {
+          toast.info(
+            target === "Sáng"
+              ? "Chạm thêm lần nữa để xác nhận đổi buổi Sáng."
+              : "Chạm thêm lần nữa để xác nhận đổi buổi Chiều."
+          );
+          setSessionConfirmNeeded(target);
+          return prev;
+        }
+
+        // Lần chạm thứ hai: áp dụng thay đổi và reset yêu cầu xác nhận
+        setSessionConfirmNeeded(null);
+        return { ...prev, parts_day: next };
+      });
+    },
+    [sessionConfirmNeeded]
+  );
+
   const handleOpenConfirm = useCallback((e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (isRestrictedTime && currentStaff?.role !== "admin") {
@@ -1166,9 +1211,7 @@ export default function AssetEntryClient() {
                       <Checkbox
                         id="session-sang"
                         checked={formData.parts_day === "Sáng"}
-                        onCheckedChange={(v: CheckedState) =>
-                          setFormData((p) => ({ ...p, parts_day: v ? "Sáng" : (p.parts_day === "Sáng" ? "" : p.parts_day) }))
-                        }
+                        onCheckedChange={(v: CheckedState) => handleSessionChange("Sáng", v)}
                       />
                       <Label htmlFor="session-sang" className="text-sm">Sáng</Label>
                     </div>
@@ -1178,9 +1221,7 @@ export default function AssetEntryClient() {
                       <Checkbox
                         id="session-chieu"
                         checked={formData.parts_day === "Chiều"}
-                        onCheckedChange={(v: CheckedState) =>
-                          setFormData((p) => ({ ...p, parts_day: v ? "Chiều" : (p.parts_day === "Chiều" ? "" : p.parts_day) }))
-                        }
+                        onCheckedChange={(v: CheckedState) => handleSessionChange("Chiều", v)}
                       />
                       <Label htmlFor="session-chieu" className="text-sm">Chiều</Label>
                     </div>
