@@ -247,7 +247,9 @@ export default function AssetEntryClient() {
       defaultDate = now;
     }
 
-    const defaultRoom = "QLN";
+    // Nếu department của staff nằm trong ROOMS thì dùng làm phòng mặc định, ngược lại fallback QLN
+    const dept = staff.department || "";
+    const defaultRoom = (dept && (ROOMS as readonly string[]).includes(dept)) ? dept : "QLN";
 
     return {
       transaction_date: defaultDate,
