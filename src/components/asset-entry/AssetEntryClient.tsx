@@ -1152,9 +1152,17 @@ export default function AssetEntryClient() {
                   </Button>
                 </div>
                 <p className="text-muted-foreground mt-1">
-                  {currentStaff?.role === "admin"
-                    ? "Không giới hạn thời gian cho Admin"
-                    : "Khung giờ 7:45-8:05 và 12:45-13:05 hãy nhắn Zalo vì đã chốt DS"}
+                  {currentStaff?.role === "admin" ? (
+                    "Không giới hạn thời gian cho Admin"
+                  ) : (
+                    <>
+                      Khung giờ{" "}
+                      <span className="font-semibold">
+                        7:45-8:05 và 12:45-13:05 hãy nhắn Zalo
+                      </span>{" "}
+                      vì đã chốt DS
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -1420,16 +1428,34 @@ export default function AssetEntryClient() {
                     </DialogHeader>
                     <div className="space-y-3 text-sm">
                       <div className="grid grid-cols-2 gap-2">
-                        <div><span className="font-medium">Buổi:</span> {formData.parts_day}</div>
-                        <div><span className="font-medium">Ngày:</span> {formData.transaction_date ? new Date(formData.transaction_date).toLocaleDateString("vi-VN") : "-"}</div>
+                        <div>
+                          <span className="font-medium">Buổi:</span>{" "}
+                          <span className="ml-1 text-xl font-semibold text-red-600">
+                            {formData.parts_day}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-medium">Ngày:</span>{" "}
+                          <span className="ml-1 text-xl font-semibold text-red-600">
+                            {formData.transaction_date
+                              ? new Date(formData.transaction_date).toLocaleDateString("vi-VN")
+                              : "-"}
+                          </span>
+                        </div>
                       </div>
                       <div>
                         <span className="font-semibold">Danh sách mã TS ({multipleAssets.filter((a) => a.trim()).length}):</span>
                         <div className="mt-2 max-h-40 overflow-auto rounded border bg-slate-50 p-3">
                           {multipleAssets.filter((a) => a.trim()).map((a, idx) => (
                             <div key={idx} className="flex items-center gap-2 text-base">
-                              {isAssetValid(a) ? <CheckCircle className="w-4 h-4 text-green-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
-                              <span className={`${isAssetValid(a) ? "text-slate-800" : "text-red-600"} text-lg font-semibold`}>{a.replace(".", "/")}</span>
+                              {isAssetValid(a) ? (
+                                <CheckCircle className="w-4 h-4 text-green-600" />
+                              ) : (
+                                <AlertCircle className="w-4 h-4 text-red-600" />
+                              )}
+                              <span className="text-xl font-semibold text-red-600">
+                                {a.replace(".", "/")}
+                              </span>
                             </div>
                           ))}
                         </div>
