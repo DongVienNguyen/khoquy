@@ -49,6 +49,15 @@ function formatYMD(d: Date): string {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
+// So sánh 2 ngày theo yyyy-MM-dd
+function isSameDay(a: Date | null | undefined, b: Date | null | undefined): boolean {
+  if (!a || !b) return false;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
 
 type Props = {
   open: boolean;
@@ -59,13 +68,24 @@ type Props = {
 };
 
 export default function EditTransactionDialog({ open, onOpenChange, transaction, editorUsername, onUpdated }: Props) {
-  const [txDate, setTxDate] = React.useState<Date>(() => toDateFromYmd(transaction.transaction_date));
+  const originalTxDate = React.useMemo(
+    () => toDateFromYmd(transaction.transaction_date),
+    [transaction.transaction_date]
+  );
+  const [txDate, setTxDate] = React.useState<Date>(() => originalTxDate);
   const [partsDay, setPartsDay] = React.useState<"Sáng" | "Chiều">(transaction.parts_day);
   const [room, setRoom] = React.useState<string>(transaction.room);
   const [txType, setTxType] = React.useState<"Xuất kho" | "Mượn TS" | "Thay bìa">(transaction.transaction_type);
   const [assetYear, setAssetYear] = React.useState<number>(transaction.asset_year);
   const [assetCode, setAssetCode] = React.useState<number>(transaction.asset_code);
   const [note, setNote] = React.useState<string>(transaction.note ?? "");
+
+  // Ngày nhỏ nhất được chọn: hôm nay (GMT+7)
+  const minDate = React.useMemo(() => {
+    const now = new Date();
+    const gmt7 = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    return new Date(gmt7.getUTCFullYear(), gmt7.getUTCMonth(), gmt7.getUTCDate());
+  }, []);
 
   const handleUpdate = React.useCallback(async () => {
     const patch = {
@@ -113,6 +133,7 @@ export default function EditTransactionDialog({ open, onOpenChange, transaction,
                   mode="single"
                   selected={txDate}
                   onSelect={(d) => d && setTxDate(d)}
+                  disabled={(d) => !!d && d < minDate && !isSameDay(d, originalTxDate)}
                   initialFocus
                 />
               </PopoverContent>
