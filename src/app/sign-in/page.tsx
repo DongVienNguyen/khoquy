@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { supabase, SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY } from "@/lib/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 
 type SafeStaff = {
   id: string;
@@ -20,41 +20,18 @@ type SafeStaff = {
   account_status: "active" | "locked";
 };
 
-// Thêm URL fallback cho Edge Function
-const FUNCTION_URL = `${SUPABASE_PUBLIC_URL}/functions/v1/staff-login`;
-
-// Thêm helper gọi function với fallback
+// Helper gọi edge function staff-login (chỉ dùng supabase-js, không dùng fetch trực tiếp)
 async function callStaffLogin(body: Record<string, any>) {
-  // 1) Thử invoke qua client
-  try {
-    const { data, error } = await supabase.functions.invoke("staff-login", { body });
-    if (!error) {
-      return { ok: true, data };
-    }
-  } catch {
-    // bỏ qua để fallback
+  const { data, error } = await supabase.functions.invoke("staff-login", { body });
+
+  if (error) {
+    return {
+      ok: false,
+      error: typeof error.message === "string" ? error.message : "Không thể kết nối đến dịch vụ đăng nhập.",
+    };
   }
 
-  // 2) Fallback: fetch trực tiếp
-  try {
-    const res = await fetch(FUNCTION_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_PUBLIC_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_PUBLIC_ANON_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    const json = await res.json().catch(() => null);
-    if (res.ok && json) {
-      return { ok: true, data: json };
-    }
-    return { ok: false, error: json?.error || `HTTP ${res.status}` };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "Failed to fetch" };
-  }
+  return { ok: true, data };
 }
 
 export default function SignInPage() {
