@@ -71,8 +71,11 @@ const AppHeader: React.FC = () => {
   const handleLogout = () => {
     router.replace("/sign-out");
   };
-  const isQLNUser = roleDept.role === "user" && roleDept.dept === "QLN";
+
+  // user + NQ: chỉ được thấy menu với 2 mục asset-entry & daily-report
   const isNQUser = roleDept.role === "user" && roleDept.dept === "NQ";
+  // user + không phải NQ: ẩn hoàn toàn nút menu
+  const isNonNQUser = roleDept.role === "user" && roleDept.dept !== "NQ";
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur">
@@ -86,7 +89,8 @@ const AppHeader: React.FC = () => {
             <Package className="h-5 w-5" />
           </Link>
 
-          {!isQLNUser && (
+          {/* Ẩn nút menu nếu là user và department KHÔNG phải NQ */}
+          {!isNonNQUser && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="gap-2">
@@ -103,11 +107,13 @@ const AppHeader: React.FC = () => {
                 <DropdownMenuItem onSelect={() => go("/daily-report")}>
                   <FileText className="mr-2" /> Danh sách TS cần lấy
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => go("/other-assets")}>
-                  <Archive className="mr-2" /> Tài sản khác gửi kho
-                </DropdownMenuItem>
+
+                {/* user NQ: chỉ thấy 2 mục trên; admin/role khác: thấy đủ menu như cũ */}
                 {!isNQUser && (
                   <>
+                    <DropdownMenuItem onSelect={() => go("/other-assets")}>
+                      <Archive className="mr-2" /> Tài sản khác gửi kho
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => go("/crc-reminders")}>
                       <ClipboardCheck className="mr-2" /> Nhắc duyệt CRC

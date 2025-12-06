@@ -18,19 +18,27 @@ export function middleware(req: NextRequest) {
   const staffDept = req.cookies.get("staffDept")?.value || "";
 
   // Không có phiên "đi link" => cho qua
-  // Ưu tiên phiên 'đi link' (chỉ cho phép /asset-entry và tài nguyên tĩnh)
+  // Ưu tiên phiên 'đi link' (chỉ cho phép /asset-entry và (với NQ) /daily-report và tài nguyên tĩnh)
   if (linkUser) {
+    const isAssetEntry =
+      pathname === "/asset-entry" || pathname.startsWith("/asset-entry");
+    const isDailyReport =
+      pathname === "/daily-report" || pathname.startsWith("/daily-report");
+    const isAuthPage = pathname === "/sign-out" || pathname === "/sign-in";
+
+    const isNQUser = staffRole === "user" && staffDept === "NQ";
+
     if (
-      pathname === "/asset-entry" ||
-      pathname.startsWith("/asset-entry") ||
-      pathname === "/sign-out" ||
-      pathname === "/sign-in" ||
-      isStaticAsset(pathname)
+      isStaticAsset(pathname) ||
+      isAuthPage ||
+      isAssetEntry ||
+      (isNQUser && isDailyReport)
     ) {
       return NextResponse.next();
     }
+
     const url = req.nextUrl.clone();
-    url.pathname = "/asset-entry";
+    url.pathname = isNQUser ? "/daily-report" : "/asset-entry";
     return NextResponse.redirect(url);
   }
 

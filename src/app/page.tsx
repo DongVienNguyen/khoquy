@@ -6,9 +6,21 @@ export default async function Home() {
   const role = c.get("staffRole")?.value || "";
   const dept = c.get("staffDept")?.value || "";
 
-  if (role === "admin" || dept === "NQ") {
+  // user + NQ: trang mặc định là daily-report
+  if (role === "user" && dept === "NQ") {
     redirect("/daily-report");
-  } else {
-    redirect("/sign-in");
   }
+
+  // user + không phải NQ: trang mặc định là asset-entry
+  if (role === "user") {
+    redirect("/asset-entry");
+  }
+
+  // admin: giữ nguyên hành vi cũ là vào daily-report
+  if (role === "admin") {
+    redirect("/daily-report");
+  }
+
+  // chưa đăng nhập hoặc role khác: về sign-in
+  redirect("/sign-in");
 }
